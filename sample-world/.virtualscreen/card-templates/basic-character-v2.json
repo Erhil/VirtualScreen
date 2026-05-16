@@ -1,0 +1,71 @@
+{
+  "id": "basic-character-v2",
+  "name": "Basic Character Sheet V2",
+  "kind": "character",
+  "description": "Concise V2 character sheet with grid stats and an attacks table.",
+  "card": {
+    "kind": "character",
+    "title": "{{title}}",
+    "tags": [
+      "character",
+      "v2"
+    ],
+    "sections": [
+      {
+        "title": "Identity",
+        "layout": "grid",
+        "fields": {
+          "Player": {
+            "type": "text",
+            "value": ""
+          },
+          "Class": {
+            "type": "text",
+            "value": ""
+          },
+          "Level": {
+            "type": "number",
+            "value": 1
+          },
+          "Home Base": {
+            "type": "world_link",
+            "value": ""
+          }
+        }
+      },
+      {
+        "title": "Abilities",
+        "layout": "grid",
+        "fields": {
+          "STR": {
+            "type": "number",
+            "value": 10
+          },
+          "DEX": {
+            "type": "number",
+            "value": 10
+          },
+          "CON": {
+            "type": "number",
+            "value": 10
+          },
+          "WIS": {
+            "type": "number",
+            "value": 10
+          }
+        }
+      },
+      {
+        "title": "Attacks",
+        "layout": "table",
+        "rows": [
+          {
+            "Name": "",
+            "Bonus": "",
+            "Damage": ""
+          }
+        ]
+      }
+    ]
+  }
+}

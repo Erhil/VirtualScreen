@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="640" height="400" viewBox="0 0 640 400">
+  <rect width="640" height="400" fill="#f3efe3"/>
+  <path d="M80 260 C180 210 240 290 360 230 C460 180 500 250 590 200" fill="none" stroke="#4b8f9f" stroke-width="34" stroke-linecap="round"/>
+  <path d="M120 80 L280 60 L360 140 L300 240 L160 220 Z" fill="#d7c49e" stroke="#463f35" stroke-width="6"/>
+  <circle cx="250" cy="150" r="24" fill="#a44f3f"/>
+  <text x="250" y="155" text-anchor="middle" font-family="serif" font-size="18" fill="#fff">X</text>
+  <text x="32" y="368" font-family="serif" font-size="24" fill="#463f35">Sample Map</text>
+</svg>
+

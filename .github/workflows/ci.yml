@@ -1,0 +1,76 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+  workflow_dispatch:
+    inputs:
+      e2e:
+        description: "Windows Playwright scope"
+        required: true
+        default: "smoke"
+        type: choice
+        options:
+          - smoke
+          - full
+
+jobs:
+  windows:
+    name: Windows release gate
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - name: Install backend
+        shell: pwsh
+        run: |
+          python -m venv .venv
+          .\.venv\Scripts\python -m pip install --upgrade pip
+          .\.venv\Scripts\python -m pip install -e .\backend[dev]
+      - name: Install frontend
+        shell: pwsh
+        run: |
+          cd frontend
+          npm install
+          npx playwright install chromium
+      - name: Run release gate
+        shell: pwsh
+        run: |
+          $scope = "${{ github.event.inputs.e2e }}"
+          if ([string]::IsNullOrWhiteSpace($scope)) { $scope = "smoke" }
+          .\scripts\test.ps1 -E2E $scope
+
+  linux-smoke:
+    name: Linux smoke
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24"
+          cache: "npm"
+          cache-dependency-path: frontend/package-lock.json
+      - name: Backend smoke
+        run: |
+          python -m venv .venv
+          ./.venv/bin/python -m pip install --upgrade pip
+          ./.venv/bin/python -m pip install -e './backend[dev]'
+          ./.venv/bin/python -m pytest backend
+          ./.venv/bin/python -m ruff check backend
+      - name: Frontend smoke
+        run: |
+          cd frontend
+          npm install
+          npm run test
+          npm run build

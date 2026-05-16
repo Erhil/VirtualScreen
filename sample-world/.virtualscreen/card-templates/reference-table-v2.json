@@ -1,0 +1,28 @@
+{
+  "id": "reference-table-v2",
+  "name": "Reference Table V2",
+  "kind": "reference",
+  "description": "Compact V2 reference card with data-only table rows.",
+  "card": {
+    "version": 2,
+    "kind": "reference",
+    "title": "{{title}}",
+    "tags": [
+      "reference",
+      "v2"
+    ],
+    "sections": [
+      {
+        "title": "Reference Rows",
+        "layout": "table",
+        "rows": [
+          {
+            "Name": "",
+            "Detail": "",
+            "Link": ""
+          }
+        ]
+      }
+    ]
+  }
+}

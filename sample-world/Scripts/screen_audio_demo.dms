@@ -1,0 +1,3 @@
+screen_fs("Media/sample-map.svg")
+screen_pu("NPCs/Captain Ilyra.md")
+audio_play(".music/effects/broken-glass.wav")

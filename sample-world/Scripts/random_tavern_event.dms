@@ -1,0 +1,20 @@
+schema = {
+    "party_level": "number",
+    "tone": {
+        "type": "select",
+        "options": ["warm", "tense", "strange"],
+        "default": "warm",
+    },
+}
+answers = form(schema)
+tone = answers["tone"]
+level = answers["party_level"]
+
+response = f"""# Tavern Event
+
+Tone: {tone}
+Party level: {level}
+
+A rain-soaked courier enters the tavern, asks for the quietest table, and drops a sealed letter marked with a broken wax sigil.
+"""
+render_md(response)

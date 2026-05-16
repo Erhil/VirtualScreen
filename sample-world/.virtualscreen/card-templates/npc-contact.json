@@ -1,0 +1,33 @@
+{
+  "id": "npc-contact",
+  "name": "NPC Contact",
+  "kind": "npc",
+  "description": "Compact NPC contact card for live table use.",
+  "card": {
+    "kind": "npc",
+    "title": "{{title}}",
+    "tags": [
+      "npc",
+      "contact"
+    ],
+    "sections": [
+      {
+        "title": "Core",
+        "fields": {
+          "Role": "",
+          "Location": "",
+          "Need": "",
+          "Leverage": ""
+        }
+      },
+      {
+        "title": "Table Use",
+        "fields": {
+          "First Impression": "",
+          "Secret": "",
+          "Follow-up": ""
+        }
+      }
+    ]
+  }
+}

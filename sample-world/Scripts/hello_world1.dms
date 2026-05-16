@@ -1,0 +1,4 @@
+schema = {"name": "text"}
+name = form(schema)["name"]
+response = f"# Hello world\n\nHello {name}."
+render_md(response)
