@@ -35,6 +35,11 @@ The script starts:
 - Uvicorn reload enabled for backend code changes.
 - A generated unlock code if `VIRTUALSCREEN_ACCESS_TOKEN` is not already set.
 
+If neither the process environment nor `.env` sets `VIRTUALSCREEN_WORLD_ROOT`,
+`dev.ps1` seeds an ignored `dev-world/` from `sample-world/` and uses that as
+the active development world. Existing `dev-world/` content is never
+overwritten, and `sample-world/` stays clean release sample content.
+
 The script prints:
 
 - Local DM URL: `http://localhost:5173`

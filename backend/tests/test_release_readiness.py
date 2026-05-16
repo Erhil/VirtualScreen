@@ -40,3 +40,66 @@ def test_readme_documents_fresh_release_setup() -> None:
     missing = [snippet for snippet in expected_snippets if snippet not in readme]
 
     assert missing == []
+
+
+def test_gitignore_covers_local_agent_ide_and_dev_world_files() -> None:
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+
+    required_patterns = [
+        "dev-world/",
+        "AGENTS.md",
+        "AGENT.md",
+        "CLAUDE.md",
+        "GEMINI.md",
+        "CODEX.md",
+        "CURSOR.md",
+        ".agents/",
+        ".codex/",
+        ".codex-plugin/",
+        ".claude/",
+        ".gemini/",
+        ".continue/",
+        ".aider*",
+        ".mcp.json",
+        ".windsurfrules",
+        ".clinerules",
+        ".roo/",
+        ".roomodes",
+        "scripts/build-release.ps1",
+        ".idea/",
+        "*.iml",
+        ".vscode/",
+        "*.code-workspace",
+        ".cursor/",
+        ".cursorrules",
+        ".vs/",
+        ".fleet/",
+        ".zed/",
+        ".project",
+        ".classpath",
+        ".settings/",
+    ]
+
+    missing = [pattern for pattern in required_patterns if pattern not in gitignore]
+
+    assert missing == []
+
+
+def test_sample_world_card_templates_remain_trackable() -> None:
+    gitignore = (ROOT / ".gitignore").read_text(encoding="utf-8")
+
+    expected_exceptions = [
+        "!sample-world/.virtualscreen/",
+        "!sample-world/.virtualscreen/card-templates/",
+        "!sample-world/.virtualscreen/card-templates/*.json",
+    ]
+
+    missing = [pattern for pattern in expected_exceptions if pattern not in gitignore]
+
+    assert missing == []
+
+
+def test_release_hygiene_treats_dev_world_as_generated_local_state() -> None:
+    hygiene_script = (ROOT / "scripts" / "release-hygiene.ps1").read_text(encoding="utf-8")
+
+    assert '"dev-world"' in hygiene_script

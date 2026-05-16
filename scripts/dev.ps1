@@ -5,6 +5,8 @@ $venvPython = Join-Path $root ".venv\Scripts\python.exe"
 $backendDir = Join-Path $root "backend"
 $stateDir = Join-Path $root ".virtualscreen"
 $pidFile = Join-Path $stateDir "dev-pids.json"
+$devWorld = Join-Path $root "dev-world"
+$sampleWorld = Join-Path $root "sample-world"
 
 function Get-FreePort {
   param([int]$PreferredPort)
@@ -17,12 +19,49 @@ function Get-FreePort {
   return $port
 }
 
+function Test-EnvFileWorldRoot {
+  $envFile = Join-Path $root ".env"
+  if (-not (Test-Path $envFile)) {
+    return $false
+  }
+
+  foreach ($line in Get-Content -LiteralPath $envFile) {
+    if ($line -match '^\s*#') {
+      continue
+    }
+    if ($line -match '^\s*VIRTUALSCREEN_WORLD_ROOT\s*=\s*(.+?)\s*$') {
+      return -not [string]::IsNullOrWhiteSpace($matches[1].Trim().Trim('"').Trim("'"))
+    }
+  }
+
+  return $false
+}
+
+function Ensure-DevWorld {
+  if (Test-Path $devWorld) {
+    return
+  }
+  if (-not (Test-Path $sampleWorld)) {
+    Write-Error "Missing sample-world; cannot seed local dev-world."
+  }
+  Copy-Item -LiteralPath $sampleWorld -Destination $devWorld -Recurse
+}
+
 if (-not (Test-Path $venvPython)) {
   Write-Error "Missing Python virtual environment. Run: python -m venv .venv"
 }
 
 if (-not (Test-Path $stateDir)) {
   New-Item -ItemType Directory -Path $stateDir | Out-Null
+}
+
+$usingGeneratedDevWorld = $false
+if (
+  [string]::IsNullOrWhiteSpace($env:VIRTUALSCREEN_WORLD_ROOT) -and
+  -not (Test-EnvFileWorldRoot)
+) {
+  Ensure-DevWorld
+  $usingGeneratedDevWorld = $true
 }
 
 $backendPort = Get-FreePort -PreferredPort 8000
@@ -52,7 +91,11 @@ $lanAddress = Get-NetIPAddress -AddressFamily IPv4 |
   Select-Object -First 1 -ExpandProperty IPAddress
 
 $previousAccessToken = $env:VIRTUALSCREEN_ACCESS_TOKEN
+$previousWorldRoot = $env:VIRTUALSCREEN_WORLD_ROOT
 $env:VIRTUALSCREEN_ACCESS_TOKEN = $accessToken
+if ($usingGeneratedDevWorld) {
+  $env:VIRTUALSCREEN_WORLD_ROOT = $devWorld
+}
 try {
   $backend = Start-Process powershell -WindowStyle Hidden -PassThru -ArgumentList @(
     "-NoExit",
@@ -66,6 +109,12 @@ finally {
   }
   else {
     $env:VIRTUALSCREEN_ACCESS_TOKEN = $previousAccessToken
+  }
+  if ($null -eq $previousWorldRoot) {
+    Remove-Item Env:\VIRTUALSCREEN_WORLD_ROOT -ErrorAction SilentlyContinue
+  }
+  else {
+    $env:VIRTUALSCREEN_WORLD_ROOT = $previousWorldRoot
   }
 }
 
@@ -93,4 +142,7 @@ if ($lanAddress) {
   Write-Host "LAN frontend starting at http://<this-pc-lan-ip>:$frontendPort"
 }
 Write-Host "VirtualScreen unlock code: $accessToken"
+if ($usingGeneratedDevWorld) {
+  Write-Host "Development world: $devWorld"
+}
 Write-Host "PID file written to $pidFile"

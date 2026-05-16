@@ -82,7 +82,8 @@ $generatedCandidates = @(
   ".pytest_cache",
   ".ruff_cache",
   ".mypy_cache",
-  ".virtualscreen/dev-pids.json"
+  ".virtualscreen/dev-pids.json",
+  "dev-world"
 )
 
 $terminologyScanPaths = @(
