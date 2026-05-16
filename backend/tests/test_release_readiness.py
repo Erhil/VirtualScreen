@@ -34,6 +34,9 @@ def test_readme_documents_fresh_release_setup() -> None:
         "npx playwright install chromium",
         ".\\scripts\\test.ps1",
         ".\\scripts\\dev.ps1",
+        "## Install extra Python libraries for DMS scripts",
+        ".\\.venv\\Scripts\\python -m pip install numpy",
+        "ModuleNotFoundError",
         "GPLv3",
     ]
 

@@ -80,6 +80,44 @@ Run the full browser suite before publishing a release:
 .\scripts\test.ps1 -E2E full
 ```
 
+## Install extra Python libraries for DMS scripts
+
+Trusted `.dms` scripts run with the same Python environment as the VirtualScreen backend.
+If a script needs packages such as NumPy, pandas, or PyTorch, install them into
+VirtualScreen's `.venv`, not into global Python.
+
+Examples:
+
+```powershell
+.\.venv\Scripts\python -m pip install numpy
+.\.venv\Scripts\python -m pip install pandas
+```
+
+For PyTorch, use the install command from the official PyTorch installer page that
+matches your CPU or CUDA setup, but run it with `.\.venv\Scripts\python -m pip`.
+
+After installing new packages, restart VirtualScreen so new script runs see the
+updated environment:
+
+```powershell
+.\scripts\stop-dev.ps1
+.\scripts\dev.ps1
+```
+
+Example `.dms` script:
+
+```python
+import numpy as np
+
+values = np.array([1, 2, 3, 4])
+render_md(f"# Result\n\nAverage: {values.mean()}")
+```
+
+DMS scripts are trusted local Python code and can import powerful libraries. Heavy
+packages can take time and disk space to install. If a script reports
+`ModuleNotFoundError`, install the missing package into `.venv`. Do not commit `.venv`;
+it is local machine state.
+
 # Main functions
 
 - **World files:** browse, create, edit, rename, duplicate, move, trash, restore, and search normal world files.
