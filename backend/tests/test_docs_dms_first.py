@@ -9,14 +9,13 @@ def read_repo_file(path: str) -> str:
 
 def test_user_docs_present_dms_scripts_as_normal_workflow() -> None:
     readme = read_repo_file("README.md")
-    implementation_plan = read_repo_file("docs/IMPLEMENTATION_PLAN.md")
     development = read_repo_file("docs/DEVELOPMENT.md")
-    release_checklist = read_repo_file("docs/V1_RELEASE_CHECKLIST.md")
+    cookbook = read_repo_file("docs/DMS_COOKBOOK.md")
 
-    combined = "\n".join([readme, implementation_plan, development, release_checklist])
+    combined = "\n".join([readme, development, cookbook])
     assert "Scripts tool" in combined
     assert "trusted `.dms` scripts" in combined
-    assert "Run a sample `.dms` script" in release_checklist
+    assert "DMS scripts are trusted local `.dms` files" in cookbook
 
     stale_normal_workflow_phrases = [
         "Actions, and Scenarios",
@@ -31,12 +30,11 @@ def test_user_docs_present_dms_scripts_as_normal_workflow() -> None:
 
 
 def test_legacy_scenario_docs_are_explicitly_marked_deprecated() -> None:
-    architecture = read_repo_file("docs/ARCHITECTURE.md")
-    implementation_plan = read_repo_file("docs/IMPLEMENTATION_PLAN.md")
+    development = read_repo_file("docs/DEVELOPMENT.md")
 
     legacy_refs = [
         line
-        for line in f"{architecture}\n{implementation_plan}".splitlines()
+        for line in development.splitlines()
         if "/api/scenarios" in line or ".virtualscreen/scenarios" in line
     ]
     assert legacy_refs

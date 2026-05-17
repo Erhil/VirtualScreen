@@ -1,4 +1,5 @@
 import hashlib
+import mimetypes
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -71,6 +72,31 @@ def test_reads_dms_script_file_with_metadata(tmp_path: Path) -> None:
     assert body["content_type"] == "text/x-dms"
     assert body["hash"] == hashlib.sha256(script.encode("utf-8")).hexdigest()
     assert body["content"] == script
+
+
+def test_dms_content_type_ignores_platform_mimetype_database(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    world = tmp_path / "world"
+    scripts = world / "Scripts"
+    scripts.mkdir(parents=True)
+    (scripts / "hello_world.dms").write_text("render_md('# Hi')\n", encoding="utf-8")
+    client = make_client(world)
+
+    original_guess_type = mimetypes.guess_type
+
+    def linux_like_guess_type(url, strict=True):
+        if str(url).endswith(".dms"):
+            return "text/vnd.DMClientScript", None
+        return original_guess_type(url, strict=strict)
+
+    monkeypatch.setattr(mimetypes, "guess_type", linux_like_guess_type)
+
+    response = client.get("/api/world/file", params={"path": "Scripts/hello_world.dms"})
+
+    assert response.status_code == 200
+    assert response.json()["content_type"] == "text/x-dms"
 
 
 def test_file_hash_changes_when_content_changes(tmp_path: Path) -> None:

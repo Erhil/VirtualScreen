@@ -207,7 +207,7 @@ class DeleteTrashResponse(BaseModel):
 
 
 def _content_type(path: Path, fallback: str) -> str:
-    if path.suffix.lower() == ".cs":
+    if path.suffix.lower() in TEXT_FILE_KINDS or path.suffix.lower() in MEDIA_FILE_KINDS:
         return fallback
     guessed_type, _ = mimetypes.guess_type(path.name)
     return guessed_type or fallback
