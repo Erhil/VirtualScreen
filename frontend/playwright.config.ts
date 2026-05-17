@@ -2,13 +2,14 @@ import { defineConfig, devices } from "@playwright/test";
 
 const backendPort = 8010;
 const frontendPort = 5174;
+const isCi = Boolean(process.env.CI);
 
 export default defineConfig({
   testDir: "./e2e",
-  timeout: 60_000,
+  timeout: isCi ? 90_000 : 60_000,
   workers: 1,
   expect: {
-    timeout: 5_000
+    timeout: isCi ? 10_000 : 5_000
   },
   use: {
     baseURL: `http://127.0.0.1:${frontendPort}`,

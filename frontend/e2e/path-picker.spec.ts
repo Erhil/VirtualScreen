@@ -172,10 +172,20 @@ test.describe("World Path Picker V1", () => {
       "Media/sample-map.svg"
     );
     await expect(map.getByRole("textbox", { name: "Map image path" })).toHaveValue("Media/sample-map.svg");
+    const sourceLoaded = page.waitForResponse(
+      (response) => response.url().includes("/api/map/source") && response.ok()
+    );
     await map.getByRole("button", { name: "Load Map" }).click();
+    await sourceLoaded;
     await map.getByRole("tab", { name: "Live" }).click();
+    await expect(map.locator(".map-canvas-dm img")).toBeVisible();
+    const mapPresented = page.waitForResponse(
+      (response) => response.url().includes("/api/map/present") && response.ok()
+    );
     await map.getByRole("button", { name: "Present Map" }).click();
+    await mapPresented;
 
+    await expect(player.locator(".screen-map")).toBeVisible();
     await expect(player.locator(".screen-map img")).toBeVisible();
   });
 
