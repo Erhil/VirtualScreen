@@ -102,6 +102,24 @@ def test_prep_health_reports_unresolved_links_and_embeds(tmp_path: Path) -> None
     assert body["issues"][0]["source_kind"] == "card"
 
 
+def test_prep_health_ignores_roll_links_and_other_explicit_schemes(tmp_path: Path) -> None:
+    world = tmp_path / "world"
+    world.mkdir()
+    write_file(
+        world,
+        "README.md",
+        "# Home\n\n[Check](roll:1d20+3)\n[External](https://example.com/page)\n",
+    )
+    client = make_client(world)
+
+    response = client.get("/api/prep-health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body["issue_count"] == 0
+
+
 def test_prep_health_scans_dms_literal_path_arguments(tmp_path: Path) -> None:
     world = tmp_path / "world"
     world.mkdir()

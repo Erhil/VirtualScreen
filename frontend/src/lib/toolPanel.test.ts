@@ -224,6 +224,13 @@ describe("tool panel helpers", () => {
     expect(autoState.openTools).toEqual([]);
   });
 
+  it("supports dice as a live tool section", () => {
+    const state = openToolSection(openToolSection(createToolPanelState(["audio"]), "dice"), "screen");
+
+    expect(state.openTools).toEqual(["screen"]);
+    expect(isToolOpen(openToolSection(createToolPanelState(), "dice"), "dice")).toBe(true);
+  });
+
   it("accepts all supported active media kinds for screen actions", () => {
     expect(canSendToScreen("markdown")).toBe(true);
     expect(canSendToScreen("card")).toBe(true);

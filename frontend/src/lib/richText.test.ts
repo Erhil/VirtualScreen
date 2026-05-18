@@ -59,6 +59,20 @@ describe("rich text rendering", () => {
     expect(html).toContain("Captain Ilyra");
   });
 
+  it("renders dice roll markdown links as safe roll anchors", () => {
+    const html = renderRichMarkdown("[Perception](roll:1d20+3)", [], "README.md");
+
+    expect(html).toContain('class="dice-roll-link"');
+    expect(html).toContain('data-dice-expression="1d20+3"');
+    expect(html).toContain("Perception");
+  });
+
+  it("renders dice roll links in inline card and CSV content", () => {
+    const html = renderRichInline("[Secret](roll:1d6)", [], "Tables/events.csv");
+
+    expect(html).toContain('data-dice-expression="1d6"');
+  });
+
   it("renders CSV cell links and formulas together", () => {
     const html = renderRichInline("[[NPCs/Captain Ilyra]] rolls $1d20$.", [captainLink], "Tables/events.csv");
 

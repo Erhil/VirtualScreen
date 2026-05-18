@@ -6,6 +6,7 @@ export type ToolId =
   | "metadata"
   | "screen"
   | "audio"
+  | "dice"
   | "actions"
   | "scripts"
   | "hp";
@@ -22,7 +23,7 @@ const ACTIONS_TOOL_TABS: ActionsToolTabId[] = ["slots", "state", "keys", "midi"]
 
 const SCREEN_TOOL_TABS: ScreenToolTabId[] = ["display", "map"];
 
-const LIVE_TOOLS: ToolId[] = ["screen", "audio", "actions", "scripts", "hp"];
+const LIVE_TOOLS: ToolId[] = ["screen", "audio", "dice", "actions", "scripts", "hp"];
 
 export type ToolPanelState = {
   openTools: ToolId[];

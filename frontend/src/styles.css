@@ -514,6 +514,16 @@ select {
   cursor: default;
 }
 
+.workspace-controls .workspace-help-button {
+  align-items: center;
+  display: inline-flex;
+  font-weight: 700;
+  justify-content: center;
+  min-width: 30px;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+
 .workspace-layout-toggle {
   display: flex;
   gap: 4px;
@@ -578,6 +588,10 @@ select {
   overflow: auto;
   overscroll-behavior: contain;
   padding: 20px 24px;
+}
+
+.document-help-surface {
+  display: contents;
 }
 
 .viewer-panes {
@@ -1344,6 +1358,117 @@ select {
   flex: 1 1 0;
 }
 
+.dice-tool,
+.dice-roll-form,
+.dice-history {
+  display: grid;
+  gap: 6px;
+}
+
+.dice-common,
+.dice-history-header {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.dice-chip,
+.dice-tool button {
+  background: #fffaf0;
+  border: 1px solid #b7ad9c;
+  border-radius: 5px;
+  color: #3d352e;
+  cursor: pointer;
+  min-height: 24px;
+  padding: 2px 6px;
+}
+
+.dice-chip {
+  font-weight: 700;
+  min-width: 42px;
+}
+
+.dice-tool button:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.dice-roll-form {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.dice-roll-form label {
+  display: grid;
+  gap: 2px;
+  min-width: 0;
+}
+
+.dice-roll-form input {
+  background: #fffbf4;
+  border: 1px solid #cdbfaa;
+  border-radius: 5px;
+  color: #241f1b;
+  min-width: 0;
+  padding: 4px 6px;
+}
+
+.dice-result {
+  background: #fffaf0;
+  border: 1px solid #d1c6b5;
+  border-radius: 6px;
+  display: grid;
+  gap: 2px;
+  padding: 6px;
+}
+
+.dice-result strong {
+  font-size: 20px;
+}
+
+.dice-result span,
+.dice-history small,
+.dice-tool .muted,
+.dice-status {
+  color: #6f614f;
+  font-size: 12px;
+}
+
+.dice-status-error {
+  color: #9c2f23;
+}
+
+.dice-history-header {
+  justify-content: space-between;
+}
+
+.dice-history-header h3 {
+  font-size: 12px;
+  margin: 0;
+}
+
+.dice-history {
+  list-style: none;
+  margin: 0;
+  max-height: 112px;
+  overflow-y: auto;
+  padding: 0;
+  scrollbar-gutter: stable;
+}
+
+.dice-history li {
+  align-items: baseline;
+  border-top: 1px solid #e3d9ca;
+  display: grid;
+  gap: 4px;
+  grid-template-columns: minmax(0, 1fr) auto;
+  padding: 4px 0;
+}
+
+.dice-history small {
+  grid-column: 1 / -1;
+}
+
 .hp-notes summary {
   color: #63594d;
   cursor: pointer;
@@ -1582,6 +1707,7 @@ select {
 .map-tool-actions,
 .map-tool-row,
 .map-tool-modes,
+.map-polygon-controls,
 .map-grid-controls,
 .map-pin-controls,
 .map-pin-row,
@@ -1594,9 +1720,24 @@ select {
 
 .map-tool-actions,
 .map-tool-modes,
+.map-polygon-controls,
 .map-grid-controls,
 .map-pin-controls {
   flex-wrap: wrap;
+}
+
+.map-polygon-controls {
+  background: #f7f2e8;
+  border: 1px solid #d7ccb9;
+  border-radius: 6px;
+  padding: 5px;
+}
+
+.map-polygon-controls span {
+  color: #63594d;
+  font-size: 12px;
+  font-weight: 700;
+  white-space: nowrap;
 }
 
 .map-grid-controls label,
@@ -1977,6 +2118,14 @@ select {
   text-decoration: underline;
 }
 
+.dice-roll-link {
+  color: #6f4517;
+  cursor: pointer;
+  font-weight: 700;
+  text-decoration: underline;
+  text-decoration-style: dotted;
+}
+
 .unresolved-link {
   color: #89786a;
   font-style: italic;
@@ -2203,7 +2352,10 @@ td {
 
 .audio-tool,
 .audio-buses,
-.audio-playlists {
+.audio-playlists,
+.audio-saved-playlists,
+.audio-saved-playlist,
+.audio-saved-track-list {
   display: grid;
   gap: 6px;
 }
@@ -2273,7 +2425,8 @@ td {
 .audio-stop-all,
 .audio-result,
 .audio-playlist-header,
-.audio-playlist-play {
+.audio-playlist-play,
+.audio-saved-playlists button {
   background: #fffaf0;
   border: 1px solid #b7ad9c;
   border-radius: 5px;
@@ -2282,7 +2435,8 @@ td {
 }
 
 .audio-bus-actions button,
-.audio-stop-all {
+.audio-stop-all,
+.audio-saved-playlists button {
   min-height: 24px;
   padding: 2px 6px;
 }
@@ -2332,6 +2486,118 @@ td {
   padding: 4px 7px;
 }
 
+.audio-saved-playlists {
+  background: #f7efe3;
+  border: 1px solid #d1c6b5;
+  border-radius: 6px;
+  max-height: 260px;
+  min-height: 0;
+  overflow: auto;
+  padding: 5px;
+}
+
+.audio-saved-heading,
+.audio-saved-title-row,
+.audio-saved-options-row,
+.audio-saved-add-row,
+.audio-saved-track-list li,
+.audio-saved-track-actions {
+  align-items: center;
+  display: flex;
+  gap: 4px;
+}
+
+.audio-saved-heading {
+  justify-content: space-between;
+}
+
+.audio-saved-heading h3 {
+  font-size: 12px;
+  margin: 0;
+  text-transform: uppercase;
+}
+
+.audio-saved-heading small,
+.audio-saved-playlists p,
+.audio-saved-options-row label {
+  color: #63594d;
+  font-size: 12px;
+}
+
+.audio-saved-create-row,
+.audio-saved-title-row,
+.audio-saved-add-row {
+  display: grid;
+  gap: 4px;
+}
+
+.audio-saved-create-row {
+  grid-template-columns: minmax(0, 1fr) minmax(74px, auto) auto;
+}
+
+.audio-saved-title-row {
+  grid-template-columns: minmax(0, 1fr) auto auto auto;
+}
+
+.audio-saved-add-row {
+  grid-template-columns: minmax(0, 1fr) auto auto;
+}
+
+.audio-saved-options-row {
+  flex-wrap: wrap;
+}
+
+.audio-saved-options-row label {
+  display: flex;
+  gap: 4px;
+}
+
+.audio-saved-playlists input[type="text"],
+.audio-saved-playlists select {
+  background: #fffaf0;
+  border: 1px solid #b7ad9c;
+  border-radius: 5px;
+  color: #241f1b;
+  min-height: 26px;
+  min-width: 0;
+  padding: 3px 6px;
+}
+
+.audio-saved-track-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.audio-saved-track-list li {
+  background: #fffaf0;
+  border: 1px solid #dfd2bd;
+  border-radius: 5px;
+  justify-content: space-between;
+  min-height: 26px;
+  padding: 2px 3px 2px 6px;
+}
+
+.audio-saved-track-list li > span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.audio-saved-track-actions {
+  flex: 0 0 auto;
+}
+
+.audio-saved-track-actions button {
+  min-width: 26px;
+  padding: 1px 5px;
+}
+
+.audio-track-missing > span {
+  color: #8a3d2d;
+}
+
 .audio-playlists {
   max-height: 150px;
   min-height: 0;
@@ -2342,6 +2608,10 @@ td {
 
 .audio-playlists p {
   color: #63594d;
+  margin: 0;
+}
+
+.audio-saved-playlists p {
   margin: 0;
 }
 
@@ -2534,6 +2804,35 @@ td {
 
 .prep-health-dialog {
   max-width: 620px;
+}
+
+.context-help-dialog {
+  max-width: 500px;
+}
+
+.context-help-list,
+.context-help-shortcuts ul {
+  display: grid;
+  gap: 8px;
+  margin: 0;
+  padding-left: 20px;
+}
+
+.context-help-list li,
+.context-help-shortcuts li {
+  line-height: 1.35;
+}
+
+.context-help-shortcuts {
+  background: #fffaf0;
+  border: 1px solid #d1c6b5;
+  border-radius: 6px;
+  padding: 10px;
+}
+
+.context-help-shortcuts h3 {
+  font-size: 13px;
+  margin: 0 0 8px;
 }
 
 .prep-health-summary,
@@ -2946,7 +3245,10 @@ td {
 
 .map-canvas-interactive.map-canvas-tool-measure .map-canvas-stage,
 .map-canvas-interactive.map-canvas-tool-pin .map-canvas-stage,
-.map-canvas-interactive.map-canvas-tool-reveal .map-canvas-stage {
+.map-canvas-interactive.map-canvas-tool-reveal .map-canvas-stage,
+.map-canvas-interactive.map-canvas-tool-hide .map-canvas-stage,
+.map-canvas-interactive.map-canvas-tool-reveal-polygon .map-canvas-stage,
+.map-canvas-interactive.map-canvas-tool-hide-polygon .map-canvas-stage {
   cursor: crosshair;
 }
 
@@ -3044,6 +3346,59 @@ td {
   pointer-events: none;
   position: absolute;
   z-index: 4;
+}
+
+.map-canvas-hide-preview {
+  border-color: #94c7ff;
+  box-shadow: inset 0 0 0 9999px rgb(148 199 255 / 16%);
+}
+
+.map-canvas-polygon-preview {
+  height: 100%;
+  inset: 0;
+  overflow: visible;
+  pointer-events: none;
+  position: absolute;
+  width: 100%;
+  z-index: 4;
+}
+
+.map-canvas-polygon-preview-line {
+  fill: none;
+  stroke: #f1d39b;
+  stroke-dasharray: 0.012 0.009;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 0.004;
+  vector-effect: non-scaling-stroke;
+}
+
+.map-canvas-polygon-preview-fill {
+  fill: rgb(241 211 155 / 16%);
+  stroke: #f1d39b;
+  stroke-linejoin: round;
+  stroke-width: 0.004;
+  vector-effect: non-scaling-stroke;
+}
+
+.map-canvas-hide-preview .map-canvas-polygon-preview-fill {
+  fill: rgb(148 199 255 / 18%);
+  stroke: #94c7ff;
+}
+
+.map-canvas-hide-preview .map-canvas-polygon-preview-line {
+  stroke: #94c7ff;
+}
+
+.map-canvas-polygon-preview-point {
+  fill: #f1d39b;
+  stroke: #241f1b;
+  stroke-width: 0.002;
+  vector-effect: non-scaling-stroke;
+}
+
+.map-canvas-hide-preview .map-canvas-polygon-preview-point {
+  fill: #94c7ff;
 }
 
 .map-canvas-measurement {

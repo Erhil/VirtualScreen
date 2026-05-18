@@ -14,6 +14,7 @@ import {
   saveStoredUiLanguage,
   type TranslationCatalog
 } from ".";
+import { CONTEXT_HELP_TOPICS, contextHelpKeys } from "../lib/contextHelp";
 
 function readCatalog(code: string): TranslationCatalog {
   return JSON.parse(
@@ -35,6 +36,19 @@ describe("localization catalogs", () => {
       { code: "en", label: "English", native_label: "English" },
       { code: "ru", label: "Russian", native_label: "Русский" }
     ]);
+  });
+  it("contains localized help keys for every context help topic", () => {
+    const en = readCatalog("en");
+    const ru = readCatalog("ru");
+
+    for (const key of contextHelpKeys()) {
+      expect(en[key], key).toBeTruthy();
+      expect(ru[key], key).toBeTruthy();
+    }
+    for (const topic of Object.values(CONTEXT_HELP_TOPICS)) {
+      expect(topic.bodyKeys).toHaveLength(3);
+      expect(topic.shortcutKeys).toHaveLength(1);
+    }
   });
 });
 

@@ -9,6 +9,7 @@ from app.api.routes import (
     auth,
     capture,
     card_templates,
+    dice,
     display,
     events,
     fast_slots,
@@ -63,6 +64,7 @@ def create_app() -> FastAPI:
     app.include_router(health.router, prefix="/api", tags=["health"])
     app.include_router(auth.router, prefix="/api", tags=["auth"])
     app.include_router(card_templates.router, prefix="/api", tags=["card-templates"])
+    app.include_router(dice.router, prefix="/api", tags=["dice"])
     app.include_router(audio.router, prefix="/api", tags=["audio"])
     app.include_router(capture.router, prefix="/api", tags=["capture"])
     app.include_router(fast_slots.router, prefix="/api", tags=["fast-slots"])

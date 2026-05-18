@@ -70,6 +70,7 @@ import {
   fetchAppConfig,
   fetchAuthStatus,
   fetchAudioLibrary,
+  fetchAudioPlaylists,
   fetchCardTemplates,
   fetchCaptureToday,
   fetchDisplayState,
@@ -98,9 +99,11 @@ import {
   renameWorkspace,
   restoreTableSnapshot,
   restoreTrash,
+  rollDice,
   runDmsScript,
   saveFavorites,
   saveFastSlots,
+  saveAudioPlaylists,
   saveRecentFiles,
   saveHpTracker,
   saveTableSnapshot,
@@ -125,6 +128,7 @@ import {
   type DisplayState,
   type DisplayPopupPreset,
   type AudioBus,
+  type AudioPlaylist,
   type AudioTrack,
   type AppConfig,
   type AuthStatus,
@@ -132,6 +136,7 @@ import {
   type CaptureTodayResponse,
   type DmsRunState,
   type DmsScriptSummary,
+  type DiceRollResponse,
   type FastSlot,
   type FastSlotAction,
   type HpTrackerRow,
@@ -197,20 +202,30 @@ import {
   audioQueueLabel,
   audioSummary,
   busLabel,
+  addAudioPlaylistTrack,
+  createAudioPlaylist,
   createPlaylistExpansionState,
   createAudioMixerState,
+  deleteAudioPlaylist,
   displayAudioTrackTitle,
   finishAudioFade,
   groupAudioTracksByBus,
   hasLoadedAudio,
   loadAudioPlaylist,
+  loadSavedAudioPlaylist,
   loadAudioTrack,
+  moveAudioPlaylistTrack,
   playlistExpansionKey,
+  removeAudioPlaylistTrack,
+  renameAudioPlaylist,
+  resolveAudioPlaylists,
   rewindAudioQueue,
   setAudioBusLoop,
   setAudioPlaylistLoop,
   setAudioBusPlaying,
   setAudioBusVolume,
+  setSavedAudioPlaylistBus,
+  setSavedAudioPlaylistLoop,
   startAudioFade,
   stopAllAudio,
   stopAudioBus,
@@ -310,6 +325,7 @@ import {
   fetchMapPresets,
   isImageMapCandidate,
   loadMapPreset,
+  normalizeMapPolygon,
   planViewportSync,
   presentMap,
   saveMapPreset,
@@ -323,7 +339,7 @@ import {
   type MapPinVisibility,
   type MapPoint,
   type MapPreset,
-  type MapReveal,
+  type MapRevealPayload,
   type MapState,
   type MapViewport
 } from "./lib/map";
@@ -361,6 +377,13 @@ import {
   toggleFavorite
 } from "./lib/workspace";
 import { renderRichInline, renderRichMarkdown } from "./lib/richText";
+import {
+  COMMON_DICE_EXPRESSIONS,
+  addDiceHistoryEntry,
+  clearDiceHistory,
+  formatDiceRollDetail,
+  type DiceHistoryEntry
+} from "./lib/dice";
 import {
   buildDmsFormDefaults,
   dmsOutputToWorldFile,
@@ -405,6 +428,12 @@ import {
   flattenWorldPathPickerEntries,
   type WorldPathPickerFilter
 } from "./lib/worldPathPicker";
+import {
+  helpContextForActionsTab,
+  helpContextForMediaKind,
+  resolveContextHelpTopic,
+  type ContextHelpTopic
+} from "./lib/contextHelp";
 
 type LoadState = "idle" | "loading" | "ready" | "error";
 type AuthGateState =
@@ -459,6 +488,18 @@ type HpToolStatus =
   | { status: "saving"; message: string | null }
   | { status: "saved"; message: string }
   | { status: "error"; message: string };
+type DiceStatus =
+  | { status: "idle"; message: string | null }
+  | { status: "rolling"; message: string | null }
+  | { status: "ready"; message: string | null }
+  | { status: "error"; message: string };
+
+function helpContextFromTarget(target: EventTarget | null): string | null {
+  if (!(target instanceof HTMLElement)) {
+    return null;
+  }
+  return target.closest("[data-help-context]")?.getAttribute("data-help-context") ?? null;
+}
 type TableSnapshotStatus =
   | { status: "idle"; message: string | null }
   | { status: "loading"; message: string | null }
@@ -512,6 +553,12 @@ type AudioLoadState =
   | { status: "loading" }
   | { status: "ready"; tracks: AudioTrack[] }
   | { status: "error"; message: string };
+type AudioPlaylistLoadState =
+  | { status: "idle"; playlists: AudioPlaylist[]; message?: string | null }
+  | { status: "loading"; playlists: AudioPlaylist[]; message?: string | null }
+  | { status: "saving"; playlists: AudioPlaylist[]; message?: string | null }
+  | { status: "ready"; playlists: AudioPlaylist[]; message?: string | null }
+  | { status: "error"; playlists: AudioPlaylist[]; message: string };
 
 const AUDIO_FADE_DURATION_MS = 2000;
 type ScriptLoadState =
@@ -950,18 +997,24 @@ function worldEntryContainsFilter(entry: WorldEntry, filter: string): boolean {
 
 function RichHtml({
   className,
+  helpContext,
   html,
   links,
+  onDiceRoll,
   onContextLink,
   onOpenLink,
-  onPeekLink
+  onPeekLink,
+  tabIndex
 }: {
   className?: string;
+  helpContext?: string;
   html: string;
   links: PageLink[];
+  onDiceRoll?: (expression: string) => void;
   onContextLink?: (link: PageLink, event: MouseEvent<HTMLElement>) => void;
   onOpenLink: (link: PageLink) => void;
   onPeekLink?: (link: PageLink) => void;
+  tabIndex?: number;
 }) {
   function linkFromEvent(event: MouseEvent<HTMLElement>): PageLink | null {
     const target = event.target instanceof Element ? event.target : null;
@@ -973,7 +1026,19 @@ function RichHtml({
     return links[index] ?? null;
   }
 
+  function diceExpressionFromEvent(event: MouseEvent<HTMLElement>): string | null {
+    const target = event.target instanceof Element ? event.target : null;
+    const linkElement = target?.closest("[data-dice-expression]");
+    return linkElement?.getAttribute("data-dice-expression") ?? null;
+  }
+
   function handleClick(event: MouseEvent<HTMLElement>) {
+    const diceExpression = diceExpressionFromEvent(event);
+    if (diceExpression && onDiceRoll) {
+      event.preventDefault();
+      onDiceRoll(diceExpression);
+      return;
+    }
     const link = linkFromEvent(event);
     if (link) {
       event.preventDefault();
@@ -1007,10 +1072,12 @@ function RichHtml({
   return (
     <div
       className={className}
+      data-help-context={helpContext}
       dangerouslySetInnerHTML={{ __html: html }}
       onAuxClick={handleAuxClick}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
+      tabIndex={tabIndex}
     />
   );
 }
@@ -1020,6 +1087,7 @@ function MarkdownViewer({
   content,
   links,
   onContextLink,
+  onDiceRoll,
   onOpenLink,
   onPeekLink
 }: {
@@ -1027,17 +1095,21 @@ function MarkdownViewer({
   content?: string;
   links: PageLink[];
   onContextLink?: (link: PageLink, event: MouseEvent<HTMLElement>) => void;
+  onDiceRoll?: (expression: string) => void;
   onOpenLink: (link: PageLink) => void;
   onPeekLink?: (link: PageLink) => void;
 }) {
   return (
     <RichHtml
       className="markdown-viewer"
+      helpContext="document-markdown"
       html={renderRichMarkdown(content ?? file.content, links, file.path)}
       links={links}
       onContextLink={onContextLink}
+      onDiceRoll={onDiceRoll}
       onOpenLink={onOpenLink}
       onPeekLink={onPeekLink}
+      tabIndex={0}
     />
   );
 }
@@ -1047,6 +1119,7 @@ function CsvViewer({
   content,
   links,
   onContextLink,
+  onDiceRoll,
   onOpenLink,
   onPeekLink
 }: {
@@ -1054,6 +1127,7 @@ function CsvViewer({
   content?: string;
   links: PageLink[];
   onContextLink?: (link: PageLink, event: MouseEvent<HTMLElement>) => void;
+  onDiceRoll?: (expression: string) => void;
   onOpenLink: (link: PageLink) => void;
   onPeekLink?: (link: PageLink) => void;
 }) {
@@ -1064,7 +1138,7 @@ function CsvViewer({
   }
 
   return (
-    <div className="table-wrap">
+    <div className="table-wrap" data-help-context="document-csv" tabIndex={0}>
       <table>
         <thead>
           <tr>
@@ -1083,6 +1157,7 @@ function CsvViewer({
                     html={renderRichInline(row[cellIndex] ?? "", links, file.path)}
                     links={links}
                     onContextLink={onContextLink}
+                    onDiceRoll={onDiceRoll}
                     onOpenLink={onOpenLink}
                     onPeekLink={onPeekLink}
                   />
@@ -1104,7 +1179,7 @@ function CsvEditor({
   onChange: (data: CsvData) => void;
 }) {
   return (
-    <div className="csv-editor">
+    <div className="csv-editor" data-help-context="document-csv">
       <div className="table-wrap">
         <table>
           <thead>
@@ -1194,6 +1269,7 @@ function CardViewer({
   file,
   links,
   onContextLink,
+  onDiceRoll,
   onOpenLink,
   onPeekLink
 }: {
@@ -1201,6 +1277,7 @@ function CardViewer({
   file: WorldFile;
   links: PageLink[];
   onContextLink?: (link: PageLink, event: MouseEvent<HTMLElement>) => void;
+  onDiceRoll?: (expression: string) => void;
   onOpenLink: (link: PageLink) => void;
   onPeekLink?: (link: PageLink) => void;
 }) {
@@ -1243,6 +1320,7 @@ function CardViewer({
                   html={renderRichInline(cardFieldDisplayValue(field), links, file.path)}
                   links={links}
                   onContextLink={onContextLink}
+                  onDiceRoll={onDiceRoll}
                   onOpenLink={onOpenLink}
                   onPeekLink={onPeekLink}
                 />
@@ -1280,6 +1358,7 @@ function CardViewer({
                       html={renderRichInline(row[column] ?? "", links, file.path)}
                       links={links}
                       onContextLink={onContextLink}
+                      onDiceRoll={onDiceRoll}
                       onOpenLink={onOpenLink}
                       onPeekLink={onPeekLink}
                     />
@@ -1294,7 +1373,7 @@ function CardViewer({
   }
 
   return (
-    <article className="card-surface card-viewer">
+    <article className="card-surface card-viewer" data-help-context="document-card" tabIndex={0}>
       <header className="card-header">
         <div>
           <h1>{title}</h1>
@@ -1704,7 +1783,11 @@ function CardEditor({
   }
 
   return (
-    <form className="card-surface card-editor" onSubmit={(event) => event.preventDefault()}>
+    <form
+      className="card-surface card-editor"
+      data-help-context="document-card"
+      onSubmit={(event) => event.preventDefault()}
+    >
       <div className="card-editor-grid">
         <label>
           <span>Title</span>
@@ -1850,7 +1933,11 @@ function InvalidCardState({
 }
 
 function TextViewer({ file }: { file: WorldFile }) {
-  return <pre className="text-viewer">{file.content}</pre>;
+  return (
+    <pre className="text-viewer" data-help-context="document-media" tabIndex={0}>
+      {file.content}
+    </pre>
+  );
 }
 
 function DocumentChrome({
@@ -2005,6 +2092,7 @@ function FileViewer({
   links,
   onContextLink,
   onCsvDraftChange,
+  onDiceRoll,
   onDraftContentChange,
   onOpenLink,
   onPickWorldPath,
@@ -2017,6 +2105,7 @@ function FileViewer({
   links: PageLink[];
   onContextLink?: (link: PageLink, event: MouseEvent<HTMLElement>) => void;
   onCsvDraftChange: (data: CsvData) => void;
+  onDiceRoll?: (expression: string) => void;
   onDraftContentChange: (content: string) => void;
   onOpenLink: (link: PageLink) => void;
   onPickWorldPath?: (filter: WorldPathPickerFilter, title: string, onSelect: (path: string) => void) => void;
@@ -2024,7 +2113,7 @@ function FileViewer({
 }) {
   if (loadState.status === "removed") {
     return (
-      <div className="empty-surface">
+      <div className="empty-surface" data-help-context="document-empty">
         <h2>File Removed</h2>
         <p>{loadState.message}</p>
       </div>
@@ -2033,7 +2122,7 @@ function FileViewer({
 
   if (tab.mediaKind === "unsupported") {
     return (
-      <div className="empty-surface">
+      <div className="empty-surface" data-help-context="document-empty">
         <h2>Unsupported File</h2>
         <p>{tab.name} cannot be previewed yet.</p>
       </div>
@@ -2042,7 +2131,7 @@ function FileViewer({
 
   if (tab.mediaKind === "image") {
     return (
-      <div className="media-viewer">
+      <div className="media-viewer" data-help-context="document-media" tabIndex={0}>
         <img alt={tab.name} src={buildMediaUrl(tab.path)} />
       </div>
     );
@@ -2050,7 +2139,7 @@ function FileViewer({
 
   if (tab.mediaKind === "video") {
     return (
-      <div className="media-viewer">
+      <div className="media-viewer" data-help-context="document-media" tabIndex={0}>
         <video aria-label={tab.name} controls src={buildMediaUrl(tab.path)} />
       </div>
     );
@@ -2058,19 +2147,19 @@ function FileViewer({
 
   if (tab.mediaKind === "pdf") {
     return (
-      <div className="pdf-viewer">
+      <div className="pdf-viewer" data-help-context="document-media" tabIndex={0}>
         <iframe aria-label={tab.name} src={buildMediaUrl(tab.path)} title={tab.name} />
       </div>
     );
   }
 
   if (loadState.status === "loading" || loadState.status === "idle") {
-    return <div className="empty-surface">Loading {tab.name}...</div>;
+    return <div className="empty-surface" data-help-context="document-empty">Loading {tab.name}...</div>;
   }
 
   if (loadState.status === "error") {
     return (
-      <div className="empty-surface">
+      <div className="empty-surface" data-help-context="document-empty">
         <h2>Could Not Open File</h2>
         <p>{loadState.message}</p>
       </div>
@@ -2083,19 +2172,21 @@ function FileViewer({
 
     if (!parsed.ok) {
       return (
-        <InvalidCardState
-          message={parsed.message}
-          rawEditor={
-            draft?.mode === "edit" ? (
-              <CodeEditor
-                ariaLabel="Raw card JSON editor"
-                language="text"
-                onChange={onDraftContentChange}
-                value={draft.content}
-              />
-            ) : undefined
-          }
-        />
+        <div data-help-context="document-card">
+          <InvalidCardState
+            message={parsed.message}
+            rawEditor={
+              draft?.mode === "edit" ? (
+                <CodeEditor
+                  ariaLabel="Raw card JSON editor"
+                  language="text"
+                  onChange={onDraftContentChange}
+                  value={draft.content}
+                />
+              ) : undefined
+            }
+          />
+        </div>
       );
     }
 
@@ -2113,9 +2204,10 @@ function FileViewer({
       <CardViewer
         card={parsed.card}
         file={loadState.file}
-        links={links}
-        onContextLink={onContextLink}
-        onOpenLink={onOpenLink}
+          links={links}
+          onContextLink={onContextLink}
+          onDiceRoll={onDiceRoll}
+          onOpenLink={onOpenLink}
         onPeekLink={onPeekLink}
       />
     );
@@ -2138,20 +2230,25 @@ function FileViewer({
         file={loadState.file}
         links={links}
         onContextLink={onContextLink}
+        onDiceRoll={onDiceRoll}
         onOpenLink={onOpenLink}
         onPeekLink={onPeekLink}
       />
     );
 
     if (draft?.mode === "edit") {
-      return editor;
+      return (
+        <section className="document-help-surface" data-help-context="document-markdown">
+          {editor}
+        </section>
+      );
     }
 
     if (draft?.mode === "split") {
       return (
         <div className="markdown-split-view">
-          <section aria-label="Markdown editor pane">{editor}</section>
-          <section aria-label="Markdown preview pane">{preview}</section>
+          <section aria-label="Markdown editor pane" data-help-context="document-markdown">{editor}</section>
+          <section aria-label="Markdown preview pane" data-help-context="document-markdown">{preview}</section>
         </div>
       );
     }
@@ -2170,6 +2267,7 @@ function FileViewer({
         file={loadState.file}
         links={links}
         onContextLink={onContextLink}
+        onDiceRoll={onDiceRoll}
         onOpenLink={onOpenLink}
         onPeekLink={onPeekLink}
       />
@@ -2179,17 +2277,19 @@ function FileViewer({
   if (loadState.file.media_kind === "script") {
     if (draft?.mode === "edit") {
       return (
-        <CodeEditor
-          ariaLabel="DMS editor"
-          completions={completions}
-          language="python"
-          onChange={onDraftContentChange}
-          value={draft.content}
-        />
+        <section className="document-help-surface" data-help-context="document-dms">
+          <CodeEditor
+            ariaLabel="DMS editor"
+            completions={completions}
+            language="python"
+            onChange={onDraftContentChange}
+            value={draft.content}
+          />
+        </section>
       );
     }
 
-    return <pre className="text-viewer">{draft?.content ?? loadState.file.content}</pre>;
+    return <pre className="text-viewer" data-help-context="document-dms" tabIndex={0}>{draft?.content ?? loadState.file.content}</pre>;
   }
 
   return <TextViewer file={loadState.file} />;
@@ -2358,7 +2458,7 @@ function MetadataTool({
 }) {
   if (pageState.status === "loading" || pageState.status === "idle") {
     return (
-      <section className="metadata-tool" aria-label={t("metadata.title")}>
+      <section className="metadata-tool" aria-label={t("metadata.title")} data-help-context="metadata">
         {tab ? <p>{t("metadata.loading")}</p> : <p>{t("metadata.selectFile")}</p>}
       </section>
     );
@@ -2366,7 +2466,7 @@ function MetadataTool({
 
   if (pageState.status === "error") {
     return (
-      <section className="metadata-tool" aria-label={t("metadata.title")}>
+      <section className="metadata-tool" aria-label={t("metadata.title")} data-help-context="metadata">
         <div className="metadata-empty">
           <h3>{t("metadata.loadError")}</h3>
           <p>{pageState.message}</p>
@@ -2381,7 +2481,7 @@ function MetadataTool({
   const linksError = linksState.status === "error" ? linksState.message : null;
 
   return (
-    <section className="metadata-tool" aria-label={t("metadata.title")}>
+    <section className="metadata-tool" aria-label={t("metadata.title")} data-help-context="metadata">
       <div className="metadata-heading">
         {editState.mode === "view" && (
           <button
@@ -2821,6 +2921,7 @@ function WorkspaceControls({
   onActivate,
   onCapture,
   onDelete,
+  onHelp,
   onNewCard,
   onNew,
   onPrepCheck,
@@ -2837,6 +2938,7 @@ function WorkspaceControls({
   onActivate: (workspaceId: string) => void;
   onCapture: () => void;
   onDelete: () => void;
+  onHelp: () => void;
   onNewCard: () => void;
   onNew: () => void;
   onPrepCheck: () => void;
@@ -2846,7 +2948,7 @@ function WorkspaceControls({
   t: Translator;
 }) {
   return (
-    <section className="workspace-controls" aria-label={t("workspace.controls")}>
+    <section className="workspace-controls" aria-label={t("workspace.controls")} data-help-context="document-empty">
       <label>
         {t("workspace.workspace")}
         <select
@@ -2885,6 +2987,15 @@ function WorkspaceControls({
       </button>
       <button onClick={onPrepCheck} type="button">
         {t("workspace.prepCheckStatus", { status: prepStatus })}
+      </button>
+      <button
+        aria-label={t("help.open")}
+        className="workspace-help-button"
+        onClick={onHelp}
+        title={t("help.open")}
+        type="button"
+      >
+        {t("help.openShort")}
       </button>
       <div className="workspace-layout-toggle" role="group" aria-label={t("workspace.layout")}>
         <button
@@ -2926,8 +3037,12 @@ function SettingsDialog({
       return;
     }
     function handleKeyDown(event: KeyboardEvent) {
+      if (document.querySelector("[data-context-help-dialog='true']")) {
+        return;
+      }
       if (event.key === "Escape") {
         event.preventDefault();
+        event.stopPropagation();
         onClose();
       }
     }
@@ -2944,6 +3059,7 @@ function SettingsDialog({
       <section
         aria-label={t("app.settingsTitle")}
         className="file-dialog settings-dialog"
+        data-help-context="settings"
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
       >
@@ -2976,6 +3092,75 @@ function SettingsDialog({
             {t("app.close")}
           </button>
         </div>
+      </section>
+    </div>
+  );
+}
+
+function ContextHelpDialog({
+  onClose,
+  open,
+  t,
+  topic
+}: {
+  onClose: () => void;
+  open: boolean;
+  t: Translator;
+  topic: ContextHelpTopic | null;
+}) {
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        event.stopPropagation();
+        onClose();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [onClose, open]);
+
+  if (!open || !topic) {
+    return null;
+  }
+
+  const shortcuts = topic.shortcutKeys
+    .map((key) => t(key))
+    .filter((value) => value && !value.startsWith("[["));
+
+  return (
+    <div className="dialog-overlay" onMouseDown={onClose} role="presentation">
+      <section
+        aria-label={t("help.open")}
+        className="file-dialog context-help-dialog"
+        data-context-help-dialog="true"
+        onMouseDown={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <div className="dialog-header">
+          <h2>{t(topic.titleKey)}</h2>
+          <button aria-label={t("help.close")} autoFocus onClick={onClose} type="button">
+            x
+          </button>
+        </div>
+        <ul className="context-help-list">
+          {topic.bodyKeys.map((key) => (
+            <li key={key}>{t(key)}</li>
+          ))}
+        </ul>
+        {shortcuts.length > 0 && (
+          <section className="context-help-shortcuts" aria-label={t("help.shortcuts")}>
+            <h3>{t("help.shortcuts")}</h3>
+            <ul>
+              {shortcuts.map((shortcut) => (
+                <li key={shortcut}>{shortcut}</li>
+              ))}
+            </ul>
+          </section>
+        )}
       </section>
     </div>
   );
@@ -3347,7 +3532,7 @@ function ScreenTool({
   onMapLoadPreset: (presetId: string) => void;
   onMapPinCreate: (point: MapPoint, label: string, visibility: MapPinVisibility) => void;
   onMapPresent: () => void;
-  onMapRevealCreate: (reveal: Omit<MapReveal, "id">) => void;
+  onMapRevealCreate: (reveal: MapRevealPayload) => void;
   onMapSavePreset: (name: string, state: MapState) => void;
   onMapStop: () => void;
   onMapUndoReveal: () => void;
@@ -3398,7 +3583,11 @@ function ScreenTool({
   }
 
   return (
-    <section aria-label={t("screen.control")} className="screen-tool">
+    <section
+      aria-label={t("screen.control")}
+      className="screen-tool"
+      data-help-context={tab === "map" ? "screen-map" : "screen-display"}
+    >
       <InnerToolTabs
         active={tab}
         ariaLabel={t("screen.sections")}
@@ -3545,7 +3734,7 @@ function MapTool({
   onPinCreate: (point: MapPoint, label: string, visibility: MapPinVisibility) => void;
   onPickPath: (filter: WorldPathPickerFilter, title: string, onSelect: (path: string) => void) => void;
   onPresent: () => void;
-  onRevealCreate: (reveal: Omit<MapReveal, "id">) => void;
+  onRevealCreate: (reveal: MapRevealPayload) => void;
   onSavePreset: (name: string, state: MapState) => void;
   onStop: () => void;
   onUndoReveal: () => void;
@@ -3569,6 +3758,7 @@ function MapTool({
   const [presetName, setPresetName] = useState("");
   const [draftMap, setDraftMap] = useState<MapState>(currentMap);
   const [tool, setTool] = useState<MapCanvasTool>("pan");
+  const [polygonPoints, setPolygonPoints] = useState<MapPoint[]>([]);
   const [mapPanel, setMapPanel] = useState<"live" | "setup">("live");
   const [pinLabel, setPinLabel] = useState("Pin");
   const [pinVisibility, setPinVisibility] = useState<MapPinVisibility>("player");
@@ -3583,6 +3773,10 @@ function MapTool({
     setDraftMap(currentMap);
   }, [state]);
 
+  useEffect(() => {
+    setPolygonPoints([]);
+  }, [currentMap.image_path, tool]);
+
   function handleFogChange(enabled: boolean) {
     setDraftMap((map) => ({ ...map, fog_enabled: enabled }));
     onFogChange(enabled);
@@ -3593,8 +3787,28 @@ function MapTool({
     onGridChange(grid);
   }
 
+  function selectTool(nextTool: MapCanvasTool) {
+    setTool(nextTool);
+  }
+
+  function handlePolygonCommit() {
+    const points = normalizeMapPolygon(polygonPoints);
+    if (!points) {
+      return;
+    }
+    onRevealCreate({
+      action: tool === "hide-polygon" ? "hide" : "reveal",
+      shape: "polygon",
+      points
+    });
+    setPolygonPoints([]);
+  }
+
+  const polygonToolActive = tool === "reveal-polygon" || tool === "hide-polygon";
+  const polygonReady = Boolean(normalizeMapPolygon(polygonPoints));
+
   return (
-    <section aria-label={t("map.control")} className="map-tool">
+    <section aria-label={t("map.control")} className="map-tool" data-help-context="screen-map">
       <InnerToolTabs
         active={mapPanel}
         ariaLabel={t("map.controls")}
@@ -3643,19 +3857,47 @@ function MapTool({
         </button>
       </div>
       <div className="map-tool-modes" role="group" aria-label={t("map.mode")}>
-        <button aria-pressed={tool === "pan"} onClick={() => setTool("pan")} type="button">
+        <button aria-pressed={tool === "pan"} onClick={() => selectTool("pan")} type="button">
           {t("map.pan")}
         </button>
-        <button aria-pressed={tool === "reveal"} onClick={() => setTool("reveal")} type="button">
-          {t("map.reveal")}
+        <button aria-pressed={tool === "reveal"} onClick={() => selectTool("reveal")} type="button">
+          {t("map.revealBox")}
         </button>
-        <button aria-pressed={tool === "pin"} onClick={() => setTool("pin")} type="button">
+        <button aria-pressed={tool === "hide"} onClick={() => selectTool("hide")} type="button">
+          {t("map.hideBox")}
+        </button>
+        <button
+          aria-pressed={tool === "reveal-polygon"}
+          onClick={() => selectTool("reveal-polygon")}
+          type="button"
+        >
+          {t("map.revealPolygon")}
+        </button>
+        <button
+          aria-pressed={tool === "hide-polygon"}
+          onClick={() => selectTool("hide-polygon")}
+          type="button"
+        >
+          {t("map.hidePolygon")}
+        </button>
+        <button aria-pressed={tool === "pin"} onClick={() => selectTool("pin")} type="button">
           {t("map.pin")}
         </button>
-        <button aria-pressed={tool === "measure"} onClick={() => setTool("measure")} type="button">
+        <button aria-pressed={tool === "measure"} onClick={() => selectTool("measure")} type="button">
           {t("map.measure")}
         </button>
       </div>
+      {polygonToolActive && (
+        <div className="map-polygon-controls" aria-label={t("map.polygonControls")}>
+          <span>{t("map.polygonPoints", { count: polygonPoints.length })}</span>
+          <button disabled={!polygonReady} onClick={handlePolygonCommit} type="button">
+            {t("map.commitPolygon")}
+          </button>
+          <button disabled={polygonPoints.length === 0} onClick={() => setPolygonPoints([])} type="button">
+            {t("app.cancel")}
+          </button>
+        </div>
+      )}
       {tool === "pin" && (
         <div className="map-pin-controls">
           <label>
@@ -3683,9 +3925,11 @@ function MapTool({
         className="map-tool-canvas"
         mediaUrlBuilder={buildMapMediaUrl}
         onPinCreate={(point) => onPinCreate(point, pinLabel, pinVisibility)}
+        onPolygonPointAdd={(point) => setPolygonPoints((points) => [...points, point])}
         onRevealCreate={onRevealCreate}
         onViewportCommit={onViewportCommit}
         onViewportPreview={onViewportPreview}
+        polygonPoints={polygonPoints}
         state={shownMap}
         tool={tool}
       />
@@ -4049,8 +4293,19 @@ function AudioTool({
   onFadeOut,
   onLoadTrack,
   onLoadPlaylist,
+  onSavedPlaylistAddCurrentTrack,
+  onSavedPlaylistAddTrack,
+  onSavedPlaylistBusChange,
+  onSavedPlaylistCreate,
+  onSavedPlaylistDelete,
+  onSavedPlaylistLoopChange,
+  onSavedPlaylistMoveTrack,
+  onSavedPlaylistPlay,
+  onSavedPlaylistRemoveTrack,
+  onSavedPlaylistRename,
   onLoopChange,
   onNextTrack,
+  onPickPath,
   onPlayingChange,
   onPlaylistLoopChange,
   onPlaylistToggle,
@@ -4060,6 +4315,8 @@ function AudioTool({
   onStopBus,
   onVolumeChange,
   query,
+  audioLibraryTracks,
+  savedPlaylistsState,
   state,
   t
 }: {
@@ -4069,8 +4326,19 @@ function AudioTool({
   onFadeOut: (bus: AudioBus) => void;
   onLoadTrack: (track: AudioTrack) => void;
   onLoadPlaylist: (bus: AudioBus, playlist: string | null, tracks: AudioTrack[]) => void;
+  onSavedPlaylistAddCurrentTrack: (playlistId: string) => void;
+  onSavedPlaylistAddTrack: (playlistId: string, path: string) => void;
+  onSavedPlaylistBusChange: (playlistId: string, bus: AudioBus) => void;
+  onSavedPlaylistCreate: (name: string, bus: AudioBus) => void;
+  onSavedPlaylistDelete: (playlistId: string) => void;
+  onSavedPlaylistLoopChange: (playlistId: string, loop: boolean) => void;
+  onSavedPlaylistMoveTrack: (playlistId: string, index: number, direction: -1 | 1) => void;
+  onSavedPlaylistPlay: (playlistId: string) => void;
+  onSavedPlaylistRemoveTrack: (playlistId: string, path: string) => void;
+  onSavedPlaylistRename: (playlistId: string, name: string) => void;
   onLoopChange: (bus: AudioBus, loop: boolean) => void;
   onNextTrack: (bus: AudioBus) => void;
+  onPickPath: (filter: WorldPathPickerFilter, title: string, onSelect: (path: string) => void) => void;
   onPlayingChange: (bus: AudioBus, playing: boolean) => void;
   onPlaylistLoopChange: (bus: AudioBus, loop: boolean) => void;
   onPlaylistToggle: (bus: AudioBus, playlist: string | null) => void;
@@ -4080,13 +4348,53 @@ function AudioTool({
   onStopBus: (bus: AudioBus) => void;
   onVolumeChange: (bus: AudioBus, volume: number) => void;
   query: string;
+  audioLibraryTracks: AudioTrack[];
+  savedPlaylistsState: AudioPlaylistLoadState;
   state: AudioLoadState;
   t: Translator;
 }) {
-  const groupsByBus = state.status === "ready" ? groupAudioTracksByBus(state.tracks) : groupAudioTracksByBus([]);
+  const libraryTracks = state.status === "ready" ? state.tracks : [];
+  const savedLibraryTracks = audioLibraryTracks.length > 0 ? audioLibraryTracks : libraryTracks;
+  const groupsByBus = groupAudioTracksByBus(libraryTracks);
+  const resolvedSavedPlaylists = resolveAudioPlaylists(
+    savedPlaylistsState.playlists,
+    savedLibraryTracks
+  );
+  const [newPlaylistName, setNewPlaylistName] = useState("");
+  const [newPlaylistBus, setNewPlaylistBus] = useState<AudioBus>("ambient");
+  const [renameDrafts, setRenameDrafts] = useState<Record<string, string>>({});
+  const [trackPathDrafts, setTrackPathDrafts] = useState<Record<string, string>>({});
+
+  useEffect(() => {
+    setRenameDrafts((current) => {
+      const next: Record<string, string> = {};
+      for (const playlist of savedPlaylistsState.playlists) {
+        next[playlist.id] = current[playlist.id] ?? playlist.name;
+      }
+      return next;
+    });
+  }, [savedPlaylistsState.playlists]);
+
+  function audioBusName(bus: AudioBus): string {
+    return t(`audio.busName.${bus}`);
+  }
+
+  function handleCreatePlaylist() {
+    onSavedPlaylistCreate(newPlaylistName, newPlaylistBus);
+    setNewPlaylistName("");
+  }
+
+  function handleAddTrack(playlistId: string) {
+    const path = trackPathDrafts[playlistId]?.trim() ?? "";
+    if (!path) {
+      return;
+    }
+    onSavedPlaylistAddTrack(playlistId, path);
+    setTrackPathDrafts((drafts) => ({ ...drafts, [playlistId]: "" }));
+  }
 
   return (
-    <section aria-label={t("audio.control")} className="audio-tool">
+    <section aria-label={t("audio.control")} className="audio-tool" data-help-context="audio">
       <label className="audio-search-label" htmlFor="audio-search">
         {t("audio.search")}
         <input
@@ -4097,11 +4405,196 @@ function AudioTool({
           value={query}
         />
       </label>
+      <section className="audio-saved-playlists" aria-label={t("audio.savedPlaylists")}>
+        <div className="audio-saved-heading">
+          <h3>{t("audio.savedPlaylists")}</h3>
+          {savedPlaylistsState.status === "loading" && <small>{t("audio.savedLoading")}</small>}
+          {savedPlaylistsState.status === "saving" && <small>{t("audio.savedSaving")}</small>}
+          {savedPlaylistsState.status === "ready" && savedPlaylistsState.message && (
+            <small>{savedPlaylistsState.message}</small>
+          )}
+          {savedPlaylistsState.status === "error" && <small>{savedPlaylistsState.message}</small>}
+        </div>
+        <div className="audio-saved-create-row">
+          <input
+            aria-label={t("audio.savedPlaylistName")}
+            onChange={(event) => setNewPlaylistName(event.target.value)}
+            placeholder={t("audio.savedPlaylistNamePlaceholder")}
+            type="text"
+            value={newPlaylistName}
+          />
+          <select
+            aria-label={t("audio.savedPlaylistBus")}
+            onChange={(event) => setNewPlaylistBus(event.target.value as AudioBus)}
+            value={newPlaylistBus}
+          >
+            {AUDIO_BUSES.map((bus) => (
+              <option key={bus} value={bus}>
+                {audioBusName(bus)}
+              </option>
+            ))}
+          </select>
+          <button onClick={handleCreatePlaylist} type="button">
+            {t("audio.savedNew")}
+          </button>
+        </div>
+        {savedPlaylistsState.status !== "loading" && resolvedSavedPlaylists.length === 0 && (
+          <p>{t("audio.savedEmpty")}</p>
+        )}
+        {resolvedSavedPlaylists.map((playlist) => {
+          const currentTrack = mixer[playlist.bus].track;
+          const renameDraft = renameDrafts[playlist.id] ?? playlist.name;
+          const trackPathDraft = trackPathDrafts[playlist.id] ?? "";
+          return (
+            <section
+              aria-label={t("audio.savedPlaylistRegion", { name: playlist.name })}
+              className="audio-saved-playlist"
+              key={playlist.id}
+            >
+              <div className="audio-saved-title-row">
+                <input
+                  aria-label={t("audio.renameSavedPlaylist", { name: playlist.name })}
+                  onChange={(event) =>
+                    setRenameDrafts((drafts) => ({
+                      ...drafts,
+                      [playlist.id]: event.target.value
+                    }))
+                  }
+                  value={renameDraft}
+                />
+                <button
+                  disabled={renameDraft.trim() === playlist.name}
+                  onClick={() => onSavedPlaylistRename(playlist.id, renameDraft)}
+                  type="button"
+                >
+                  {t("audio.rename")}
+                </button>
+                <button
+                  disabled={playlist.tracks.length === 0}
+                  onClick={() => onSavedPlaylistPlay(playlist.id)}
+                  type="button"
+                >
+                  {t("audio.playSaved")}
+                </button>
+                <button onClick={() => onSavedPlaylistDelete(playlist.id)} type="button">
+                  {t("audio.deleteSaved")}
+                </button>
+              </div>
+              <div className="audio-saved-options-row">
+                <label>
+                  {t("audio.savedPlaylistBus")}
+                  <select
+                    aria-label={t("audio.savedPlaylistBusFor", { name: playlist.name })}
+                    onChange={(event) =>
+                      onSavedPlaylistBusChange(playlist.id, event.target.value as AudioBus)
+                    }
+                    value={playlist.bus}
+                  >
+                    {AUDIO_BUSES.map((bus) => (
+                      <option key={bus} value={bus}>
+                        {audioBusName(bus)}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+                <label>
+                  {t("audio.savedLoop")}
+                  <input
+                    checked={playlist.loop}
+                    onChange={(event) =>
+                      onSavedPlaylistLoopChange(playlist.id, event.target.checked)
+                    }
+                    type="checkbox"
+                  />
+                </label>
+                <button
+                  disabled={!currentTrack}
+                  onClick={() => onSavedPlaylistAddCurrentTrack(playlist.id)}
+                  type="button"
+                >
+                  {t("audio.addCurrent")}
+                </button>
+              </div>
+              <div className="audio-saved-add-row">
+                <input
+                  aria-label={t("audio.addTrackPath", { name: playlist.name })}
+                  onChange={(event) =>
+                    setTrackPathDrafts((drafts) => ({
+                      ...drafts,
+                      [playlist.id]: event.target.value
+                    }))
+                  }
+                  placeholder=".music/..."
+                  type="text"
+                  value={trackPathDraft}
+                />
+                <button
+                  onClick={() =>
+                    onPickPath("audio", t("audio.chooseSavedTrack"), (path) =>
+                      setTrackPathDrafts((drafts) => ({
+                        ...drafts,
+                        [playlist.id]: path
+                      }))
+                    )
+                  }
+                  type="button"
+                >
+                  {t("app.pick")}
+                </button>
+                <button disabled={!trackPathDraft.trim()} onClick={() => handleAddTrack(playlist.id)} type="button">
+                  {t("audio.addTrack")}
+                </button>
+              </div>
+              {playlist.track_paths.length === 0 ? (
+                <p>{t("audio.noSavedTracks")}</p>
+              ) : (
+                <ol className="audio-saved-track-list">
+                  {playlist.track_paths.map((path, index) => {
+                    const track = playlist.tracks.find((candidate) => candidate.path === path);
+                    return (
+                      <li className={track ? "" : "audio-track-missing"} key={`${playlist.id}:${path}`}>
+                        <span title={path}>
+                          {track ? displayAudioTrackTitle(track) : t("audio.missingTrack", { path })}
+                        </span>
+                        <div className="audio-saved-track-actions">
+                          <button
+                            aria-label={t("audio.moveTrackUp", { path })}
+                            disabled={index === 0}
+                            onClick={() => onSavedPlaylistMoveTrack(playlist.id, index, -1)}
+                            type="button"
+                          >
+                            ↑
+                          </button>
+                          <button
+                            aria-label={t("audio.moveTrackDown", { path })}
+                            disabled={index === playlist.track_paths.length - 1}
+                            onClick={() => onSavedPlaylistMoveTrack(playlist.id, index, 1)}
+                            type="button"
+                          >
+                            ↓
+                          </button>
+                          <button
+                            aria-label={t("audio.removeTrack", { path })}
+                            onClick={() => onSavedPlaylistRemoveTrack(playlist.id, path)}
+                            type="button"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      </li>
+                    );
+                  })}
+                </ol>
+              )}
+            </section>
+          );
+        })}
+      </section>
       <div className="audio-buses">
         {AUDIO_BUSES.map((bus) => {
           const busState = mixer[bus];
           const groups = groupsByBus[bus];
-          const busName = busLabel(bus);
+          const busName = audioBusName(bus);
           return (
             <section className="audio-bus" aria-label={t("audio.bus", { bus: busName })} key={bus}>
               <div className="audio-bus-heading">
@@ -4328,6 +4821,7 @@ function PeekDialog({
   completions,
   onClose,
   onContextLink,
+  onDiceRoll,
   onOpenLink,
   onPeekLink
 }: {
@@ -4335,6 +4829,7 @@ function PeekDialog({
   completions: CodeEditorCompletion[];
   onClose: () => void;
   onContextLink: (link: PageLink, event: MouseEvent<HTMLElement>) => void;
+  onDiceRoll?: (expression: string) => void;
   onOpenLink: (link: PageLink) => void;
   onPeekLink: (link: PageLink) => void;
 }) {
@@ -4362,6 +4857,7 @@ function PeekDialog({
           loadState={state.fileState}
           onContextLink={onContextLink}
           onCsvDraftChange={() => {}}
+          onDiceRoll={onDiceRoll}
           onDraftContentChange={() => {}}
           onOpenLink={onOpenLink}
           onPeekLink={onPeekLink}
@@ -4683,7 +5179,11 @@ function ActionsTool({
   const [activeTabId, setActiveTabId] = useState<ActionsToolTabId>(DEFAULT_ACTIONS_TOOL_TAB);
 
   return (
-    <section className="actions-tool" aria-label={t("actions.control")}>
+    <section
+      className="actions-tool"
+      aria-label={t("actions.control")}
+      data-help-context={helpContextForActionsTab(activeTabId)}
+    >
       <InnerToolTabs
         active={activeTabId}
         ariaLabel={t("actions.toolSections")}
@@ -5400,7 +5900,7 @@ function ScriptsTool({
 }) {
   const runningRunId = runState.status === "running" ? runState.runId : null;
   return (
-    <section className="scenarios-tool" aria-label={t("scripts.title")}>
+    <section className="scenarios-tool" aria-label={t("scripts.title")} data-help-context="scripts">
       {state.status === "idle" && <p>{t("scripts.openToScan")}</p>}
       {state.status === "loading" && <p>{t("scripts.scanning")}</p>}
       {state.status === "error" && <p className="inline-error">{state.message}</p>}
@@ -5499,7 +5999,7 @@ function CaptureTool({
   }
 
   return (
-    <section aria-label={t("capture.title")} className="capture-tool">
+    <section aria-label={t("capture.title")} className="capture-tool" data-help-context="capture">
       <div className="capture-category-chips" role="group" aria-label={t("capture.title")}>
         {CAPTURE_CATEGORY_OPTIONS.map((option) => (
           <button
@@ -5578,6 +6078,7 @@ function SearchDialog({
       <section
         aria-label={t("search.title")}
         className="file-dialog tool-dialog"
+        data-help-context="search"
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
       >
@@ -5643,6 +6144,7 @@ function CaptureDialog({
       <section
         aria-label={t("capture.title")}
         className="file-dialog tool-dialog"
+        data-help-context="capture"
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
       >
@@ -5725,6 +6227,7 @@ function PrepHealthDialog({
       <section
         aria-label={t("prep.title")}
         className="file-dialog prep-health-dialog tool-dialog"
+        data-help-context="prep-health"
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
       >
@@ -5830,7 +6333,7 @@ function HpTool({
   const disabled = status.status === "loading" || status.status === "saving";
 
   return (
-    <section aria-label={t("hp.title")} className="hp-tool">
+    <section aria-label={t("hp.title")} className="hp-tool" data-help-context="hp">
       <div className="hp-tool-actions">
         <button disabled={disabled} onClick={onAdd} type="button">
           {t("hp.add")}
@@ -5934,6 +6437,104 @@ function HpTool({
               ? t("app.saving")
               : t("hp.workspace"))}
       </p>
+    </section>
+  );
+}
+
+function DiceTool({
+  history,
+  onClearHistory,
+  onRoll,
+  status,
+  t
+}: {
+  history: DiceHistoryEntry[];
+  onClearHistory: () => void;
+  onRoll: (expression: string) => void;
+  status: DiceStatus;
+  t: Translator;
+}) {
+  const [expression, setExpression] = useState("");
+  const rolling = status.status === "rolling";
+  const latest = history[0] ?? null;
+
+  function submitRoll(nextExpression = expression) {
+    const trimmed = nextExpression.trim();
+    if (!trimmed || rolling) {
+      return;
+    }
+    onRoll(trimmed);
+  }
+
+  return (
+    <section aria-label={t("dice.title")} className="dice-tool" data-help-context="dice">
+      <div className="dice-common" aria-label={t("dice.common")}>
+        {COMMON_DICE_EXPRESSIONS.map((diceExpression) => (
+          <button
+            className="dice-chip"
+            disabled={rolling}
+            key={diceExpression}
+            onClick={() => {
+              setExpression(diceExpression);
+              submitRoll(diceExpression);
+            }}
+            title={t("dice.rollLink", { expression: diceExpression })}
+            type="button"
+          >
+            {diceExpression.replace(/^1/, "")}
+          </button>
+        ))}
+      </div>
+      <form
+        className="dice-roll-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          submitRoll();
+        }}
+      >
+        <label>
+          <span>{t("dice.expression")}</span>
+          <input
+            aria-label={t("dice.expression")}
+            onChange={(event) => setExpression(event.target.value)}
+            placeholder={t("dice.expressionPlaceholder")}
+            value={expression}
+          />
+        </label>
+        <button disabled={rolling || expression.trim().length === 0} type="submit">
+          {rolling ? t("dice.rolling") : t("dice.roll")}
+        </button>
+      </form>
+      {status.status === "error" && (
+        <p className="dice-status dice-status-error" role="alert">
+          {status.message}
+        </p>
+      )}
+      {latest && (
+        <div className="dice-result" aria-label={t("dice.result")}>
+          <strong>{latest.total}</strong>
+          <span>{formatDiceRollDetail(latest)}</span>
+        </div>
+      )}
+      <div className="dice-history-header">
+        <h3>{t("dice.history")}</h3>
+        <button disabled={history.length === 0} onClick={onClearHistory} type="button">
+          {t("dice.clearHistory")}
+        </button>
+      </div>
+      {history.length === 0 ? (
+        <p className="muted">{t("dice.emptyHistory")}</p>
+      ) : (
+        <ol aria-label={t("dice.history")} className="dice-history">
+          {history.map((entry) => (
+            <li key={entry.id}>
+              <span>{entry.expression}</span>
+              <strong>{entry.total}</strong>
+              <small>{entry.dice.results.join(", ")}</small>
+            </li>
+          ))}
+        </ol>
+      )}
     </section>
   );
 }
@@ -6080,6 +6681,16 @@ function hpSummary(rows: HpTrackerRow[], status: HpToolStatus): string {
   return summary.down > 0 ? `${summary.count} rows, ${summary.down} down` : `${summary.count} rows`;
 }
 
+function diceSummary(history: DiceHistoryEntry[], status: DiceStatus): string {
+  if (status.status === "rolling") {
+    return "Rolling";
+  }
+  if (status.status === "error") {
+    return "Error";
+  }
+  return history[0] ? `${history[0].expression}: ${history[0].total}` : "Ready";
+}
+
 function mergeLoadedWorkspaceTabs(
   currentState: TabState,
   workspaceTabs: OpenTab[],
@@ -6152,11 +6763,15 @@ function ToolsPanel({
   actionBindings,
   actionBindingMessage,
   audioExpansionState,
+  audioLibraryTracks,
   audioMixer,
   audioQuery,
   audioState,
+  audioPlaylistState,
   contentDirty,
   displayState,
+  diceHistory,
+  diceStatus,
   fileReady,
   fastSlotError,
   fastSlots,
@@ -6191,6 +6806,18 @@ function ToolsPanel({
   onAudioStopAll,
   onAudioStopBus,
   onAudioVolumeChange,
+  onSavedAudioPlaylistAddCurrentTrack,
+  onSavedAudioPlaylistAddTrack,
+  onSavedAudioPlaylistBusChange,
+  onSavedAudioPlaylistCreate,
+  onSavedAudioPlaylistDelete,
+  onSavedAudioPlaylistLoopChange,
+  onSavedAudioPlaylistMoveTrack,
+  onSavedAudioPlaylistPlay,
+  onSavedAudioPlaylistRemoveTrack,
+  onSavedAudioPlaylistRename,
+  onDiceClearHistory,
+  onDiceRoll,
   onHpAdd,
   onHpAdjust,
   onHpClear,
@@ -6263,11 +6890,15 @@ function ToolsPanel({
   actionBindings: ActionBinding[];
   actionBindingMessage: string | null;
   audioExpansionState: PlaylistExpansionState;
+  audioLibraryTracks: AudioTrack[];
   audioMixer: AudioMixerState;
   audioQuery: string;
   audioState: AudioLoadState;
+  audioPlaylistState: AudioPlaylistLoadState;
   contentDirty: boolean;
   displayState: DisplayState | null;
+  diceHistory: DiceHistoryEntry[];
+  diceStatus: DiceStatus;
   fastSlotError: string | null;
   fastSlots: FastSlot[];
   fileReady: boolean;
@@ -6302,6 +6933,18 @@ function ToolsPanel({
   onAudioStopAll: () => void;
   onAudioStopBus: (bus: AudioBus) => void;
   onAudioVolumeChange: (bus: AudioBus, volume: number) => void;
+  onSavedAudioPlaylistAddCurrentTrack: (playlistId: string) => void;
+  onSavedAudioPlaylistAddTrack: (playlistId: string, path: string) => void;
+  onSavedAudioPlaylistBusChange: (playlistId: string, bus: AudioBus) => void;
+  onSavedAudioPlaylistCreate: (name: string, bus: AudioBus) => void;
+  onSavedAudioPlaylistDelete: (playlistId: string) => void;
+  onSavedAudioPlaylistLoopChange: (playlistId: string, loop: boolean) => void;
+  onSavedAudioPlaylistMoveTrack: (playlistId: string, index: number, direction: -1 | 1) => void;
+  onSavedAudioPlaylistPlay: (playlistId: string) => void;
+  onSavedAudioPlaylistRemoveTrack: (playlistId: string, path: string) => void;
+  onSavedAudioPlaylistRename: (playlistId: string, name: string) => void;
+  onDiceClearHistory: () => void;
+  onDiceRoll: (expression: string) => void;
   onHpAdd: () => void;
   onHpAdjust: (rowId: string, amount: number) => void;
   onHpClear: () => void;
@@ -6325,7 +6968,7 @@ function ToolsPanel({
   onMapLoadPreset: (presetId: string) => void;
   onMapPinCreate: (point: MapPoint, label: string, visibility: MapPinVisibility) => void;
   onMapPresent: () => void;
-  onMapRevealCreate: (reveal: Omit<MapReveal, "id">) => void;
+  onMapRevealCreate: (reveal: MapRevealPayload) => void;
   onMapSavePreset: (name: string, state: MapState) => void;
   onMapStop: () => void;
   onMapUndoReveal: () => void;
@@ -6418,14 +7061,26 @@ function ToolsPanel({
         tool="audio"
       >
         <AudioTool
+          audioLibraryTracks={audioLibraryTracks}
           expansionState={audioExpansionState}
           mixer={audioMixer}
           onFadeIn={onAudioFadeIn}
           onFadeOut={onAudioFadeOut}
           onLoadTrack={onAudioLoadTrack}
           onLoadPlaylist={onAudioLoadPlaylist}
+          onSavedPlaylistAddCurrentTrack={onSavedAudioPlaylistAddCurrentTrack}
+          onSavedPlaylistAddTrack={onSavedAudioPlaylistAddTrack}
+          onSavedPlaylistBusChange={onSavedAudioPlaylistBusChange}
+          onSavedPlaylistCreate={onSavedAudioPlaylistCreate}
+          onSavedPlaylistDelete={onSavedAudioPlaylistDelete}
+          onSavedPlaylistLoopChange={onSavedAudioPlaylistLoopChange}
+          onSavedPlaylistMoveTrack={onSavedAudioPlaylistMoveTrack}
+          onSavedPlaylistPlay={onSavedAudioPlaylistPlay}
+          onSavedPlaylistRemoveTrack={onSavedAudioPlaylistRemoveTrack}
+          onSavedPlaylistRename={onSavedAudioPlaylistRename}
           onLoopChange={onAudioLoopChange}
           onNextTrack={onAudioNextTrack}
+          onPickPath={onPickPath}
           onPlaylistLoopChange={onAudioPlaylistLoopChange}
           onPlaylistToggle={onAudioPlaylistToggle}
           onPlayingChange={onAudioPlayingChange}
@@ -6435,7 +7090,26 @@ function ToolsPanel({
           onStopBus={onAudioStopBus}
           onVolumeChange={onAudioVolumeChange}
           query={audioQuery}
+          savedPlaylistsState={audioPlaylistState}
           state={audioState}
+          t={t}
+        />
+      </ToolSection>
+      <ToolSection
+        onTogglePin={onToolPin}
+        onToggle={onToolToggle}
+        open={isToolOpen(openTools, "dice")}
+        pinned={isToolPinned(openTools, "dice")}
+        summary={diceSummary(diceHistory, diceStatus)}
+        t={t}
+        title={t("tools.dice")}
+        tool="dice"
+      >
+        <DiceTool
+          history={diceHistory}
+          onClearHistory={onDiceClearHistory}
+          onRoll={onDiceRoll}
+          status={diceStatus}
           t={t}
         />
       </ToolSection>
@@ -6890,6 +7564,9 @@ export function App() {
   const [uiCatalog, setUiCatalog] = useState<TranslationCatalog | null>(null);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
+  const [contextHelpTopic, setContextHelpTopic] = useState<ContextHelpTopic | null>(null);
+  const contextHelpReturnFocusRef = useRef<HTMLElement | null>(null);
+  const lastHelpContextRef = useRef<string | null>(null);
   const [authState, setAuthState] = useState<AuthGateState>({ status: "checking" });
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [worldLibrary, setWorldLibrary] = useState<WorldLibraryState | null>(null);
@@ -6954,8 +7631,14 @@ export function App() {
   const [audioState, setAudioState] = useState<AudioLoadState>({ status: "idle" });
   const [audioAutocompleteTracks, setAudioAutocompleteTracks] = useState<AudioTrack[]>([]);
   const [audioMixer, setAudioMixer] = useState<AudioMixerState>(() => createAudioMixerState());
+  const [audioPlaylistState, setAudioPlaylistState] = useState<AudioPlaylistLoadState>({
+    status: "idle",
+    playlists: []
+  });
   const [audioPlaylistExpansion, setAudioPlaylistExpansion] =
     useState<PlaylistExpansionState>({});
+  const [diceHistory, setDiceHistory] = useState<DiceHistoryEntry[]>([]);
+  const [diceStatus, setDiceStatus] = useState<DiceStatus>({ status: "idle", message: null });
   const [fastSlots, setFastSlots] = useState<FastSlot[]>([]);
   const [fastSlotError, setFastSlotError] = useState<string | null>(null);
   const [actionBindings, setActionBindings] = useState<ActionBinding[]>([]);
@@ -7012,6 +7695,8 @@ export function App() {
   const mapViewportSyncRef = useRef({ lastSyncedAt: 0 });
   const hpEditVersionRef = useRef(0);
   const hpRowsRef = useRef<HpTrackerRow[]>([]);
+  const audioPlaylistsRef = useRef<AudioPlaylist[]>([]);
+  const audioPlaylistSaveRevisionRef = useRef(0);
   const midiBindingsRef = useRef<MidiBinding[]>([]);
   const midiInputsRef = useRef<MidiInputLike[]>([]);
   const midiLearningRef = useRef(false);
@@ -7041,6 +7726,15 @@ export function App() {
 
   function mapActionErrorMessage(error: unknown, fallback: string): string {
     return error instanceof Error ? error.message : fallback;
+  }
+
+  async function fetchFullAudioLibraryTracks(): Promise<AudioTrack[]> {
+    if (audioAutocompleteTracks.length > 0) {
+      return audioAutocompleteTracks;
+    }
+    const tracks = await fetchAudioLibrary();
+    setAudioAutocompleteTracks(tracks);
+    return tracks;
   }
 
   function applyLanguage(language: UiLanguage, catalog: TranslationCatalog, persist: boolean) {
@@ -7501,6 +8195,36 @@ export function App() {
     }
 
     let cancelled = false;
+    setAudioPlaylistState({ status: "loading", playlists: [] });
+    fetchAudioPlaylists()
+      .then((response) => {
+        if (!cancelled) {
+          audioPlaylistsRef.current = response.playlists;
+          setAudioPlaylistState({
+            status: "ready",
+            playlists: response.playlists
+          });
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          const message = error instanceof Error ? error.message : "Unknown error";
+          audioPlaylistsRef.current = [];
+          setAudioPlaylistState({ status: "error", playlists: [], message });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceReady, worldLibrary?.current?.id]);
+
+  useEffect(() => {
+    if (!workspaceReady) {
+      return;
+    }
+
+    let cancelled = false;
     fetchAudioLibrary()
       .then((tracks) => {
         if (!cancelled) {
@@ -7603,6 +8327,25 @@ export function App() {
   const activeContentDirty = activeDraft ? isDraftDirty(activeDraft) : false;
   const visiblePanePathKey = visiblePaneTabs.map((tab) => tab.path).join("\u0000");
 
+  function openContextHelp(context: string | null = null, restoreFocusTo?: HTMLElement | null) {
+    const topic = resolveContextHelpTopic({
+      activeMediaKind: activeTab?.mediaKind ?? null,
+      focusedContext: context ?? lastHelpContextRef.current
+    });
+    if (!topic) {
+      return;
+    }
+    contextHelpReturnFocusRef.current =
+      restoreFocusTo ??
+      (document.activeElement instanceof HTMLElement ? document.activeElement : null);
+    setContextHelpTopic(topic);
+  }
+
+  function closeContextHelp() {
+    setContextHelpTopic(null);
+    window.requestAnimationFrame(() => contextHelpReturnFocusRef.current?.focus());
+  }
+
   function closeWorldTreeContextMenu(restoreFocus = false) {
     setWorldTreeContextMenu({ open: false });
     if (restoreFocus) {
@@ -7627,6 +8370,46 @@ export function App() {
       searchInputRef.current?.focus();
     }
   }, [searchToolOpen]);
+
+  useEffect(() => {
+    function handleFocusIn(event: FocusEvent) {
+      const context = helpContextFromTarget(event.target);
+      if (context) {
+        lastHelpContextRef.current = context;
+      }
+    }
+
+    window.addEventListener("focusin", handleFocusIn);
+    return () => window.removeEventListener("focusin", handleFocusIn);
+  }, []);
+
+  useEffect(() => {
+    function handleHelpKeyDown(event: KeyboardEvent) {
+      if (event.key !== "F1" || contextHelpTopic) {
+        return;
+      }
+      const context = helpContextFromTarget(event.target);
+      const topic = resolveContextHelpTopic({
+        activeMediaKind: activeTab?.mediaKind ?? null,
+        focusedContext: context ?? lastHelpContextRef.current
+      });
+      if (!topic) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      contextHelpReturnFocusRef.current =
+        event.target instanceof HTMLElement
+          ? event.target
+          : document.activeElement instanceof HTMLElement
+            ? document.activeElement
+            : null;
+      setContextHelpTopic(topic);
+    }
+
+    window.addEventListener("keydown", handleHelpKeyDown, true);
+    return () => window.removeEventListener("keydown", handleHelpKeyDown, true);
+  }, [activeTab?.mediaKind, contextHelpTopic]);
 
   useEffect(() => {
     function handleEscape(event: KeyboardEvent) {
@@ -8003,6 +8786,35 @@ export function App() {
     if (tab) {
       openPeekTab(tab);
     }
+  }
+
+  function handleDiceClearHistory() {
+    setDiceHistory((history) => clearDiceHistory(history));
+    setDiceStatus({ status: "idle", message: null });
+  }
+
+  function handleDiceRoll(expression: string) {
+    const trimmed = expression.trim();
+    if (!trimmed) {
+      return;
+    }
+    setToolPanelState((state) => openToolSectionByUser(state, "dice"));
+    setDiceStatus({ status: "rolling", message: null });
+    rollDice(trimmed)
+      .then((roll: DiceRollResponse) => {
+        const entry: DiceHistoryEntry = {
+          ...roll,
+          id: `${roll.rolled_at}-${roll.expression}-${Math.random().toString(36).slice(2)}`
+        };
+        setDiceHistory((history) => addDiceHistoryEntry(history, entry));
+        setDiceStatus({ status: "ready", message: null });
+      })
+      .catch((error: unknown) => {
+        setDiceStatus({
+          status: "error",
+          message: error instanceof Error ? error.message : t("dice.error")
+        });
+      });
   }
 
   function handleLinkContext(link: PageLink, event: MouseEvent<HTMLElement>) {
@@ -8540,10 +9352,7 @@ export function App() {
         setScreenToolTab("map");
         setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       } else if (effect.kind === "audio_play") {
-        const tracks =
-          audioState.status === "ready"
-            ? audioState.tracks
-            : await fetchAudioLibrary();
+        const tracks = await fetchFullAudioLibraryTracks();
         const track = tracks.find((item) => item.path === effect.path);
         if (track) {
           const busTrack = { ...track, bus: effect.bus };
@@ -8711,10 +9520,7 @@ export function App() {
       return;
     }
     if (dispatchAction.kind === "audio_track") {
-      const tracks =
-        audioState.status === "ready"
-          ? audioState.tracks
-          : await fetchAudioLibrary();
+      const tracks = await fetchFullAudioLibraryTracks();
       const track = tracks.find((item) => item.path === dispatchAction.path);
       if (track) {
         const effectTrack = { ...track, bus: "effect" as const };
@@ -9967,6 +10773,8 @@ export function App() {
     setAudioAutocompleteTracks([]);
     hpEditVersionRef.current = 0;
     hpRowsRef.current = [];
+    audioPlaylistsRef.current = [];
+    setAudioPlaylistState({ status: "idle", playlists: [] });
     setHpRows([]);
     setHpStatus({ status: "idle", message: null });
     setAudioMixer(createAudioMixerState());
@@ -10479,7 +11287,7 @@ export function App() {
     }
   }
 
-  async function handleMapRevealCreate(reveal: Omit<MapReveal, "id">) {
+  async function handleMapRevealCreate(reveal: MapRevealPayload) {
     try {
       adoptMapState(await addMapReveal(reveal));
       setMapActionStatus({ status: "ready", message: "Reveal added." });
@@ -10612,6 +11420,126 @@ export function App() {
         currentPresets.filter((currentPreset) => currentPreset.id !== presetId)
       );
     } catch {
+    }
+  }
+
+  function persistAudioPlaylists(playlists: AudioPlaylist[]) {
+    const revision = audioPlaylistSaveRevisionRef.current + 1;
+    audioPlaylistSaveRevisionRef.current = revision;
+    audioPlaylistsRef.current = playlists;
+    setAudioPlaylistState({
+      status: "saving",
+      playlists,
+      message: t("audio.savedSaving")
+    });
+    void saveAudioPlaylists(playlists)
+      .then((response) => {
+        if (audioPlaylistSaveRevisionRef.current !== revision) {
+          return;
+        }
+        audioPlaylistsRef.current = response.playlists;
+        setAudioPlaylistState({
+          status: "ready",
+          playlists: response.playlists,
+          message: t("audio.savedSaved")
+        });
+      })
+      .catch((error: unknown) => {
+        if (audioPlaylistSaveRevisionRef.current !== revision) {
+          return;
+        }
+        const message = error instanceof Error ? error.message : t("audio.savedSaveError");
+        setAudioPlaylistState({ status: "error", playlists, message });
+      });
+  }
+
+  function updateAudioPlaylists(updater: (playlists: AudioPlaylist[]) => AudioPlaylist[]) {
+    persistAudioPlaylists(updater(audioPlaylistsRef.current));
+  }
+
+  function handleSavedAudioPlaylistCreate(name: string, bus: AudioBus) {
+    updateAudioPlaylists((playlists) => createAudioPlaylist(playlists, name, bus));
+  }
+
+  function handleSavedAudioPlaylistRename(playlistId: string, name: string) {
+    updateAudioPlaylists((playlists) => renameAudioPlaylist(playlists, playlistId, name));
+  }
+
+  function handleSavedAudioPlaylistDelete(playlistId: string) {
+    updateAudioPlaylists((playlists) => deleteAudioPlaylist(playlists, playlistId));
+  }
+
+  function handleSavedAudioPlaylistBusChange(playlistId: string, bus: AudioBus) {
+    updateAudioPlaylists((playlists) => setSavedAudioPlaylistBus(playlists, playlistId, bus));
+  }
+
+  function handleSavedAudioPlaylistLoopChange(playlistId: string, loop: boolean) {
+    updateAudioPlaylists((playlists) => setSavedAudioPlaylistLoop(playlists, playlistId, loop));
+  }
+
+  function handleSavedAudioPlaylistAddTrack(playlistId: string, path: string) {
+    updateAudioPlaylists((playlists) => addAudioPlaylistTrack(playlists, playlistId, path.trim()));
+  }
+
+  function handleSavedAudioPlaylistAddCurrentTrack(playlistId: string) {
+    const playlist = audioPlaylistsRef.current.find((candidate) => candidate.id === playlistId);
+    const currentTrack = playlist ? audioMixer[playlist.bus].track : null;
+    if (!currentTrack) {
+      setAudioPlaylistState({
+        status: "error",
+        playlists: audioPlaylistsRef.current,
+        message: t("audio.noCurrentTrack")
+      });
+      return;
+    }
+    handleSavedAudioPlaylistAddTrack(playlistId, currentTrack.path);
+  }
+
+  function handleSavedAudioPlaylistRemoveTrack(playlistId: string, path: string) {
+    updateAudioPlaylists((playlists) => removeAudioPlaylistTrack(playlists, playlistId, path));
+  }
+
+  function handleSavedAudioPlaylistMoveTrack(
+    playlistId: string,
+    index: number,
+    direction: -1 | 1
+  ) {
+    updateAudioPlaylists((playlists) =>
+      moveAudioPlaylistTrack(playlists, playlistId, index, direction)
+    );
+  }
+
+  async function handleSavedAudioPlaylistPlay(playlistId: string) {
+    const playlist = audioPlaylistsRef.current.find((candidate) => candidate.id === playlistId);
+    if (!playlist) {
+      return;
+    }
+    try {
+      const tracks =
+        audioAutocompleteTracks.length > 0
+          ? audioAutocompleteTracks
+          : await fetchAudioLibrary();
+      if (audioAutocompleteTracks.length === 0) {
+        setAudioAutocompleteTracks(tracks);
+      }
+      const nextMixer = loadSavedAudioPlaylist(audioMixer, playlist, tracks);
+      if (!nextMixer[playlist.bus].track) {
+        setAudioPlaylistState({
+          status: "error",
+          playlists: audioPlaylistsRef.current,
+          message: t("audio.noPlayableTracks")
+        });
+        return;
+      }
+      setAudioMixer(setAudioBusPlaying(nextMixer, playlist.bus, true));
+      setAudioPlaylistState({
+        status: "ready",
+        playlists: audioPlaylistsRef.current,
+        message: t("audio.savedLoaded", { name: playlist.name })
+      });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : t("audio.savedLoadError");
+      setAudioPlaylistState({ status: "error", playlists: audioPlaylistsRef.current, message });
     }
   }
 
@@ -10929,6 +11857,7 @@ export function App() {
               loadState={paneFileState}
               onContextLink={handleLinkContext}
               onCsvDraftChange={handleCsvDraftChange}
+              onDiceRoll={handleDiceRoll}
               onDraftContentChange={handleDraftContentChange}
               onOpenLink={openResolvedLink}
               onPickWorldPath={handleOpenWorldPathPicker}
@@ -11012,7 +11941,7 @@ export function App() {
             </button>
           </div>
         </div>
-        <nav className="world-tree" aria-label={t("side.worldFiles")}>
+        <nav className="world-tree" aria-label={t("side.worldFiles")} data-help-context="world-tree">
           <div className="world-tree-controls">
             <input
               aria-label={t("side.filterWorldTree")}
@@ -11093,6 +12022,7 @@ export function App() {
             onActivate={(workspaceId) => void handleActivateWorkspace(workspaceId)}
             onCapture={() => setCaptureDialogOpen(true)}
             onDelete={() => void handleDeleteCurrentWorkspace()}
+            onHelp={() => openContextHelp(helpContextForMediaKind(activeTab?.mediaKind ?? null))}
             onNewCard={handleOpenNewCardDialog}
             onSearch={() => setSearchDialogOpen(true)}
             onModeChange={handleWorkspaceModeChange}
@@ -11196,11 +12126,15 @@ export function App() {
               actionBindings={actionBindings}
               actionBindingMessage={actionBindingMessage}
               audioExpansionState={audioPlaylistExpansion}
+              audioLibraryTracks={audioAutocompleteTracks}
               audioMixer={audioMixer}
               audioQuery={audioQuery}
+              audioPlaylistState={audioPlaylistState}
               audioState={audioState}
               contentDirty={activeContentDirty}
               displayState={displayState}
+              diceHistory={diceHistory}
+              diceStatus={diceStatus}
               fastSlotError={fastSlotError}
               fastSlots={fastSlots}
               hpRows={hpRows}
@@ -11238,6 +12172,18 @@ export function App() {
               onAudioStopAll={handleAudioStopAll}
               onAudioStopBus={handleAudioStopBus}
               onAudioVolumeChange={handleAudioVolumeChange}
+              onSavedAudioPlaylistAddCurrentTrack={handleSavedAudioPlaylistAddCurrentTrack}
+              onSavedAudioPlaylistAddTrack={handleSavedAudioPlaylistAddTrack}
+              onSavedAudioPlaylistBusChange={handleSavedAudioPlaylistBusChange}
+              onSavedAudioPlaylistCreate={handleSavedAudioPlaylistCreate}
+              onSavedAudioPlaylistDelete={handleSavedAudioPlaylistDelete}
+              onSavedAudioPlaylistLoopChange={handleSavedAudioPlaylistLoopChange}
+              onSavedAudioPlaylistMoveTrack={handleSavedAudioPlaylistMoveTrack}
+              onSavedAudioPlaylistPlay={handleSavedAudioPlaylistPlay}
+              onSavedAudioPlaylistRemoveTrack={handleSavedAudioPlaylistRemoveTrack}
+              onSavedAudioPlaylistRename={handleSavedAudioPlaylistRename}
+              onDiceClearHistory={handleDiceClearHistory}
+              onDiceRoll={handleDiceRoll}
               onHpAdd={handleHpAdd}
               onHpAdjust={handleHpAdjust}
               onHpClear={handleHpClear}
@@ -11474,6 +12420,7 @@ export function App() {
         completions={buildEditorCompletions(pages, worldTree, audioAutocompleteTracks)}
         onClose={() => setPeekState({ open: false })}
         onContextLink={handleLinkContext}
+        onDiceRoll={handleDiceRoll}
         onOpenLink={openResolvedLink}
         onPeekLink={openLinkPeek}
         state={peekState}
@@ -11490,6 +12437,12 @@ export function App() {
         onClose={() => setDmsOutputSaveDialog({ open: false })}
         onSubmit={() => void handleSaveDmsOutput()}
         state={dmsOutputSaveDialog}
+      />
+      <ContextHelpDialog
+        onClose={closeContextHelp}
+        open={Boolean(contextHelpTopic)}
+        t={t}
+        topic={contextHelpTopic}
       />
     </main>
   );

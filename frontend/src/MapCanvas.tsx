@@ -13,17 +13,26 @@ import {
   fitMapImageToStage,
   isUsableMapImageSize,
   mapFogClassName,
-  mapFogRevealRects,
+  mapFogMaskOperations,
   normalizeMapPoint,
+  normalizeMapPolygon,
   normalizeMapRect,
   type MapPoint,
-  type MapReveal,
+  type MapRevealPayload,
+  type MapRectRevealPayload,
   type MapSize,
   type MapState,
   type MapViewport
 } from "./lib/map";
 
-export type MapCanvasTool = "pan" | "reveal" | "pin" | "measure";
+export type MapCanvasTool =
+  | "pan"
+  | "reveal"
+  | "hide"
+  | "reveal-polygon"
+  | "hide-polygon"
+  | "pin"
+  | "measure";
 
 type MapGridState = {
   enabled?: boolean;
@@ -74,7 +83,9 @@ export type MapCanvasProps = {
   emptyMessage?: string;
   onViewportPreview?: (viewport: MapViewport) => void;
   onViewportCommit?: (viewport: MapViewport) => void;
-  onRevealCreate?: (reveal: Omit<MapReveal, "id">) => void;
+  onRevealCreate?: (reveal: MapRevealPayload) => void;
+  onPolygonPointAdd?: (point: MapPoint) => void;
+  polygonPoints?: MapPoint[];
   onPinCreate?: (point: MapPoint) => void;
 };
 
@@ -272,13 +283,15 @@ export function MapCanvas({
   onViewportPreview,
   onViewportCommit,
   onRevealCreate,
+  onPolygonPointAdd,
+  polygonPoints = [],
   onPinCreate
 }: MapCanvasProps) {
   const stageRef = useRef<HTMLDivElement>(null);
   const worldRef = useRef<HTMLDivElement>(null);
   const imageRef = useRef<HTMLImageElement>(null);
   const dragRef = useRef<DragState | null>(null);
-  const previewRevealRef = useRef<Omit<MapReveal, "id"> | null>(null);
+  const previewRevealRef = useRef<MapRectRevealPayload | null>(null);
   const previewMeasurementRef = useRef<MeasurementPreview | null>(null);
   const restoreStageFocusRef = useRef(false);
   const latestViewportRef = useRef<MapViewport>(state.viewport);
@@ -288,24 +301,31 @@ export function MapCanvas({
   const [stageSize, setStageSize] = useState<MapSize>({ width: 0, height: 0 });
   const [imageSize, setImageSize] = useState<MapSize>({ width: 0, height: 0 });
   const [imageStatus, setImageStatus] = useState<"loading" | "ready" | "error">("loading");
-  const [previewReveal, setPreviewReveal] = useState<Omit<MapReveal, "id"> | null>(null);
+  const [previewReveal, setPreviewReveal] = useState<MapRectRevealPayload | null>(null);
   const [previewMeasurement, setPreviewMeasurement] = useState<MeasurementPreview | null>(null);
 
   const viewport = clampMapViewport(state.viewport);
   const readOnly = mode === "player";
   const canMeasure = mode === "dm" && tool === "measure";
+  const isRectFogTool = tool === "reveal" || tool === "hide";
+  const isPolygonFogTool = tool === "reveal-polygon" || tool === "hide-polygon";
   const imageUrl = state.image_path ? mediaUrlBuilder(state.image_path) : "";
   const fittedSize = useMemo(() => fitMapImageToStage(stageSize, imageSize), [stageSize, imageSize]);
   const imageReady = imageStatus === "ready" && isUsableMapImageSize(fittedSize);
   const interactive =
     !readOnly &&
     imageReady &&
-    (canMeasure || Boolean(onViewportPreview || onViewportCommit || onRevealCreate || onPinCreate));
+    (canMeasure ||
+      Boolean(onViewportPreview || onViewportCommit || onRevealCreate || onPolygonPointAdd || onPinCreate));
   const gridSpec = useMemo(() => resolveGridSpec(state.grid, imageSize), [state.grid, imageSize]);
-  const revealRects = useMemo(() => mapFogRevealRects(state.reveals), [state.reveals]);
+  const fogOperations = useMemo(() => mapFogMaskOperations(state.reveals), [state.reveals]);
+  const polygonPreviewPoints = useMemo(
+    () => normalizeMapPolygon(polygonPoints),
+    [polygonPoints]
+  );
   latestViewportRef.current = viewport;
 
-  function updatePreviewReveal(reveal: Omit<MapReveal, "id"> | null) {
+  function updatePreviewReveal(reveal: MapRectRevealPayload | null) {
     previewRevealRef.current = reveal;
     setPreviewReveal(reveal);
   }
@@ -449,9 +469,16 @@ export function MapCanvas({
       return;
     }
 
+    if (isPolygonFogTool && onPolygonPointAdd) {
+      event.currentTarget.setPointerCapture(event.pointerId);
+      requestStageFocusRestore();
+      onPolygonPointAdd(point);
+      return;
+    }
+
     event.currentTarget.setPointerCapture(event.pointerId);
 
-    if (tool === "reveal" && onRevealCreate) {
+    if (isRectFogTool && onRevealCreate) {
       dragRef.current = { kind: "reveal", start: point };
       updatePreviewReveal({ x: point.x, y: point.y, width: 0, height: 0 });
       return;
@@ -515,7 +542,11 @@ export function MapCanvas({
     if (drag?.kind === "reveal" && finalPreviewReveal && onRevealCreate) {
       if (finalPreviewReveal.width > 0.005 && finalPreviewReveal.height > 0.005) {
         requestStageFocusRestore();
-        onRevealCreate(finalPreviewReveal);
+        onRevealCreate({
+          ...finalPreviewReveal,
+          action: tool === "hide" ? "hide" : "reveal",
+          shape: "rect"
+        });
       }
       updatePreviewReveal(null);
     }
@@ -659,17 +690,26 @@ export function MapCanvas({
               <defs>
                 <mask id={maskId} maskContentUnits="objectBoundingBox" maskUnits="objectBoundingBox">
                   <rect fill="white" height="1" width="1" x="0" y="0" />
-                  {revealRects.map((reveal, index) => (
-                    <rect
-                      className="map-fog-hole"
-                      fill="black"
-                      height={reveal.height}
-                      key={`${reveal.x}-${reveal.y}-${reveal.width}-${reveal.height}-${index}`}
-                      width={reveal.width}
-                      x={reveal.x}
-                      y={reveal.y}
-                    />
-                  ))}
+                  {fogOperations.map((operation, index) =>
+                    operation.shape === "polygon" ? (
+                      <polygon
+                        className={operation.action === "reveal" ? "map-fog-hole" : "map-fog-cover"}
+                        fill={operation.fill}
+                        key={`polygon-${index}-${operation.points.map((point) => `${point.x},${point.y}`).join(" ")}`}
+                        points={operation.points.map((point) => `${point.x},${point.y}`).join(" ")}
+                      />
+                    ) : (
+                      <rect
+                        className={operation.action === "reveal" ? "map-fog-hole" : "map-fog-cover"}
+                        fill={operation.fill}
+                        height={operation.rect.height}
+                        key={`rect-${index}-${operation.rect.x}-${operation.rect.y}-${operation.rect.width}-${operation.rect.height}`}
+                        width={operation.rect.width}
+                        x={operation.rect.x}
+                        y={operation.rect.y}
+                      />
+                    )
+                  )}
                 </mask>
               </defs>
               <rect
@@ -695,7 +735,7 @@ export function MapCanvas({
           {previewReveal ? (
             <span
               aria-hidden="true"
-              className="map-canvas-reveal-preview"
+              className={`map-canvas-reveal-preview ${tool === "hide" ? "map-canvas-hide-preview" : ""}`.trim()}
               style={{
                 height: `${previewReveal.height * 100}%`,
                 left: `${previewReveal.x * 100}%`,
@@ -703,6 +743,53 @@ export function MapCanvas({
                 width: `${previewReveal.width * 100}%`
               }}
             />
+          ) : null}
+          {polygonPreviewPoints ? (
+            <svg
+              aria-hidden="true"
+              className={`map-canvas-polygon-preview ${tool === "hide-polygon" ? "map-canvas-hide-preview" : ""}`.trim()}
+              preserveAspectRatio="none"
+              viewBox="0 0 1 1"
+            >
+              <polyline
+                className="map-canvas-polygon-preview-line"
+                points={polygonPoints.map((point) => `${point.x},${point.y}`).join(" ")}
+              />
+              <polygon
+                className="map-canvas-polygon-preview-fill"
+                points={polygonPreviewPoints.map((point) => `${point.x},${point.y}`).join(" ")}
+              />
+              {polygonPoints.map((point, index) => (
+                <circle
+                  className="map-canvas-polygon-preview-point"
+                  cx={point.x}
+                  cy={point.y}
+                  key={`${point.x}-${point.y}-${index}`}
+                  r="0.008"
+                />
+              ))}
+            </svg>
+          ) : polygonPoints.length > 0 ? (
+            <svg
+              aria-hidden="true"
+              className={`map-canvas-polygon-preview ${tool === "hide-polygon" ? "map-canvas-hide-preview" : ""}`.trim()}
+              preserveAspectRatio="none"
+              viewBox="0 0 1 1"
+            >
+              <polyline
+                className="map-canvas-polygon-preview-line"
+                points={polygonPoints.map((point) => `${point.x},${point.y}`).join(" ")}
+              />
+              {polygonPoints.map((point, index) => (
+                <circle
+                  className="map-canvas-polygon-preview-point"
+                  cx={point.x}
+                  cy={point.y}
+                  key={`${point.x}-${point.y}-${index}`}
+                  r="0.008"
+                />
+              ))}
+            </svg>
           ) : null}
           {previewMeasurement && canMeasure ? (
             <>

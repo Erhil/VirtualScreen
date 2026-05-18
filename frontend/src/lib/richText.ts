@@ -77,6 +77,14 @@ function renderWorldAnchor(index: number, label: string): string {
   return `<a class="inline-link" href="#" data-world-link-index="${index}">${escapeHtml(label)}</a>`;
 }
 
+function diceExpressionFromHref(href: string): string | null {
+  if (!href.toLowerCase().startsWith("roll:")) {
+    return null;
+  }
+  const expression = href.slice(5).trim();
+  return expression ? expression : null;
+}
+
 function renderWorldVideo(
   path: string,
   label: string,
@@ -151,6 +159,7 @@ export function sanitizeRichHtml(html: string): string {
       "autoplay",
       "class",
       "controls",
+      "data-dice-expression",
       "data-world-link-index",
       "loop",
       "muted",
@@ -179,6 +188,13 @@ function renderMarkdown(
 markdown.renderer.rules.link_open = (tokens, index, options, env: RichEnv, self) => {
   const token = tokens[index];
   const href = token.attrGet("href") ?? "";
+  const diceExpression = diceExpressionFromHref(href);
+  if (diceExpression) {
+    token.attrSet("href", "#");
+    token.attrSet("class", "dice-roll-link");
+    token.attrSet("data-dice-expression", diceExpression);
+    return self.renderToken(tokens, index, options);
+  }
   const link = env.links.find((candidate) => {
     return candidate.link_type === "markdown" && candidate.raw_target === href;
   });

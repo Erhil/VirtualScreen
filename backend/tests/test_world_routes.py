@@ -75,7 +75,11 @@ def test_world_tree_does_not_add_page_metadata_to_non_markdown_files(sample_worl
     assert response.status_code == 200
     body = response.json()
     tables = next(child for child in body["children"] if child["path"] == "Tables")
-    csv_file = tables["children"][0]
+    csv_file = next(
+        child
+        for child in tables["children"]
+        if child["path"] == "Tables/random-events.csv"
+    )
     assert csv_file["path"] == "Tables/random-events.csv"
     assert csv_file["title"] is None
     assert csv_file["page_type"] is None

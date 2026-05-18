@@ -11,6 +11,11 @@ from typing import Literal
 
 from app.core.audio import BUS_FOLDER_TO_BUS, scan_audio_library
 from app.core.card_templates import list_card_templates, validate_card_shape
+from app.core.dice import (
+    DICE_COUNT_MAX,
+    DICE_EXPRESSION_PATTERN,
+    DICE_SIDES_MAX,
+)
 from app.core.display import display_item_for_path
 from app.core.file_safety import atomic_write_bytes, backup_file
 from app.core.index import rebuild_index
@@ -170,6 +175,9 @@ _output_index = 0
 _effect_index = 0
 _write_index = 0
 _card_templates = json.loads({json.dumps(json.dumps(card_templates, ensure_ascii=False))})
+_dice_expression_pattern = {DICE_EXPRESSION_PATTERN!r}
+_dice_count_max = {DICE_COUNT_MAX}
+_dice_sides_max = {DICE_SIDES_MAX}
 
 
 def _emit(payload):
@@ -217,14 +225,14 @@ def choose_file(label="File", kind="any", folder=None):
 
 
 def roll(expr):
-    match = re.fullmatch(r"\\s*(\\d*)d(\\d+)(?:\\s*([+-])\\s*(\\d+))?\\s*", str(expr))
+    match = re.fullmatch(_dice_expression_pattern, str(expr).strip())
     if not match:
         raise ValueError("Dice expression must look like 1d20+3.")
     count = int(match.group(1) or "1")
     sides = int(match.group(2))
     sign = match.group(3)
     modifier = int(match.group(4) or "0")
-    if count < 1 or count > 100 or sides < 1 or sides > 10000:
+    if count < 1 or count > _dice_count_max or sides < 1 or sides > _dice_sides_max:
         raise ValueError("Dice expression is out of supported range.")
     total = sum(random.randint(1, sides) for _ in range(count))
     return total - modifier if sign == "-" else total + modifier

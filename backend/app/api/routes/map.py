@@ -32,6 +32,7 @@ from app.core.map import (
     map_state_from_payload,
     map_state_payload,
     normalize_pin,
+    normalize_polygon_reveal,
     normalize_reveal,
     present_map,
     public_map_state,
@@ -75,10 +76,13 @@ class MapGridRequest(BaseModel):
 
 
 class MapRevealRequest(BaseModel):
-    x: float
-    y: float
-    width: float
-    height: float
+    action: str | None = None
+    shape: str | None = None
+    x: float | None = None
+    y: float | None = None
+    width: float | None = None
+    height: float | None = None
+    points: list[dict[str, object]] | None = None
 
 
 class MapPinRequest(BaseModel):
@@ -227,7 +231,26 @@ def map_reveal_add(
     settings: SettingsDep,
 ) -> dict[str, object]:
     try:
-        reveal = normalize_reveal(payload.x, payload.y, payload.width, payload.height)
+        shape = payload.shape or ("polygon" if payload.points is not None else "rect")
+        if shape == "polygon":
+            reveal = normalize_polygon_reveal(payload.points or [], payload.action)
+        elif shape == "rect":
+            if (
+                payload.x is None
+                or payload.y is None
+                or payload.width is None
+                or payload.height is None
+            ):
+                raise ValueError("Map rectangle reveal requires x, y, width, and height.")
+            reveal = normalize_reveal(
+                payload.x,
+                payload.y,
+                payload.width,
+                payload.height,
+                payload.action,
+            )
+        else:
+            raise ValueError("Map reveal shape must be 'rect' or 'polygon'.")
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     state = add_map_reveal(settings.resolved_world_root, reveal)

@@ -1113,6 +1113,58 @@ test("audio tool searches music and plays independent buses @smoke", async ({ pa
   await expect(musicBus.getByText("Empty")).toBeVisible();
 });
 
+test("saved audio playlists persist and play through the existing queue @smoke", async ({ page }) => {
+  await page.goto("/");
+
+  const audio = await audioTool(page);
+  const saved = audio.getByRole("region", { name: "Saved Playlists" });
+  await saved.getByLabel("Saved playlist name").fill("Battle Mix");
+  await saved.locator(".audio-saved-create-row").getByLabel("Bus").selectOption("ambient");
+  await saved.getByRole("button", { name: "New" }).click();
+
+  let playlist = saved.getByRole("region", { name: "Saved playlist Battle Mix" });
+  await expect(playlist).toBeVisible();
+  await playlist.getByLabel("Track path for Battle Mix").fill(".music/ambient/Tavern/tavern-crowd.mp3");
+  await playlist.getByRole("button", { name: "+ Track" }).click();
+  await playlist.getByLabel("Track path for Battle Mix").fill(".music/music/Bard/bard-song.ogg");
+  await playlist.getByRole("button", { name: "+ Track" }).click();
+  await playlist.getByLabel("Track path for Battle Mix").fill(".music/ambient/missing.wav");
+  await playlist.getByRole("button", { name: "+ Track" }).click();
+  await expect(playlist.getByText("tavern-crowd")).toBeVisible();
+  await expect(playlist.getByText("bard-song")).toBeVisible();
+  await expect(playlist.getByText("Missing: .music/ambient/missing.wav")).toBeVisible();
+
+  await playlist.getByLabel("Rename Battle Mix").fill("Storm Set");
+  await playlist.getByRole("button", { name: "Rename" }).click();
+  playlist = saved.getByRole("region", { name: "Saved playlist Storm Set" });
+  await expect(playlist).toBeVisible();
+  await playlist.getByRole("button", { name: "Move .music/music/Bard/bard-song.ogg up" }).click();
+  await playlist.getByRole("button", { name: "Play" }).click();
+
+  const ambientBus = audio.getByRole("region", { name: "Ambient Bus" });
+  await expect(ambientBus.locator(".audio-queue-line").getByText("Storm Set 1/2")).toBeVisible();
+  await expect(ambientBus.locator(".audio-bus-heading").getByText("bard-song")).toBeVisible();
+  await ambientBus.getByRole("button", { name: "Next" }).click();
+  await expect(ambientBus.locator(".audio-queue-line").getByText("Storm Set 2/2")).toBeVisible();
+  await expect(ambientBus.locator(".audio-bus-heading").getByText("tavern-crowd")).toBeVisible();
+  await ambientBus.getByRole("button", { name: "Prev" }).click();
+  await expect(ambientBus.locator(".audio-bus-heading").getByText("bard-song")).toBeVisible();
+
+  await page.reload();
+  const reloadedAudio = await audioTool(page);
+  const reloadedSaved = reloadedAudio.getByRole("region", { name: "Saved Playlists" });
+  const reloadedPlaylist = reloadedSaved.getByRole("region", { name: "Saved playlist Storm Set" });
+  await expect(reloadedPlaylist).toBeVisible();
+  await expect(reloadedPlaylist.getByText("Missing: .music/ambient/missing.wav")).toBeVisible();
+
+  await reloadedPlaylist.getByRole("button", { name: "Delete" }).click();
+  await page.reload();
+  const afterDeleteAudio = await audioTool(page);
+  await expect(
+    afterDeleteAudio.getByRole("region", { name: "Saved playlist Storm Set" })
+  ).toHaveCount(0);
+});
+
 test("fast slots can open files from click and hotkey", async ({ page }) => {
   await page.goto("/");
 
@@ -1283,6 +1335,10 @@ test("DMS scripts can control screen and audio", async ({ page, context }) => {
   const screen = await context.newPage();
   await screen.goto("/screen");
   await page.goto("/");
+
+  const filteredAudio = await audioTool(page);
+  await filteredAudio.getByRole("searchbox", { name: "Music Search" }).fill("bard");
+  await expect(filteredAudio.getByRole("button", { name: /bard-song/ })).toBeVisible();
 
   await worldTree(page).getByRole("button", { name: /effects_demo\.dms/ }).click();
   await runActiveScript(page);
@@ -2284,13 +2340,34 @@ test("interactive map presents image maps with fog reveals and pins on player sc
     expect(dmFogFill.replace(/\s/g, "")).toBe("rgba(0,0,0,0.7)");
     expect(playerFogFill).toBe("rgb(0, 0, 0)");
   }).toPass();
-  await map.getByRole("button", { name: "Reveal Mode" }).click();
+  await map.getByRole("button", { name: "Reveal Box" }).click();
   const canvas = map.locator(".map-canvas-stage");
   await dragMapCanvas(map, 0.2, 0.2, 0.55, 0.55);
   await expect(screen.locator(".map-fog-hole")).toHaveCount(1);
   await expect(canvas).toBeFocused();
   await dragMapCanvas(map, 0.58, 0.18, 0.72, 0.34);
   await expect(screen.locator(".map-fog-hole")).toHaveCount(2);
+  await expect(canvas).toBeFocused();
+  await map.getByRole("button", { name: "Hide Box" }).click();
+  await dragMapCanvas(map, 0.25, 0.25, 0.38, 0.38);
+  await expect(screen.locator(".map-fog-cover")).toHaveCount(1);
+  await expect(canvas).toBeFocused();
+
+  await map.getByRole("button", { name: "Reveal Polygon" }).click();
+  await clickMapCanvas(map, 0.16, 0.66);
+  await clickMapCanvas(map, 0.34, 0.68);
+  await clickMapCanvas(map, 0.24, 0.84);
+  await expect(map.getByRole("button", { name: "Commit Polygon" })).toBeEnabled();
+  await map.getByRole("button", { name: "Commit Polygon" }).click();
+  await expect(screen.locator(".map-fog-hole")).toHaveCount(3);
+  await expect(canvas).toBeFocused();
+
+  await map.getByRole("button", { name: "Hide Polygon" }).click();
+  await clickMapCanvas(map, 0.18, 0.68);
+  await clickMapCanvas(map, 0.3, 0.7);
+  await clickMapCanvas(map, 0.24, 0.8);
+  await map.getByRole("button", { name: "Commit Polygon" }).click();
+  await expect(screen.locator(".map-fog-cover")).toHaveCount(2);
   await expect(canvas).toBeFocused();
 
   let viewportRequests = 0;
@@ -2459,11 +2536,11 @@ test("interactive map supports grid visibility dm pins reveal undo and measure m
 
   await map.getByLabel("Fog enabled").click();
   await expect(map.getByLabel("Fog enabled")).toBeChecked();
-  await map.getByRole("button", { name: "Reveal Mode" }).click();
+  await map.getByRole("button", { name: "Reveal Box" }).click();
   await dragMapCanvas(map, 0.15, 0.15, 0.35, 0.35);
   await dragMapCanvas(map, 0.5, 0.5, 0.75, 0.75);
   await expect(screen.locator(".map-fog-hole")).toHaveCount(2);
-  await map.getByRole("button", { name: "Undo Reveal" }).click();
+  await map.getByRole("button", { name: "Undo Fog Step" }).click();
   await expect(screen.locator(".map-fog-hole")).toHaveCount(1);
 
   await map.getByRole("button", { name: "Measure Mode" }).click();
@@ -2495,9 +2572,19 @@ test("interactive map keeps canvas focus and can save and load presets", async (
   await map.getByLabel("Grid rows").fill("7");
   await map.getByRole("tab", { name: "Live" }).click();
   await map.getByLabel("Fog enabled").click();
-  await map.getByRole("button", { name: "Reveal Mode" }).click();
+  await map.getByRole("button", { name: "Reveal Box" }).click();
   await dragMapCanvas(map, 0.2, 0.2, 0.4, 0.4);
   await expect(map.locator(".map-canvas-stage")).toBeFocused();
+  await map.getByRole("button", { name: "Reveal Polygon" }).click();
+  await clickMapCanvas(map, 0.55, 0.18);
+  await clickMapCanvas(map, 0.78, 0.24);
+  await clickMapCanvas(map, 0.62, 0.44);
+  await map.getByRole("button", { name: "Commit Polygon" }).click();
+  await map.getByRole("button", { name: "Hide Polygon" }).click();
+  await clickMapCanvas(map, 0.6, 0.2);
+  await clickMapCanvas(map, 0.72, 0.25);
+  await clickMapCanvas(map, 0.64, 0.38);
+  await map.getByRole("button", { name: "Commit Polygon" }).click();
 
   await map.getByRole("button", { name: "Pin Mode" }).click();
   await map.getByLabel("Pin label").fill("Saved Gate");
@@ -2510,7 +2597,7 @@ test("interactive map keeps canvas focus and can save and load presets", async (
   await expect(map.getByRole("button", { name: "Load Session setup" })).toBeVisible();
 
   await map.getByRole("tab", { name: "Live" }).click();
-  await map.getByRole("button", { name: "Clear Reveals" }).click();
+  await map.getByRole("button", { name: "Clear Fog Edits" }).click();
   await map.locator(".map-pin-row", { hasText: "Saved Gate" }).getByRole("button", { name: "Remove" }).click();
   await map.getByRole("tab", { name: "Setup" }).click();
   await map.getByLabel("Grid enabled").click();
@@ -2518,13 +2605,15 @@ test("interactive map keeps canvas focus and can save and load presets", async (
   await expect(map.locator(".map-canvas-pin", { hasText: "Saved Gate" })).toHaveCount(0);
   await expect(map.locator(".map-canvas-grid")).toHaveCount(0);
   await expect(map.locator(".map-fog-hole")).toHaveCount(0);
+  await expect(map.locator(".map-fog-cover")).toHaveCount(0);
 
   await map.getByRole("tab", { name: "Setup" }).click();
   await map.getByRole("button", { name: /Load Session setup/ }).click();
   await map.getByRole("tab", { name: "Live" }).click();
   await expect(map.locator(".map-canvas-pin", { hasText: "Saved Gate" })).toBeVisible();
   await expect(map.locator(".map-canvas-grid")).toBeVisible();
-  await expect(map.locator(".map-fog-hole")).toHaveCount(1);
+  await expect(map.locator(".map-fog-hole")).toHaveCount(2);
+  await expect(map.locator(".map-fog-cover")).toHaveCount(1);
 });
 
 test("public screen routes only expose displayed content and embeds", async ({
@@ -3075,6 +3164,13 @@ test.describe("table state snapshots V1", () => {
     await mapPresented;
     await expect(map.getByRole("button", { name: "Stop Map" })).toBeEnabled();
     await expect(screen.locator(".screen-map")).toBeVisible();
+    await map.getByLabel("Fog enabled").click();
+    await map.getByRole("button", { name: "Reveal Polygon" }).click();
+    await clickMapCanvas(map, 0.18, 0.18);
+    await clickMapCanvas(map, 0.42, 0.2);
+    await clickMapCanvas(map, 0.26, 0.42);
+    await map.getByRole("button", { name: "Commit Polygon" }).click();
+    await expect(screen.locator(".map-fog-hole")).toHaveCount(1);
 
     await openToolSection(page, "Actions");
     const actions = toolsPanel(page).getByRole("region", { name: "Fast Slot Configuration" });
@@ -3106,6 +3202,7 @@ test.describe("table state snapshots V1", () => {
     await expect(actionsAfterChanges.getByText(`Loaded ${snapshotName}`)).toBeVisible();
 
     await expect(screen.locator(".screen-map")).toBeVisible();
+    await expect(screen.locator(".map-fog-hole")).toHaveCount(1);
     await expect(screen.getByRole("region", { name: "Popup Captain Ilyra" })).toBeVisible();
     await expect(screen.getByRole("region", { name: /Popup Random Events/ })).toBeHidden();
     const restoredAudio = await audioTool(page);

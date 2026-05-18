@@ -11,6 +11,7 @@ import {
   fetchAppConfig,
   fetchLanguageCatalog,
   fetchPrepHealth,
+  rollDice,
   fetchHpTracker,
   fetchAuthStatus,
   createCapture,
@@ -48,6 +49,7 @@ import {
   saveWorkspaceTabs,
   searchWorld,
   fetchAudioLibrary,
+  fetchAudioPlaylists,
   fetchCaptureToday,
   fetchTableSnapshot,
   fetchTableSnapshots,
@@ -69,6 +71,7 @@ import {
   runDmsScript,
   submitDmsForm,
   saveFastSlots,
+  saveAudioPlaylists,
   restoreTableSnapshot,
   saveTableSnapshot,
   activateWorkspace,
@@ -81,6 +84,7 @@ import {
   updatePageMetadata,
   type DmsEffect,
   type FastSlot,
+  type AudioPlaylist,
   type CreateCaptureRequest,
   type HpTrackerState,
   type PrepHealthResponse,
@@ -168,6 +172,17 @@ describe("API types", () => {
       "broken_link",
       "dms_parse_error"
     ]);
+  });
+
+  it("accepts dice roll response shapes", () => {
+    expect({
+      expression: "2d6+3",
+      dice: { count: 2, sides: 6, results: [2, 5] },
+      modifier: 3,
+      total: 10,
+      detail: "2d6: 2 + 5 + 3 = 10",
+      rolled_at: "2026-05-18T12:00:00Z"
+    }).toMatchObject({ total: 10 });
   });
 });
 
@@ -1089,6 +1104,32 @@ describe("world API helpers", () => {
     );
   });
 
+  it("fetches and saves persistent audio playlists", async () => {
+    const playlists: AudioPlaylist[] = [
+      {
+        id: "battle-mix",
+        name: "Battle Mix",
+        bus: "music",
+        track_paths: [".music/music/boss.ogg", ".music/ambient/rain.mp3"],
+        loop: true,
+        created_at: "2026-05-18T12:00:00Z",
+        updated_at: "2026-05-18T12:05:00Z"
+      }
+    ];
+    const fetchMock = vi.fn(() => mockJsonResponse({ playlists }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchAudioPlaylists()).resolves.toEqual({ playlists });
+    await expect(saveAudioPlaylists(playlists)).resolves.toEqual({ playlists });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/audio/playlists");
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/audio/playlists", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ playlists })
+    });
+  });
+
   it("fetches and saves fast slots", async () => {
     const slots: FastSlot[] = [
       {
@@ -1178,6 +1219,38 @@ describe("world API helpers", () => {
     await expect(fetchPrepHealth()).resolves.toEqual(state);
 
     expect(fetchMock).toHaveBeenCalledWith("/api/prep-health");
+  });
+
+  it("rolls dice through the backend", async () => {
+    const result = {
+      expression: "2d6+3",
+      dice: { count: 2, sides: 6, results: [2, 5] },
+      modifier: 3,
+      total: 10,
+      detail: "2d6: 2 + 5 + 3 = 10",
+      rolled_at: "2026-05-18T12:00:00Z"
+    };
+    const fetchMock = vi.fn().mockResolvedValueOnce(mockJsonResponse(result));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(rollDice("2d6+3")).resolves.toEqual(result);
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/dice/roll", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ expression: "2d6+3" })
+    });
+  });
+
+  it("surfaces dice validation details", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        await mockJsonResponse({ detail: "Dice expression must look like 1d20+3." }, false, 400)
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(rollDice("nope")).rejects.toThrow("Dice expression must look like 1d20+3.");
   });
 
   it("discovers and runs Python scenarios", async () => {

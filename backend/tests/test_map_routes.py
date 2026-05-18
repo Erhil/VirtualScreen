@@ -140,6 +140,108 @@ def test_map_viewport_fog_reveals_and_pins_persist(tmp_path: Path) -> None:
     assert cleared.json()["reveals"] == []
 
 
+def test_map_reveals_accept_legacy_rect_reveal_and_rect_hide(tmp_path: Path) -> None:
+    client = make_client(make_world(tmp_path))
+
+    legacy_reveal = client.post(
+        "/api/map/reveals",
+        json={"x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4},
+    )
+    rect_hide = client.post(
+        "/api/map/reveals",
+        json={"action": "hide", "shape": "rect", "x": 0.5, "y": 0.6, "width": 0.2, "height": 0.1},
+    )
+
+    assert legacy_reveal.status_code == 200
+    assert rect_hide.status_code == 200
+    reveals = rect_hide.json()["reveals"]
+    assert reveals[0]["action"] == "reveal"
+    assert reveals[0]["shape"] == "rect"
+    assert reveals[0]["x"] == 0.1
+    assert reveals[0]["y"] == 0.2
+    assert reveals[0]["width"] == 0.3
+    assert reveals[0]["height"] == 0.4
+    assert reveals[1]["action"] == "hide"
+    assert reveals[1]["shape"] == "rect"
+    assert reveals[1]["x"] == 0.5
+    assert reveals[1]["y"] == 0.6
+    assert reveals[1]["width"] == 0.2
+    assert reveals[1]["height"] == 0.1
+
+
+def test_map_polygon_reveal_and_hide_persist(tmp_path: Path) -> None:
+    client = make_client(make_world(tmp_path))
+    points = [{"x": 0.1, "y": 0.2}, {"x": 0.4, "y": 0.25}, {"x": 0.2, "y": 0.6}]
+
+    reveal = client.post(
+        "/api/map/reveals",
+        json={"action": "reveal", "shape": "polygon", "points": points},
+    )
+    hide = client.post(
+        "/api/map/reveals",
+        json={"action": "hide", "shape": "polygon", "points": points},
+    )
+
+    assert reveal.status_code == 200
+    assert hide.status_code == 200
+    persisted = client.get("/api/map/state").json()["reveals"]
+    assert [operation["action"] for operation in persisted] == ["reveal", "hide"]
+    assert [operation["shape"] for operation in persisted] == ["polygon", "polygon"]
+    assert persisted[0]["points"] == points
+    assert persisted[1]["points"] == points
+
+
+@pytest.mark.parametrize(
+    ("payload", "detail"),
+    [
+        (
+            {"action": "erase", "shape": "rect", "x": 0.1, "y": 0.2, "width": 0.3, "height": 0.4},
+            "Map reveal action must be 'reveal' or 'hide'.",
+        ),
+        (
+            {"shape": "polygon", "points": [{"x": 0.1, "y": 0.2}, {"x": 0.3, "y": 0.4}]},
+            "Map polygon reveal must have at least three points.",
+        ),
+        (
+            {
+                "shape": "polygon",
+                "points": [{"x": 0.1, "y": 0.2}] * 33,
+            },
+            "Map polygon reveal cannot have more than 32 points.",
+        ),
+        (
+            {
+                "shape": "polygon",
+                "points": [{"x": 0.1, "y": 0.2}] * 3,
+            },
+            "Map polygon reveal must have at least three distinct points.",
+        ),
+        (
+            {
+                "shape": "polygon",
+                "points": [{"x": 0.1, "y": 0.2}, {"x": 0.3}, {"x": 0.4, "y": 0.5}],
+            },
+            "Map polygon reveal points require x and y.",
+        ),
+        (
+            {"shape": "rect", "x": 0.1, "y": 0.2, "width": 0.0, "height": 0.4},
+            "Map reveal must have positive width and height.",
+        ),
+    ],
+)
+def test_map_reveal_operations_validate_inputs(
+    tmp_path: Path,
+    payload: dict[str, object],
+    detail: str,
+) -> None:
+    client = make_client(make_world(tmp_path))
+
+    response = client.post("/api/map/reveals", json=payload)
+
+    assert response.status_code == 400
+    assert response.json()["detail"] == detail
+
+
 def test_map_grid_clamps_and_persists(tmp_path: Path) -> None:
     client = make_client(make_world(tmp_path))
 
@@ -241,6 +343,42 @@ def test_map_websocket_receives_mutation_events(tmp_path: Path) -> None:
     assert grid_event["grid"]["enabled"] is True
     assert grid_event["grid"]["columns"] == 12
     assert pin_event["pins"][0]["visibility"] == "dm"
+
+
+def test_map_presets_public_state_and_websocket_preserve_extended_reveals(
+    tmp_path: Path,
+) -> None:
+    client = make_client(make_world(tmp_path))
+    points = [{"x": 0.1, "y": 0.2}, {"x": 0.4, "y": 0.25}, {"x": 0.2, "y": 0.6}]
+    assert client.put("/api/map/source", json={"path": "Media/map.svg"}).status_code == 200
+    assert client.post("/api/map/present").status_code == 200
+
+    with client.websocket_connect("/ws/screen/map") as websocket:
+        hide = client.post(
+            "/api/map/reveals",
+            json={"action": "hide", "shape": "polygon", "points": points},
+        )
+        assert hide.status_code == 200
+        event = websocket.receive_json()
+
+    assert event["reveals"][0]["action"] == "hide"
+    assert event["reveals"][0]["shape"] == "polygon"
+    assert event["reveals"][0]["points"] == points
+    assert client.get("/api/screen/map/state").json()["reveals"][0]["points"] == points
+
+    saved = client.post("/api/map/presets", json={"name": "Fog Ops"})
+    assert saved.status_code == 200
+    assert saved.json()["state"]["reveals"][0]["action"] == "hide"
+    assert saved.json()["state"]["reveals"][0]["shape"] == "polygon"
+    assert saved.json()["state"]["reveals"][0]["points"] == points
+
+    assert client.delete("/api/map/reveals").status_code == 200
+    loaded = client.post(f"/api/map/presets/{saved.json()['id']}/load")
+
+    assert loaded.status_code == 200
+    assert loaded.json()["reveals"][0]["action"] == "hide"
+    assert loaded.json()["reveals"][0]["shape"] == "polygon"
+    assert loaded.json()["reveals"][0]["points"] == points
 
 
 def test_map_presets_save_list_load_and_delete_state(tmp_path: Path) -> None:

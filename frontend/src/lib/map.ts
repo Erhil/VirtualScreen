@@ -6,13 +6,57 @@ export type MapViewport = {
   zoom: number;
 };
 
+export type MapFogAction = "reveal" | "hide";
+export type MapFogShape = "rect" | "polygon";
+
+export type MapPoint = {
+  x: number;
+  y: number;
+};
+
 export type MapReveal = {
   id: string;
+  action?: MapFogAction;
+  shape?: MapFogShape;
+  x?: number;
+  y?: number;
+  width?: number;
+  height?: number;
+  points?: MapPoint[];
+};
+
+export type MapRectRevealPayload = {
   x: number;
   y: number;
   width: number;
   height: number;
+  action?: MapFogAction;
+  shape?: "rect";
 };
+
+export type MapPolygonRevealPayload = {
+  action?: MapFogAction;
+  shape: "polygon";
+  points: MapPoint[];
+};
+
+export type MapRevealPayload = MapRectRevealPayload | MapPolygonRevealPayload;
+
+export type MapRevealOperation = MapReveal | (MapRevealPayload & { id?: string });
+
+export type MapFogMaskOperation =
+  | {
+      action: MapFogAction;
+      fill: "black" | "white";
+      shape: "rect";
+      rect: Omit<MapReveal, "id">;
+    }
+  | {
+      action: MapFogAction;
+      fill: "black" | "white";
+      shape: "polygon";
+      points: MapPoint[];
+    };
 
 export type MapPinVisibility = "player" | "dm";
 
@@ -58,11 +102,6 @@ export type MapPreset = {
   updated_at: string;
 };
 
-export type MapPoint = {
-  x: number;
-  y: number;
-};
-
 export type MapSize = {
   width: number;
   height: number;
@@ -75,7 +114,6 @@ export type RectLike = {
   height: number;
 };
 
-export type MapRevealPayload = Omit<MapReveal, "id">;
 export type MapPinPayload = Omit<MapPin, "id" | "visibility"> & {
   visibility?: MapPinVisibility;
 };
@@ -196,7 +234,16 @@ export function normalizeMapPoint(point: MapPoint): MapPoint {
   };
 }
 
-export function normalizeMapRect(start: MapPoint, end: MapPoint): Omit<MapReveal, "id"> {
+export function normalizeMapPolygon(points: MapPoint[]): MapPoint[] | null {
+  if (points.length > 32) {
+    return null;
+  }
+  const normalized = points.map(normalizeMapPoint);
+  const distinct = new Set(normalized.map((point) => `${point.x}:${point.y}`));
+  return distinct.size >= 3 ? normalized : null;
+}
+
+export function normalizeMapRect(start: MapPoint, end: MapPoint): MapRectRevealPayload {
   const first = normalizeMapPoint(start);
   const second = normalizeMapPoint(end);
   const x = Math.min(first.x, second.x);
@@ -235,13 +282,17 @@ export function mapFogOverlayOpacity(mode: "dm" | "player"): number {
   return mode === "dm" ? 0.7 : 1;
 }
 
-export function mapFogRevealRects(reveals: MapReveal[]): MapRevealPayload[] {
+export function mapFogRevealRects(reveals: MapReveal[]): MapRectRevealPayload[] {
   return reveals
     .map((reveal) => {
-      const x1 = clamp(reveal.x, 0, 1);
-      const y1 = clamp(reveal.y, 0, 1);
-      const x2 = clamp(reveal.x + reveal.width, 0, 1);
-      const y2 = clamp(reveal.y + reveal.height, 0, 1);
+      const x = finiteOr(reveal.x ?? Number.NaN, Number.NaN);
+      const y = finiteOr(reveal.y ?? Number.NaN, Number.NaN);
+      const width = finiteOr(reveal.width ?? Number.NaN, Number.NaN);
+      const height = finiteOr(reveal.height ?? Number.NaN, Number.NaN);
+      const x1 = clamp(x, 0, 1);
+      const y1 = clamp(y, 0, 1);
+      const x2 = clamp(x + width, 0, 1);
+      const y2 = clamp(y + height, 0, 1);
       return {
         x: roundCoordinate(Math.min(x1, x2)),
         y: roundCoordinate(Math.min(y1, y2)),
@@ -250,6 +301,48 @@ export function mapFogRevealRects(reveals: MapReveal[]): MapRevealPayload[] {
       };
     })
     .filter((reveal) => reveal.width > 0 && reveal.height > 0);
+}
+
+function mapFogFill(action: MapFogAction): "black" | "white" {
+  return action === "reveal" ? "black" : "white";
+}
+
+function isMapPolygonRevealPayload(reveal: MapRevealOperation): reveal is MapPolygonRevealPayload & {
+  id?: string;
+} {
+  return reveal.shape === "polygon";
+}
+
+export function mapFogMaskOperations(reveals: MapRevealOperation[]): MapFogMaskOperation[] {
+  const operations: MapFogMaskOperation[] = [];
+
+  for (const reveal of reveals) {
+    const action = reveal.action ?? "reveal";
+    if (isMapPolygonRevealPayload(reveal)) {
+      const points = normalizeMapPolygon(reveal.points);
+      if (points) {
+        operations.push({
+          shape: "polygon",
+          action,
+          fill: mapFogFill(action),
+          points
+        });
+      }
+      continue;
+    }
+
+    const rect = mapFogRevealRects([{ id: "", ...reveal }])[0];
+    if (rect) {
+      operations.push({
+        shape: "rect",
+        action,
+        fill: mapFogFill(action),
+        rect
+      });
+    }
+  }
+
+  return operations;
 }
 
 export type ViewportSyncPlan = {

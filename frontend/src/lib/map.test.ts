@@ -21,10 +21,12 @@ import {
   isUsableMapImageSize,
   mapFogClassName,
   mapFogOverlayOpacity,
+  mapFogMaskOperations,
   mapFogRevealRects,
   mapSummary,
   nextMapState,
   normalizedMapGridLines,
+  normalizeMapPolygon,
   normalizeMapRect,
   planViewportSync,
   presentMap,
@@ -194,6 +196,30 @@ describe("map helpers", () => {
     });
   });
 
+  it("normalizes polygon points by clamping coordinates", () => {
+    expect(
+      normalizeMapPolygon([
+        { x: -0.2, y: 0.25 },
+        { x: 0.3333333333, y: 1.2 },
+        { x: 0.8, y: 0.5 }
+      ])
+    ).toEqual([
+      { x: 0, y: 0.25 },
+      { x: 0.333333, y: 1 },
+      { x: 0.8, y: 0.5 }
+    ]);
+  });
+
+  it("rejects polygons with fewer than three distinct normalized points", () => {
+    expect(
+      normalizeMapPolygon([
+        { x: 0, y: 0 },
+        { x: -0.5, y: -0.25 },
+        { x: 1, y: 1 }
+      ])
+    ).toBeNull();
+  });
+
   it("fits loaded map images into the stage while preserving aspect ratio", () => {
     expect(fitMapImageToStage({ width: 320, height: 240 }, { width: 640, height: 400 })).toEqual({
       width: 320,
@@ -323,6 +349,82 @@ describe("map helpers", () => {
       { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
       { x: 0.8, y: 0.9, width: 0.2, height: 0.1 }
     ]);
+  });
+
+  it("converts legacy reveal entries into ordered rect reveal fog mask operations", () => {
+    expect(
+      mapFogMaskOperations([
+        { id: "a", x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
+        { id: "b", x: 0.8, y: 0.9, width: 0.5, height: 0.5 }
+      ])
+    ).toEqual([
+      {
+        shape: "rect",
+        action: "reveal",
+        fill: "black",
+        rect: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 }
+      },
+      {
+        shape: "rect",
+        action: "reveal",
+        fill: "black",
+        rect: { x: 0.8, y: 0.9, width: 0.2, height: 0.1 }
+      }
+    ]);
+  });
+
+  it("keeps reveal and hide fog mask operations ordered with mask fill colors", () => {
+    expect(
+      mapFogMaskOperations([
+        {
+          id: "reveal-poly",
+          action: "reveal",
+          shape: "polygon",
+          points: [
+            { x: 0.1, y: 0.1 },
+            { x: 0.4, y: 0.2 },
+            { x: 0.2, y: 0.5 }
+          ]
+        },
+        {
+          id: "hide-rect",
+          action: "hide",
+          shape: "rect",
+          x: -0.1,
+          y: 0.2,
+          width: 0.3,
+          height: 0.4
+        }
+      ])
+    ).toEqual([
+      {
+        shape: "polygon",
+        action: "reveal",
+        fill: "black",
+        points: [
+          { x: 0.1, y: 0.1 },
+          { x: 0.4, y: 0.2 },
+          { x: 0.2, y: 0.5 }
+        ]
+      },
+      {
+        shape: "rect",
+        action: "hide",
+        fill: "white",
+        rect: { x: 0, y: 0.2, width: 0.2, height: 0.4 }
+      }
+    ]);
+  });
+
+  it("rejects polygon previews with too few distinct points or too many points", () => {
+    expect(
+      normalizeMapPolygon([
+        { x: 0.1, y: 0.1 },
+        { x: 0.1, y: 0.1 },
+        { x: 0.1, y: 0.1 }
+      ])
+    ).toBeNull();
+    expect(normalizeMapPolygon(Array.from({ length: 33 }, (_, index) => ({ x: index / 40, y: 0.2 })))).toBeNull();
   });
 
   it("plans viewport sync with immediate preview, throttle, and final flush", () => {

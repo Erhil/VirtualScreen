@@ -14,6 +14,9 @@ from app.core.database import initialize_database
 from app.core.paths import WorldPathError, normalize_relative_path, resolve_under_root
 
 MAP_IMAGE_EXTENSIONS = {"gif", "jpeg", "jpg", "png", "svg", "webp"}
+MAP_REVEAL_ACTIONS = {"reveal", "hide"}
+MAP_REVEAL_SHAPES = {"rect", "polygon"}
+MAX_POLYGON_REVEAL_POINTS = 32
 
 
 def _event_time(value: datetime | None = None) -> str:
@@ -43,6 +46,9 @@ class MapReveal:
     y: float
     width: float
     height: float
+    action: str
+    shape: str
+    points: list[dict[str, float]]
 
 
 @dataclass(frozen=True)
@@ -123,7 +129,20 @@ def clamp_grid(enabled: bool, columns: int, rows: int, visible_to_players: bool)
     )
 
 
-def normalize_reveal(x: float, y: float, width: float, height: float) -> MapReveal:
+def _reveal_action(value: str | None) -> str:
+    action = value or "reveal"
+    if action not in MAP_REVEAL_ACTIONS:
+        raise ValueError("Map reveal action must be 'reveal' or 'hide'.")
+    return action
+
+
+def normalize_reveal(
+    x: float,
+    y: float,
+    width: float,
+    height: float,
+    action: str | None = None,
+) -> MapReveal:
     x1 = _coordinate(x)
     y1 = _coordinate(y)
     x2 = _coordinate(float(x) + float(width))
@@ -140,6 +159,42 @@ def normalize_reveal(x: float, y: float, width: float, height: float) -> MapReve
         y=top,
         width=reveal_width,
         height=reveal_height,
+        action=_reveal_action(action),
+        shape="rect",
+        points=[],
+    )
+
+
+def normalize_polygon_reveal(points: list[object], action: str | None = None) -> MapReveal:
+    if len(points) < 3:
+        raise ValueError("Map polygon reveal must have at least three points.")
+    if len(points) > MAX_POLYGON_REVEAL_POINTS:
+        raise ValueError("Map polygon reveal cannot have more than 32 points.")
+
+    normalized_points: list[dict[str, float]] = []
+    for point in points:
+        if not isinstance(point, dict) or "x" not in point or "y" not in point:
+            raise ValueError("Map polygon reveal points require x and y.")
+        try:
+            normalized_points.append(
+                {"x": _coordinate(float(point["x"])), "y": _coordinate(float(point["y"]))}
+            )
+        except (TypeError, ValueError) as exc:
+            raise ValueError("Map polygon reveal points require x and y.") from exc
+
+    xs = [point["x"] for point in normalized_points]
+    ys = [point["y"] for point in normalized_points]
+    if len({(point["x"], point["y"]) for point in normalized_points}) < 3:
+        raise ValueError("Map polygon reveal must have at least three distinct points.")
+    return MapReveal(
+        id=uuid4().hex,
+        x=min(xs),
+        y=min(ys),
+        width=round(max(xs) - min(xs), 6),
+        height=round(max(ys) - min(ys), 6),
+        action=_reveal_action(action),
+        shape="polygon",
+        points=normalized_points,
     )
 
 
@@ -235,13 +290,21 @@ def _reveal_from_dict(value: object) -> MapReveal | None:
     reveal_id = str(value.get("id") or "")
     if not reveal_id:
         return None
+    shape = str(value.get("shape") or "rect")
+    if shape not in MAP_REVEAL_SHAPES:
+        return None
     try:
-        reveal = normalize_reveal(
-            float(value.get("x") or 0.0),
-            float(value.get("y") or 0.0),
-            float(value.get("width") or 0.0),
-            float(value.get("height") or 0.0),
-        )
+        if shape == "polygon":
+            raw_points = value.get("points") if isinstance(value.get("points"), list) else []
+            reveal = normalize_polygon_reveal(raw_points, str(value.get("action") or "reveal"))
+        else:
+            reveal = normalize_reveal(
+                float(value.get("x") or 0.0),
+                float(value.get("y") or 0.0),
+                float(value.get("width") or 0.0),
+                float(value.get("height") or 0.0),
+                str(value.get("action") or "reveal"),
+            )
     except (TypeError, ValueError):
         return None
     return MapReveal(
@@ -250,6 +313,9 @@ def _reveal_from_dict(value: object) -> MapReveal | None:
         y=reveal.y,
         width=reveal.width,
         height=reveal.height,
+        action=reveal.action,
+        shape=reveal.shape,
+        points=reveal.points,
     )
 
 

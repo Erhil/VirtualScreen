@@ -30,6 +30,7 @@ Welcome to the native VirtualScreen guide. This world is small on purpose: every
 - Computed sheet: [[Cards/Computed Character Sheet.cs]]
 - Reference table card: [[Cards/Item Reference Table.cs]]
 - Random event table: [[Tables/random-events.csv]]
+- Dice roll table: [[Tables/dice-rolls.csv]]
 - Map image: [[Media/sample-map.svg]]
 - Screen/audio DMS demo: [[Scripts/screen_audio_demo.dms]]
 

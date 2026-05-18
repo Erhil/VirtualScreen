@@ -128,6 +128,7 @@ export function WorldPathPicker({
     <section
       aria-label={dialogLabel}
       className={`world-path-picker world-path-picker-${mode}`}
+      data-help-context="path-picker"
       onKeyDown={handleKeyDown}
       role="dialog"
     >

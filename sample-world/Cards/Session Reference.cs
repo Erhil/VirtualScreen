@@ -11,7 +11,8 @@
       "fields": {
         "Source": "[[README]]",
         "Topic": "$$A^{\\frac{1}{3}}$$",
-        "Summary": "Use cards for structured NPCs, monsters, items, spells, locations, and handouts."
+        "Summary": "Use cards for structured NPCs, monsters, items, spells, locations, and handouts.",
+        "Quick Roll": "[Session check](roll:1d20+3)"
       }
     }
   ]

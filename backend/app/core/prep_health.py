@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import ast
 import hashlib
+import re
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -36,6 +37,7 @@ DMS_COMMANDS = {
     "append_note",
     "map_load",
 }
+WORLD_LINK_SCHEME_RE = re.compile(r"^[A-Za-z][A-Za-z0-9+.-]*:")
 
 
 @dataclass(frozen=True)
@@ -87,6 +89,10 @@ def _status(errors: int, warnings: int) -> PrepHealthStatus:
     if warnings:
         return "warning"
     return "ok"
+
+
+def _is_non_world_link(raw_target: str) -> bool:
+    return bool(WORLD_LINK_SCHEME_RE.match(raw_target.strip()))
 
 
 def _dms_literal_calls(source: str) -> list[tuple[str, str]]:
@@ -163,6 +169,8 @@ def build_prep_health_report(root: Path) -> PrepHealthReport:
 
     for link in list_indexed_links(root):
         if link.resolved:
+            continue
+        if _is_non_world_link(link.raw_target):
             continue
         page = pages.get(link.source_path)
         kind: PrepHealthIssueKind = "missing_embed" if link.link_type == "embed" else "broken_link"

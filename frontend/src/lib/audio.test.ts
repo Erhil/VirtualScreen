@@ -7,13 +7,25 @@ import {
   audioQueueLabel,
   audioSummary,
   cancelAudioFade,
+  addAudioPlaylistTrack,
+  createAudioPlaylist,
   createPlaylistExpansionState,
   createAudioMixerState,
+  deleteAudioPlaylist,
   displayAudioTrackTitle,
   finishAudioFade,
   groupAudioTracks,
   groupAudioTracksByBus,
   hasLoadedAudio,
+  loadSavedAudioPlaylist,
+  moveAudioPlaylistTrack,
+  removeAudioPlaylistTrack,
+  renameAudioPlaylist,
+  reorderAudioPlaylistTracks,
+  resolveAudioPlaylist,
+  resolveAudioPlaylists,
+  setSavedAudioPlaylistBus,
+  setSavedAudioPlaylistLoop,
   togglePlaylistExpansion,
   loadAudioTrack,
   loadAudioPlaylist,
@@ -292,5 +304,229 @@ describe("audio mixer helpers", () => {
 
     state = finishAudioFade(state, "music");
     expect(state.music.playing).toBe(true);
+  });
+});
+
+describe("persistent audio playlist helpers", () => {
+  it("creates playlists with safe unique ids and timestamps", () => {
+    const first = createAudioPlaylist([], " Battle Mix! ", "music", "2026-05-18T12:00:00Z");
+    const second = createAudioPlaylist(first, "Battle Mix", "ambient", "2026-05-18T12:05:00Z");
+
+    expect(first[0]).toEqual({
+      id: "battle-mix",
+      name: "Battle Mix!",
+      bus: "music",
+      track_paths: [],
+      loop: false,
+      created_at: "2026-05-18T12:00:00Z",
+      updated_at: "2026-05-18T12:00:00Z"
+    });
+    expect(second.map((playlist) => playlist.id)).toEqual(["battle-mix", "battle-mix-2"]);
+    expect(second[1].created_at).toBe("2026-05-18T12:05:00Z");
+  });
+
+  it("renames and deletes playlists without changing unrelated playlists", () => {
+    const playlists = createAudioPlaylist(
+      createAudioPlaylist([], "Battle Mix", "music", "2026-05-18T12:00:00Z"),
+      "Rain",
+      "ambient",
+      "2026-05-18T12:01:00Z"
+    );
+
+    const renamed = renameAudioPlaylist(
+      playlists,
+      "battle-mix",
+      "Boss Arrival",
+      "2026-05-18T12:02:00Z"
+    );
+    const deleted = deleteAudioPlaylist(renamed, "rain");
+
+    expect(renamed[0]).toMatchObject({
+      id: "battle-mix",
+      name: "Boss Arrival",
+      updated_at: "2026-05-18T12:02:00Z"
+    });
+    expect(renamed[1]).toBe(playlists[1]);
+    expect(deleted.map((playlist) => playlist.id)).toEqual(["battle-mix"]);
+  });
+
+  it("updates saved playlist bus and loop without affecting other playlists", () => {
+    let playlists = createAudioPlaylist(
+      createAudioPlaylist([], "Battle Mix", "music", "2026-05-18T12:00:00Z"),
+      "Rain",
+      "ambient",
+      "2026-05-18T12:01:00Z"
+    );
+
+    playlists = setSavedAudioPlaylistBus(
+      playlists,
+      "battle-mix",
+      "effect",
+      "2026-05-18T12:02:00Z"
+    );
+    playlists = setSavedAudioPlaylistLoop(
+      playlists,
+      "battle-mix",
+      true,
+      "2026-05-18T12:03:00Z"
+    );
+
+    expect(playlists[0]).toMatchObject({
+      bus: "effect",
+      loop: true,
+      updated_at: "2026-05-18T12:03:00Z"
+    });
+    expect(playlists[1]).toMatchObject({ bus: "ambient", loop: false });
+  });
+
+  it("adds, removes, and reorders track paths while preserving playlist order", () => {
+    let playlists = createAudioPlaylist([], "Battle Mix", "music", "2026-05-18T12:00:00Z");
+
+    playlists = addAudioPlaylistTrack(
+      playlists,
+      "battle-mix",
+      ".music/music/boss.ogg",
+      "2026-05-18T12:01:00Z"
+    );
+    playlists = addAudioPlaylistTrack(
+      playlists,
+      "battle-mix",
+      ".music/ambient/rain.mp3",
+      "2026-05-18T12:02:00Z"
+    );
+    playlists = addAudioPlaylistTrack(
+      playlists,
+      "battle-mix",
+      ".music/music/boss.ogg",
+      "2026-05-18T12:03:00Z"
+    );
+    playlists = reorderAudioPlaylistTracks(
+      playlists,
+      "battle-mix",
+      [".music/ambient/rain.mp3", ".music/music/boss.ogg"],
+      "2026-05-18T12:04:00Z"
+    );
+    playlists = removeAudioPlaylistTrack(
+      playlists,
+      "battle-mix",
+      ".music/music/boss.ogg",
+      "2026-05-18T12:05:00Z"
+    );
+
+    expect(playlists[0].track_paths).toEqual([".music/ambient/rain.mp3"]);
+    expect(playlists[0].updated_at).toBe("2026-05-18T12:05:00Z");
+  });
+
+  it("moves one saved playlist track at a time", () => {
+    let playlists = createAudioPlaylist([], "Battle Mix", "music", "2026-05-18T12:00:00Z");
+    playlists = addAudioPlaylistTrack(playlists, "battle-mix", ".music/music/one.ogg");
+    playlists = addAudioPlaylistTrack(playlists, "battle-mix", ".music/music/two.ogg");
+    playlists = addAudioPlaylistTrack(playlists, "battle-mix", ".music/music/three.ogg");
+
+    playlists = moveAudioPlaylistTrack(
+      playlists,
+      "battle-mix",
+      2,
+      -1,
+      "2026-05-18T12:10:00Z"
+    );
+
+    expect(playlists[0].track_paths).toEqual([
+      ".music/music/one.ogg",
+      ".music/music/three.ogg",
+      ".music/music/two.ogg"
+    ]);
+    expect(playlists[0].updated_at).toBe("2026-05-18T12:10:00Z");
+  });
+
+  it("resolves saved playlist paths to playable tracks and missing paths in saved order", () => {
+    const playlist = {
+      id: "battle-mix",
+      name: "Battle Mix",
+      bus: "music" as const,
+      track_paths: [
+        ".music/music/boss.ogg",
+        ".music/effects/missing.wav",
+        ".music/ambient/rain.mp3"
+      ],
+      loop: true,
+      created_at: "2026-05-18T12:00:00Z",
+      updated_at: "2026-05-18T12:00:00Z"
+    };
+
+    const resolved = resolveAudioPlaylist(playlist, [
+      track(".music/ambient/rain.mp3", "ambient", "Rain"),
+      track(".music/music/boss.ogg", "music", "Boss")
+    ]);
+
+    expect(resolved.tracks.map((audioTrack) => audioTrack.path)).toEqual([
+      ".music/music/boss.ogg",
+      ".music/ambient/rain.mp3"
+    ]);
+    expect(resolved.missing_paths).toEqual([".music/effects/missing.wav"]);
+  });
+
+  it("resolves multiple saved playlists with each playlist's own order", () => {
+    const playlists = [
+      {
+        id: "first",
+        name: "First",
+        bus: "music" as const,
+        track_paths: [".music/music/boss.ogg"],
+        loop: false,
+        created_at: "2026-05-18T12:00:00Z",
+        updated_at: "2026-05-18T12:00:00Z"
+      },
+      {
+        id: "second",
+        name: "Second",
+        bus: "ambient" as const,
+        track_paths: [".music/ambient/rain.mp3"],
+        loop: false,
+        created_at: "2026-05-18T12:01:00Z",
+        updated_at: "2026-05-18T12:01:00Z"
+      }
+    ];
+
+    const resolved = resolveAudioPlaylists(playlists, [
+      track(".music/ambient/rain.mp3", "ambient", "Rain"),
+      track(".music/music/boss.ogg", "music", "Boss")
+    ]);
+
+    expect(resolved.map((playlist) => playlist.tracks[0].path)).toEqual([
+      ".music/music/boss.ogg",
+      ".music/ambient/rain.mp3"
+    ]);
+  });
+
+  it("loads a saved playlist into its assigned bus using found tracks only", () => {
+    const playlist = {
+      id: "battle-mix",
+      name: "Battle Mix",
+      bus: "ambient" as const,
+      track_paths: [
+        ".music/music/boss.ogg",
+        ".music/ambient/missing.mp3",
+        ".music/ambient/rain.mp3"
+      ],
+      loop: true,
+      created_at: "2026-05-18T12:00:00Z",
+      updated_at: "2026-05-18T12:00:00Z"
+    };
+
+    const state = loadSavedAudioPlaylist(createAudioMixerState(), playlist, [
+      track(".music/ambient/rain.mp3", "ambient", "Rain"),
+      track(".music/music/boss.ogg", "music", "Boss")
+    ]);
+
+    expect(state.ambient.playlistMode).toBe(true);
+    expect(state.ambient.playlist).toBe("Battle Mix");
+    expect(state.ambient.playlistLoop).toBe(true);
+    expect(state.ambient.playlistTracks.map((audioTrack) => audioTrack.path)).toEqual([
+      ".music/music/boss.ogg",
+      ".music/ambient/rain.mp3"
+    ]);
+    expect(state.ambient.track?.path).toBe(".music/music/boss.ogg");
+    expect(state.music.track).toBeNull();
   });
 });

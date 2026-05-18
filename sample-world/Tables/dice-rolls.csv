@@ -1,0 +1,4 @@
+context,roll,notes
+Secret check,[Roll d20+3](roll:1d20+3),Click from the rendered CSV viewer to roll in the DM Dice tool.
+Random encounter,[Roll d100](roll:1d100),Useful for quick tables.
+Coin flip,[Roll d2](roll:1d2),Smallest supported common die.

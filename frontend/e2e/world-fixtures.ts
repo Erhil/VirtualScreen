@@ -25,6 +25,7 @@ const seedFiles = [
   "Scripts/hello_world1.dms",
   "Scripts/random_tavern_event.dms",
   "Scripts/screen_audio_demo.dms",
+  "Tables/dice-rolls.csv",
   "Tables/random-events.csv",
   "Unsupported/roll.bin",
   ".virtualscreen/card-templates/basic-character-v2.json",

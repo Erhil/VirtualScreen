@@ -48,6 +48,19 @@ export type PrepHealthReport = {
 
 export type PrepHealthResponse = PrepHealthReport;
 
+export type DiceRollResponse = {
+  expression: string;
+  dice: {
+    count: number;
+    sides: number;
+    results: number[];
+  };
+  modifier: number;
+  total: number;
+  detail: string;
+  rolled_at: string;
+};
+
 export type WorldInfo = {
   root: string;
   exists: boolean;
@@ -139,6 +152,20 @@ export type AudioTrack = {
   content_type: string;
   size: number;
   modified_at: string;
+};
+
+export type AudioPlaylist = {
+  id: string;
+  name: string;
+  bus: AudioBus;
+  track_paths: string[];
+  loop: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
+export type AudioPlaylistsResponse = {
+  playlists: AudioPlaylist[];
 };
 
 export type WorldFile = {
@@ -611,6 +638,29 @@ export function fetchPrepHealth(): Promise<PrepHealthResponse> {
   return getJson<PrepHealthResponse>("/api/prep-health");
 }
 
+export async function rollDice(expression: string): Promise<DiceRollResponse> {
+  const response = await fetch("/api/dice/roll", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ expression })
+  });
+
+  if (!response.ok) {
+    let message = `Request failed with ${response.status}: /api/dice/roll`;
+    try {
+      const body = (await response.json()) as { detail?: unknown };
+      if (typeof body.detail === "string" && body.detail.trim()) {
+        message = body.detail;
+      }
+    } catch {
+      // Keep the deterministic fallback above when the response is not JSON.
+    }
+    throw new Error(message);
+  }
+
+  return response.json() as Promise<DiceRollResponse>;
+}
+
 export function fetchAuthStatus(): Promise<AuthStatus> {
   return getJson<AuthStatus>("/api/auth/status");
 }
@@ -665,6 +715,16 @@ export function fetchAudioLibrary(params: AudioLibraryParams = {}): Promise<Audi
   }
   const suffix = searchParams.toString();
   return getJson<AudioTrack[]>(`/api/audio/library${suffix ? `?${suffix}` : ""}`);
+}
+
+export function fetchAudioPlaylists(): Promise<AudioPlaylistsResponse> {
+  return getJson<AudioPlaylistsResponse>("/api/audio/playlists");
+}
+
+export function saveAudioPlaylists(
+  playlists: AudioPlaylist[]
+): Promise<AudioPlaylistsResponse> {
+  return sendJson<AudioPlaylistsResponse>("/api/audio/playlists", "PUT", { playlists });
 }
 
 export function fetchFastSlots(): Promise<FastSlot[]> {

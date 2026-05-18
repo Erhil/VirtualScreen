@@ -1,4 +1,4 @@
-import type { AudioBus, AudioTrack } from "./api";
+import type { AudioBus, AudioPlaylist, AudioTrack } from "./api";
 
 export const AUDIO_BUSES: AudioBus[] = ["ambient", "music", "effect"];
 
@@ -28,6 +28,11 @@ export type AudioTrackGroup = {
 export type AudioTrackGroupsByBus = Record<AudioBus, AudioTrackGroup[]>;
 export type PlaylistExpansionState = Record<string, boolean>;
 
+export type ResolvedAudioPlaylist = AudioPlaylist & {
+  tracks: AudioTrack[];
+  missing_paths: string[];
+};
+
 function clampVolume(volume: number): number {
   if (Number.isNaN(volume)) {
     return 0;
@@ -40,6 +45,45 @@ function clampFadeDuration(durationMs: number): number {
     return 0;
   }
   return Math.max(0, Math.floor(durationMs));
+}
+
+function audioPlaylistTimestamp(now?: string): string {
+  return now ?? new Date().toISOString();
+}
+
+function audioPlaylistName(name: string): string {
+  return name.trim() || "Untitled playlist";
+}
+
+function audioPlaylistIdBase(name: string): string {
+  return (
+    audioPlaylistName(name)
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/^-+|-+$/g, "") || "playlist"
+  );
+}
+
+function createAudioPlaylistId(playlists: AudioPlaylist[], name: string): string {
+  const existingIds = new Set(playlists.map((playlist) => playlist.id));
+  const baseId = audioPlaylistIdBase(name);
+  let id = baseId;
+  let suffix = 2;
+  while (existingIds.has(id)) {
+    id = `${baseId}-${suffix}`;
+    suffix += 1;
+  }
+  return id;
+}
+
+function updateAudioPlaylist(
+  playlists: AudioPlaylist[],
+  playlistId: string,
+  updater: (playlist: AudioPlaylist) => AudioPlaylist
+): AudioPlaylist[] {
+  return playlists.map((playlist) =>
+    playlist.id === playlistId ? updater(playlist) : playlist
+  );
 }
 
 function createAudioBusState(loop: boolean, volume: number): AudioBusState {
@@ -86,6 +130,181 @@ export function createAudioMixerState(): AudioMixerState {
   };
 }
 
+export function createAudioPlaylist(
+  playlists: AudioPlaylist[],
+  name: string,
+  bus: AudioBus,
+  now?: string
+): AudioPlaylist[] {
+  const timestamp = audioPlaylistTimestamp(now);
+  return [
+    ...playlists,
+    {
+      id: createAudioPlaylistId(playlists, name),
+      name: audioPlaylistName(name),
+      bus,
+      track_paths: [],
+      loop: false,
+      created_at: timestamp,
+      updated_at: timestamp
+    }
+  ];
+}
+
+export function renameAudioPlaylist(
+  playlists: AudioPlaylist[],
+  playlistId: string,
+  name: string,
+  now?: string
+): AudioPlaylist[] {
+  const playlistName = audioPlaylistName(name);
+  const updatedAt = audioPlaylistTimestamp(now);
+  return updateAudioPlaylist(playlists, playlistId, (playlist) => ({
+    ...playlist,
+    name: playlistName,
+    updated_at: updatedAt
+  }));
+}
+
+export function deleteAudioPlaylist(
+  playlists: AudioPlaylist[],
+  playlistId: string
+): AudioPlaylist[] {
+  return playlists.filter((playlist) => playlist.id !== playlistId);
+}
+
+export function setSavedAudioPlaylistBus(
+  playlists: AudioPlaylist[],
+  playlistId: string,
+  bus: AudioBus,
+  now?: string
+): AudioPlaylist[] {
+  const updatedAt = audioPlaylistTimestamp(now);
+  return updateAudioPlaylist(playlists, playlistId, (playlist) => ({
+    ...playlist,
+    bus,
+    updated_at: updatedAt
+  }));
+}
+
+export function setSavedAudioPlaylistLoop(
+  playlists: AudioPlaylist[],
+  playlistId: string,
+  loop: boolean,
+  now?: string
+): AudioPlaylist[] {
+  const updatedAt = audioPlaylistTimestamp(now);
+  return updateAudioPlaylist(playlists, playlistId, (playlist) => ({
+    ...playlist,
+    loop,
+    updated_at: updatedAt
+  }));
+}
+
+export function addAudioPlaylistTrack(
+  playlists: AudioPlaylist[],
+  playlistId: string,
+  path: string,
+  now?: string
+): AudioPlaylist[] {
+  const updatedAt = audioPlaylistTimestamp(now);
+  return updateAudioPlaylist(playlists, playlistId, (playlist) => {
+    if (playlist.track_paths.includes(path)) {
+      return playlist;
+    }
+    return {
+      ...playlist,
+      track_paths: [...playlist.track_paths, path],
+      updated_at: updatedAt
+    };
+  });
+}
+
+export function removeAudioPlaylistTrack(
+  playlists: AudioPlaylist[],
+  playlistId: string,
+  path: string,
+  now?: string
+): AudioPlaylist[] {
+  const updatedAt = audioPlaylistTimestamp(now);
+  return updateAudioPlaylist(playlists, playlistId, (playlist) => ({
+    ...playlist,
+    track_paths: playlist.track_paths.filter((trackPath) => trackPath !== path),
+    updated_at: updatedAt
+  }));
+}
+
+export function reorderAudioPlaylistTracks(
+  playlists: AudioPlaylist[],
+  playlistId: string,
+  trackPaths: string[],
+  now?: string
+): AudioPlaylist[] {
+  const updatedAt = audioPlaylistTimestamp(now);
+  return updateAudioPlaylist(playlists, playlistId, (playlist) => {
+    const existingPaths = new Set(playlist.track_paths);
+    return {
+      ...playlist,
+      track_paths: trackPaths.filter((trackPath) => existingPaths.has(trackPath)),
+      updated_at: updatedAt
+    };
+  });
+}
+
+export function moveAudioPlaylistTrack(
+  playlists: AudioPlaylist[],
+  playlistId: string,
+  index: number,
+  direction: -1 | 1,
+  now?: string
+): AudioPlaylist[] {
+  return updateAudioPlaylist(playlists, playlistId, (playlist) => {
+    const nextIndex = index + direction;
+    if (index < 0 || nextIndex < 0 || index >= playlist.track_paths.length || nextIndex >= playlist.track_paths.length) {
+      return playlist;
+    }
+    const trackPaths = [...playlist.track_paths];
+    const [moved] = trackPaths.splice(index, 1);
+    trackPaths.splice(nextIndex, 0, moved);
+    return {
+      ...playlist,
+      track_paths: trackPaths,
+      updated_at: audioPlaylistTimestamp(now)
+    };
+  });
+}
+
+export function resolveAudioPlaylist(
+  playlist: AudioPlaylist,
+  tracks: AudioTrack[]
+): ResolvedAudioPlaylist {
+  const tracksByPath = new Map(tracks.map((track) => [track.path, track]));
+  const playableTracks: AudioTrack[] = [];
+  const missingPaths: string[] = [];
+
+  for (const path of playlist.track_paths) {
+    const track = tracksByPath.get(path);
+    if (track) {
+      playableTracks.push(track);
+    } else {
+      missingPaths.push(path);
+    }
+  }
+
+  return {
+    ...playlist,
+    tracks: playableTracks,
+    missing_paths: missingPaths
+  };
+}
+
+export function resolveAudioPlaylists(
+  playlists: AudioPlaylist[],
+  tracks: AudioTrack[]
+): ResolvedAudioPlaylist[] {
+  return playlists.map((playlist) => resolveAudioPlaylist(playlist, tracks));
+}
+
 export function loadAudioTrack(state: AudioMixerState, track: AudioTrack): AudioMixerState {
   return {
     ...state,
@@ -116,6 +335,27 @@ export function loadAudioPlaylist(
       playlist,
       playlistTracks,
       playlistIndex: playlistTracks.length > 0 ? 0 : -1
+    }
+  };
+}
+
+export function loadSavedAudioPlaylist(
+  state: AudioMixerState,
+  playlist: AudioPlaylist,
+  tracks: AudioTrack[]
+): AudioMixerState {
+  const playlistTracks = resolveAudioPlaylist(playlist, tracks).tracks;
+  return {
+    ...state,
+    [playlist.bus]: {
+      ...clearAudioFade(state[playlist.bus]),
+      track: playlistTracks[0] ?? null,
+      playing: false,
+      playlistMode: playlistTracks.length > 0,
+      playlist: playlist.name,
+      playlistTracks,
+      playlistIndex: playlistTracks.length > 0 ? 0 : -1,
+      playlistLoop: playlist.loop
     }
   };
 }
