@@ -21,6 +21,7 @@ class Settings(BaseSettings):
     lan_mode: bool = False
     access_token: str | None = None
     watch_world: bool = False
+    language: str = "en"
 
     @property
     def resolved_world_root(self) -> Path:
@@ -29,6 +30,10 @@ class Settings(BaseSettings):
     @property
     def resolved_worlds_root(self) -> Path:
         return self.worlds_root.expanduser().resolve()
+
+    @property
+    def ui_language(self) -> str:
+        return self.language if self.language in {"en", "ru"} else "en"
 
 
 @lru_cache

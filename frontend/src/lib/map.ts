@@ -97,6 +97,23 @@ export const blankMapState: MapState = {
   updated_at: ""
 };
 
+function mapStateTime(state: MapState): number | null {
+  const parsed = Date.parse(state.updated_at);
+  return Number.isFinite(parsed) ? parsed : null;
+}
+
+export function shouldAdoptMapState(current: MapState | null, incoming: MapState): boolean {
+  if (!current) {
+    return true;
+  }
+  const currentTime = mapStateTime(current);
+  const incomingTime = mapStateTime(incoming);
+  if (currentTime === null || incomingTime === null) {
+    return true;
+  }
+  return incomingTime >= currentTime;
+}
+
 function clamp(value: number, min: number, max: number): number {
   return Math.min(max, Math.max(min, value));
 }

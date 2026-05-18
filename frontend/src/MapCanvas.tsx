@@ -280,6 +280,7 @@ export function MapCanvas({
   const dragRef = useRef<DragState | null>(null);
   const previewRevealRef = useRef<Omit<MapReveal, "id"> | null>(null);
   const previewMeasurementRef = useRef<MeasurementPreview | null>(null);
+  const restoreStageFocusRef = useRef(false);
   const latestViewportRef = useRef<MapViewport>(state.viewport);
   const viewportCommitTimerRef = useRef<number | null>(null);
   const rawId = useId();
@@ -312,6 +313,10 @@ export function MapCanvas({
   function updatePreviewMeasurement(measurement: MeasurementPreview | null) {
     previewMeasurementRef.current = measurement;
     setPreviewMeasurement(measurement);
+  }
+
+  function requestStageFocusRestore() {
+    restoreStageFocusRef.current = true;
   }
 
   useEffect(() => {
@@ -362,6 +367,31 @@ export function MapCanvas({
       }
     }
   }, [canMeasure]);
+
+  useEffect(() => {
+    if (!restoreStageFocusRef.current) {
+      return;
+    }
+    restoreStageFocusRef.current = false;
+    window.requestAnimationFrame(() => {
+      const stage = stageRef.current;
+      if (!stage) {
+        return;
+      }
+      const activeElement = document.activeElement;
+      if (activeElement === stage || activeElement === document.body) {
+        stage.focus({ preventScroll: true });
+      }
+    });
+  }, [
+    state.fog_enabled,
+    state.pins.length,
+    state.reveals.length,
+    state.updated_at,
+    state.viewport.center_x,
+    state.viewport.center_y,
+    state.viewport.zoom
+  ]);
 
   function emitViewportPreview(nextViewport: MapViewport) {
     latestViewportRef.current = nextViewport;
@@ -414,6 +444,7 @@ export function MapCanvas({
     }
 
     if (tool === "pin" && onPinCreate) {
+      requestStageFocusRestore();
       onPinCreate(point);
       return;
     }
@@ -483,12 +514,14 @@ export function MapCanvas({
     const finalPreviewReveal = previewRevealRef.current;
     if (drag?.kind === "reveal" && finalPreviewReveal && onRevealCreate) {
       if (finalPreviewReveal.width > 0.005 && finalPreviewReveal.height > 0.005) {
+        requestStageFocusRestore();
         onRevealCreate(finalPreviewReveal);
       }
       updatePreviewReveal(null);
     }
 
     if (drag?.kind === "pan") {
+      requestStageFocusRestore();
       flushViewportCommit();
     }
 

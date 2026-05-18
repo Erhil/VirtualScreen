@@ -8,6 +8,7 @@ from app.core.config import Settings, get_settings
 AUTH_COOKIE = "virtualscreen_access"
 AUTH_HEADER = "x-virtualscreen-token"
 PUBLIC_API_PATHS = {
+    "/api/app/config",
     "/api/health",
     "/api/auth/status",
     "/api/auth/login",

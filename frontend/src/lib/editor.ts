@@ -10,6 +10,20 @@ type EditorHotkeyEventLike = {
   key: string;
 };
 
+type EditorShortcutEventLike = {
+  ctrlKey?: boolean;
+  key: string;
+  metaKey?: boolean;
+  shiftKey?: boolean;
+};
+
+export type EditorShortcutIntent =
+  | "dirty-escape"
+  | "exit-edit"
+  | "revert"
+  | "save"
+  | "toggle-split";
+
 export type EditorDraft = {
   path: string;
   mode: EditorMode;
@@ -85,6 +99,31 @@ export function shouldStopEditorHotkeyPropagation(
   event: EditorHotkeyEventLike
 ): boolean {
   return event.altKey && /^[0-9]$/.test(event.key);
+}
+
+export function editorShortcutIntent(
+  event: EditorShortcutEventLike,
+  options: {
+    dirty: boolean;
+    mode: EditorMode;
+    supportsSplit: boolean;
+  }
+): EditorShortcutIntent | null {
+  const shortcut = Boolean(event.ctrlKey || event.metaKey);
+  const key = event.key.toLowerCase();
+  if (shortcut && key === "s") {
+    return "save";
+  }
+  if (shortcut && event.key === "\\" && options.supportsSplit) {
+    return "toggle-split";
+  }
+  if (event.key !== "Escape" || options.mode === "preview") {
+    return null;
+  }
+  if (event.shiftKey) {
+    return options.dirty ? "revert" : null;
+  }
+  return options.dirty ? "dirty-escape" : "exit-edit";
 }
 
 export function markDraftSaving(draft: EditorDraft): EditorDraft {

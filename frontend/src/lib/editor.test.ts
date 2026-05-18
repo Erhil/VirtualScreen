@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import type { WorldFile } from "./api";
 import {
   createEditorDraft,
+  editorShortcutIntent,
   editorModesForTarget,
   isDraftDirty,
   markDraftChangedOnDisk,
@@ -116,5 +117,53 @@ describe("editor helpers", () => {
     expect(shouldStopEditorHotkeyPropagation({ altKey: true, key: "0" })).toBe(true);
     expect(shouldStopEditorHotkeyPropagation({ altKey: false, key: "1" })).toBe(false);
     expect(shouldStopEditorHotkeyPropagation({ altKey: true, key: "k" })).toBe(false);
+  });
+
+  it("maps editor cleanup shortcuts to safe intents", () => {
+    expect(
+      editorShortcutIntent(
+        { ctrlKey: true, key: "s" },
+        { dirty: true, mode: "edit", supportsSplit: true }
+      )
+    ).toBe("save");
+    expect(
+      editorShortcutIntent(
+        { metaKey: true, key: "s" },
+        { dirty: true, mode: "edit", supportsSplit: true }
+      )
+    ).toBe("save");
+    expect(
+      editorShortcutIntent(
+        { ctrlKey: true, key: "\\" },
+        { dirty: false, mode: "edit", supportsSplit: true }
+      )
+    ).toBe("toggle-split");
+  });
+
+  it("keeps Escape safe for clean, dirty, and revert flows", () => {
+    expect(
+      editorShortcutIntent(
+        { key: "Escape" },
+        { dirty: false, mode: "edit", supportsSplit: true }
+      )
+    ).toBe("exit-edit");
+    expect(
+      editorShortcutIntent(
+        { key: "Escape" },
+        { dirty: true, mode: "edit", supportsSplit: true }
+      )
+    ).toBe("dirty-escape");
+    expect(
+      editorShortcutIntent(
+        { key: "Escape", shiftKey: true },
+        { dirty: true, mode: "edit", supportsSplit: true }
+      )
+    ).toBe("revert");
+    expect(
+      editorShortcutIntent(
+        { key: "Escape", shiftKey: true },
+        { dirty: false, mode: "edit", supportsSplit: true }
+      )
+    ).toBeNull();
   });
 });

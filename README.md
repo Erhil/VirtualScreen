@@ -28,6 +28,7 @@ Useful settings:
 - `VIRTUALSCREEN_HOST` and `VIRTUALSCREEN_PORT`: backend bind address and port.
 - `VIRTUALSCREEN_LAN_MODE`: enables LAN-facing behavior when set to `true`.
 - `VIRTUALSCREEN_ACCESS_TOKEN`: fixed unlock code. If omitted, `scripts/dev.ps1` generates one.
+- `VIRTUALSCREEN_LANGUAGE`: startup UI language, `en` or `ru`. The DM workspace can also switch language from Settings.
 
 # Start app
 

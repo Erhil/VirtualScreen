@@ -548,6 +548,55 @@ async function fillCodeEditor(page: Page, name: string | RegExp, value: string) 
   await page.keyboard.type(value);
 }
 
+async function enterEditMode(page: Page) {
+  await expect(page.getByRole("region", { name: "Document status" })).toBeVisible();
+  const mainPane = page.getByRole("region", { name: "Main viewer pane" });
+  const previewTarget = mainPane
+    .locator(".markdown-viewer, .card-surface, .table-wrap, .text-viewer, h1, h2, p, pre, td, th, article, table")
+    .first();
+  if (
+    await previewTarget
+      .waitFor({ state: "visible", timeout: 5_000 })
+      .then(() => true)
+      .catch(() => false)
+  ) {
+    await previewTarget.dblclick({ position: { x: 8, y: 8 } });
+  } else {
+    await page.getByRole("region", { name: "Document status" }).dblclick();
+  }
+  await expect(page.getByRole("region", { name: "Document status" })).toContainText("Editing");
+}
+
+async function saveActiveDraft(page: Page) {
+  await page.keyboard.press("ControlOrMeta+S");
+  await expect(page.locator(".editor-status")).toHaveText(/Saved|Clean/);
+}
+
+async function toggleMarkdownSplit(page: Page) {
+  await page.keyboard.press("ControlOrMeta+Backslash");
+}
+
+async function previewCleanDraft(page: Page) {
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("region", { name: "Document status" })).toContainText("Preview");
+}
+
+async function revertDirtyDraft(page: Page) {
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("Revert unsaved changes");
+    await dialog.accept();
+  });
+  await page.keyboard.press("Shift+Escape");
+  await expect(page.getByRole("region", { name: "Document status" })).toContainText("Preview");
+}
+
+async function runActiveScript(page: Page) {
+  await page
+    .getByRole("region", { name: "Document status" })
+    .getByRole("button", { name: "Run", exact: true })
+    .click();
+}
+
 async function chooseCodeCompletion(page: Page, label: string | RegExp) {
   const option = page.locator(".cm-tooltip-autocomplete li", { hasText: label }).first();
   await expect(option).toBeVisible();
@@ -634,12 +683,11 @@ test("initial app shell loads @smoke", async ({ page }) => {
   await page.goto("/");
 
   await expect(page.getByText("VirtualScreen", { exact: true })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Live Output Status" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Live Output Status" })).toContainText("Output: Clear");
-  await expect(page.getByRole("region", { name: "Live Output Status" })).toContainText("Prep: Not checked");
+  await expect(page.getByRole("region", { name: "Live Output Status" })).toHaveCount(0);
   await expect(toolsPanel(page)).toBeVisible();
   await expect(workspaceControls(page).getByRole("button", { name: "Search" })).toBeVisible();
   await expect(workspaceControls(page).getByRole("button", { name: "Capture" })).toBeVisible();
+  await expect(workspaceControls(page).getByRole("button", { name: "Prep Check: Not checked" })).toBeVisible();
   await expect(toolsPanel(page).getByRole("button", { name: /^Search/ })).toHaveCount(0);
   await expect(toolsPanel(page).getByRole("button", { name: /^Capture/ })).toHaveCount(0);
   await expect(toolsPanel(page).getByRole("button", { name: /^Map/ })).toHaveCount(0);
@@ -652,17 +700,18 @@ test("initial app shell loads @smoke", async ({ page }) => {
   await expect(page.getByText("Select a File")).toBeVisible();
 });
 
-test("live output strip updates and 1024 layout stays usable", async ({ page }) => {
+test("screen state and 1024 layout stay usable without global live strip", async ({ page }) => {
   await page.setViewportSize({ width: 1024, height: 768 });
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: /README/ }).click();
-  const strip = page.getByRole("region", { name: "Live Output Status" });
-  await expect(strip).toContainText("Main: Sample World Guide");
+  await expect(page.getByRole("region", { name: "Live Output Status" })).toHaveCount(0);
 
   const screen = await screenTool(page);
   await screen.getByRole("button", { name: /Show Active Fullscreen/ }).click();
-  await expect(strip).toContainText("Output: Sample World Guide");
+  await expect(screen.getByRole("region", { name: "Current Screen" })).toContainText(
+    "Sample World Guide"
+  );
   await expect(page.getByRole("separator", { name: "Resize tools panel" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Fast slot 1 empty" })).toBeVisible();
 });
@@ -767,6 +816,33 @@ test("world tree context menu duplicates renames and trashes files", async ({ pa
   await expect(renamed).toBeHidden();
 });
 
+test("world tree context menu closes accessibly and toggles favorites", async ({ page }) => {
+  await page.goto("/");
+  const tree = worldTree(page);
+  const readme = tree.getByRole("button", { name: /README\.md/ });
+  await expect(readme).toBeVisible();
+
+  await readme.click({ button: "right" });
+  await expect(page.getByRole("menu")).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(page.getByRole("menu")).toHaveCount(0);
+  await expect(readme).toBeFocused();
+
+  await readme.click({ button: "right" });
+  await expect(page.getByRole("menu")).toBeVisible();
+  await page.getByText("VirtualScreen", { exact: true }).click();
+  await expect(page.getByRole("menu")).toHaveCount(0);
+
+  await readme.click({ button: "right" });
+  await page.getByRole("menu").getByRole("button", { name: "Favorite" }).click();
+  await expect(page.getByRole("region", { name: "Favorites" })).toContainText("README.md");
+  await expect(readme).toContainText("Favorite");
+
+  await readme.click({ button: "right" });
+  await page.getByRole("menu").getByRole("button", { name: "Unfavorite" }).click();
+  await expect(page.getByRole("region", { name: "Favorites" })).not.toContainText("README.md");
+});
+
 test("world tree context menu duplicates renames and trashes folders recursively", async ({
   page,
   request
@@ -826,7 +902,7 @@ test("world tree drag and drop moves files between folders", async ({ page }) =>
 test("world tree move to trash blocks dirty open files", async ({ page }) => {
   await page.goto("/");
   await worldTree(page).getByRole("button", { name: /README\.md/ }).click();
-  await page.getByRole("button", { name: "Edit" }).click();
+  await enterEditMode(page);
   await page.locator(".cm-content").click();
   await page.keyboard.type("\nDirty tree edit");
 
@@ -1032,7 +1108,7 @@ test("audio tool searches music and plays independent buses @smoke", async ({ pa
   await expect(musicBus.getByRole("button", { name: "Pause" })).toBeVisible();
   await expect(effectBus.getByText("Empty")).toBeVisible();
 
-  await audio.getByRole("button", { name: "Stop All" }).click();
+  await audio.getByRole("button", { name: "Stop All Audio" }).click();
   await expect(ambientBus.getByText("Empty")).toBeVisible();
   await expect(musicBus.getByText("Empty")).toBeVisible();
 });
@@ -1173,7 +1249,7 @@ test("map preset fast slot and DMS command present saved maps", async ({ context
   await mapAfterSlot.getByRole("button", { name: "Stop Map" }).click();
   await expect(screen.locator(".screen-map")).toBeHidden();
   await worldTree(page).getByRole("button", { name: /map_preset_demo\.dms/ }).click();
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Run", exact: true }).click();
+  await runActiveScript(page);
 
   await expect(screen.locator(".screen-map img")).toBeVisible();
   await expect(screen.locator(".map-canvas-fog-player")).toBeVisible();
@@ -1184,7 +1260,7 @@ test("DMS scripts run from editor and scripts tool @smoke", async ({ page }) => 
 
   await expect(toolsPanel(page).getByRole("button", { name: /^Scenarios/ })).toHaveCount(0);
   await openScriptsFile(page, "hello_world1\\.dms");
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Run", exact: true }).click();
+  await runActiveScript(page);
   const form = page.getByRole("dialog", { name: "DMS Script Form" });
   await expect(form).toBeVisible();
   await form.getByLabel("name").fill("Mira");
@@ -1194,7 +1270,7 @@ test("DMS scripts run from editor and scripts tool @smoke", async ({ page }) => 
   await expect(page.getByText("Hello Mira.")).toBeVisible();
 
   await openScriptsFile(page, "hello_world1\\.dms");
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await enterEditMode(page);
   await fillCodeEditor(page, "DMS editor", "render_md('# Draft')\n");
   await expect(page.getByText("Save before running.")).toBeVisible();
 
@@ -1209,7 +1285,7 @@ test("DMS scripts can control screen and audio", async ({ page, context }) => {
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: /effects_demo\.dms/ }).click();
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Run", exact: true }).click();
+  await runActiveScript(page);
 
   await expect(toolsPanel(page).getByRole("button", { name: /Screen sample-map/ })).toBeVisible();
   await screen.reload();
@@ -1227,7 +1303,7 @@ test("DMS autocomplete inserts commands and world paths", async ({ page, context
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: /effects_demo\.dms/ }).click();
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await enterEditMode(page);
   await fillCodeEditor(page, "DMS editor", "screen_");
   await chooseCodeCompletion(page, "screen_fs");
   await page.keyboard.type('"sample');
@@ -1238,8 +1314,8 @@ test("DMS autocomplete inserts commands and world paths", async ({ page, context
   await page.keyboard.type('"glass');
   await chooseCodeCompletion(page, "broken-glass");
 
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Save" }).click();
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Run", exact: true }).click();
+  await saveActiveDraft(page);
+  await runActiveScript(page);
 
   await screen.reload();
   await expect(screen.locator(".screen-fullscreen img")).toBeVisible();
@@ -1252,14 +1328,14 @@ test("DMS script runs can be cancelled and show line-number errors", async ({ pa
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: /slow_cancel\.dms/ }).click();
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Run", exact: true }).click();
+  await runActiveScript(page);
   const latestRun = toolsPanel(page).getByRole("region", { name: "Latest Script Run" });
   await expect(latestRun.getByRole("button", { name: "Cancel" })).toBeVisible();
   await latestRun.getByRole("button", { name: "Cancel" }).click();
   await expect(toolsPanel(page).getByText("Cancelled", { exact: true })).toBeVisible();
 
   await worldTree(page).getByRole("button", { name: /syntax_error\.dms/ }).click();
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Run", exact: true }).click();
+  await runActiveScript(page);
   await expect(toolsPanel(page).getByText(/line 2/)).toBeVisible();
   await expect(toolsPanel(page).getByText("Scripts/syntax_error.dms", { exact: true })).toBeVisible();
 });
@@ -1268,7 +1344,7 @@ test("DMS file picker and core commands produce temporary output", async ({ page
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: /choose_file_demo\.dms/ }).click();
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Run", exact: true }).click();
+  await runActiveScript(page);
   const form = page.getByRole("dialog", { name: "DMS Script Form" });
   await expect(form).toBeVisible();
   await form.getByLabel("Pick a page").fill("README.md");
@@ -1278,7 +1354,7 @@ test("DMS file picker and core commands produce temporary output", async ({ page
   await expect(page.locator(".markdown-viewer").getByText("README.md", { exact: true })).toBeVisible();
 
   await worldTree(page).getByRole("button", { name: /core_commands\.dms/ }).click();
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Run", exact: true }).click();
+  await runActiveScript(page);
 
   await expect(page.getByRole("heading", { name: "Core Commands" })).toBeVisible();
   await expect(page.locator(".markdown-viewer").getByText(/River Gate\s+3/)).toBeVisible();
@@ -1288,7 +1364,7 @@ test("DMS temporary outputs can be saved and write commands refresh the world", 
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: /core_commands\.dms/ }).click();
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Run", exact: true }).click();
+  await runActiveScript(page);
   await expect(page.getByRole("heading", { name: "Core Commands" })).toBeVisible();
   await page.getByRole("button", { name: "Save As" }).click();
   const saveDialog = page.getByRole("dialog", { name: "Save DMS Output" });
@@ -1303,7 +1379,7 @@ test("DMS temporary outputs can be saved and write commands refresh the world", 
   await page.getByRole("button", { name: "Close Search" }).click();
 
   await worldTree(page).getByRole("button", { name: /write_notes\.dms/ }).click();
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Run", exact: true }).click();
+  await runActiveScript(page);
   await expect(page.getByRole("heading", { name: "Writes Done" })).toBeVisible();
 
   const updatedSearch = await searchTool(page);
@@ -1319,7 +1395,7 @@ test("DMS card writes create cards only after successful scripts", async ({ page
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: /create_card_success\.dms/ }).click();
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Run", exact: true }).click();
+  await runActiveScript(page);
   await expect(toolsPanel(page).getByRole("button", { name: /^Scripts success/ })).toBeVisible();
   await openCardsFile(page, "DMS Quartermaster\\.cs");
   await expect(page.getByRole("heading", { name: "DMS Quartermaster" })).toBeVisible();
@@ -1337,7 +1413,7 @@ test("DMS card writes create cards only after successful scripts", async ({ page
   await page.getByRole("button", { name: "Close Search" }).click();
 
   await worldTree(page).getByRole("button", { name: /create_card_fail\.dms/ }).click();
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Run", exact: true }).click();
+  await runActiveScript(page);
   await expect(
     toolsPanel(page).getByRole("region", { name: "Latest Script Run" }).getByText("error", {
       exact: true
@@ -1612,7 +1688,7 @@ test("Markdown autocomplete inserts wiki and @ links", async ({ page }) => {
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: /Sample World Guide/ }).click();
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await enterEditMode(page);
   await fillCodeEditor(page, "Markdown editor", "# Autocomplete Links\n\nMeet [[Ily");
   await chooseCodeCompletion(page, "Ilyra");
   await page.getByRole("textbox", { name: "Markdown editor" }).click();
@@ -1622,8 +1698,8 @@ test("Markdown autocomplete inserts wiki and @ links", async ({ page }) => {
   await page.keyboard.press("Control+Space");
   await chooseCodeCompletion(page, "Moonlit Key");
 
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Save" }).click();
-  await expect(page.locator(".editor-toolbar").getByText("Saved")).toBeVisible();
+  await saveActiveDraft(page);
+  await expect(page.getByRole("region", { name: "Document status" })).toContainText(/Saved|Clean/);
 
   await openToolSection(page, "Metadata");
   await page
@@ -1826,7 +1902,7 @@ test("live sync protects dirty markdown drafts from external changes", async ({ 
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: /Sample World Guide/ }).click();
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await enterEditMode(page);
   const editor = page.getByRole("textbox", { name: "Markdown editor" });
   await fillCodeEditor(page, "Markdown editor", "# Local Draft Kept");
 
@@ -1843,8 +1919,8 @@ test("live sync protects dirty markdown drafts from external changes", async ({ 
   });
   await expect(editor).toContainText("# Local Draft Kept");
   await expect(
-    page.locator(".editor-toolbar").getByRole("button", { name: "Save", exact: true })
-  ).toBeDisabled();
+    page.getByRole("region", { name: "Document status" }).getByRole("button", { name: "Save" })
+  ).toHaveCount(0);
 });
 
 test("live sync shows a clear state when an open file is deleted externally", async ({
@@ -1933,7 +2009,9 @@ test("opens searches and persists PDF materials", async ({ page }) => {
   await expect(search.getByRole("button", { name: /Session Handout/ })).toBeVisible();
   await page.getByRole("button", { name: "Close Search" }).click();
 
-  await page.getByRole("button", { name: "Favorite" }).click();
+  const handout = worldTree(page).getByRole("button", { name: /session-handout\.pdf/ });
+  await handout.click({ button: "right" });
+  await page.getByRole("menu").getByRole("button", { name: "Favorite" }).click();
   await page.reload();
   await expect(page.getByRole("tab", { name: "Session Handout" })).toBeVisible();
   await expect(page.getByRole("button", { name: /Session Handout/ }).first()).toBeVisible();
@@ -1948,8 +2026,8 @@ test("player screen shows fullscreen media and DM-controlled popups @smoke", asy
 
   await page.goto("/");
   let controls = await screenTool(page);
-  await controls.getByRole("button", { name: "Close All Popups" }).click();
-  await controls.getByRole("button", { name: "Blank Fullscreen" }).click();
+  await controls.getByRole("button", { name: "Clear Popups" }).click();
+  await controls.getByRole("button", { name: "Blank Screen" }).click();
   await expect(screen.getByText("Blank Screen")).toBeVisible();
 
   await worldTree(page).getByRole("button", { name: "animated-map.gif" }).click();
@@ -1989,7 +2067,7 @@ test("player screen shows fullscreen media and DM-controlled popups @smoke", asy
   await expect(screen.getByRole("region", { name: "Popup Sample World Guide" })).toBeHidden();
   await expect(screen.getByRole("region", { name: "Popup Captain Ilyra" })).toBeVisible();
 
-  await controls.getByRole("button", { name: "Close All Popups" }).click();
+  await controls.getByRole("button", { name: "Clear Popups" }).click();
   await expect(screen.getByRole("region", { name: "Popup Captain Ilyra" })).toBeHidden();
 
   await worldTree(page).getByRole("button", { name: /Sample World Guide/ }).click();
@@ -1998,7 +2076,7 @@ test("player screen shows fullscreen media and DM-controlled popups @smoke", asy
   await expect(screen.getByRole("region", { name: "Popup Sample World Guide" })).toBeVisible();
   await captainTreeButton(page).click();
   controls = await screenTool(page);
-  await controls.getByRole("button", { name: "Clear + Fullscreen" }).click();
+  await controls.getByRole("button", { name: /Clear \+ Show/ }).click();
   await expect(screen.getByRole("heading", { name: "Captain Ilyra" })).toBeVisible();
   await expect(screen.getByRole("region", { name: "Popup Sample World Guide" })).toBeHidden();
 
@@ -2006,7 +2084,7 @@ test("player screen shows fullscreen media and DM-controlled popups @smoke", asy
   controls = await screenTool(page);
   await controls.getByRole("button", { name: "Open Active as Popup" }).click();
   await expect(screen.getByRole("region", { name: "Popup Captain Ilyra" })).toBeVisible();
-  await controls.getByRole("button", { name: "Blank Fullscreen" }).click();
+  await controls.getByRole("button", { name: "Blank Screen" }).click();
   await expect(screen.getByText("Blank Screen")).toBeVisible();
   await expect(screen.getByRole("region", { name: "Popup Captain Ilyra" })).toBeHidden();
 });
@@ -2021,8 +2099,8 @@ test("staged active popup stays hidden until shown from DM controls", async ({
   await page.goto("/");
   await worldTree(page).getByRole("button", { name: /Sample World Guide/ }).click();
   const controls = await screenTool(page);
-  await controls.getByRole("button", { name: "Close All Popups" }).click();
-  await controls.getByRole("button", { name: "Blank Fullscreen" }).click();
+  await controls.getByRole("button", { name: "Clear Popups" }).click();
+  await controls.getByRole("button", { name: "Blank Screen" }).click();
   await controls.getByLabel("Popup preset").selectOption("letter");
   await controls.getByRole("button", { name: "Stage Active as Popup" }).click();
 
@@ -2134,8 +2212,8 @@ test("player screen fills the viewport for markdown and CSV fullscreen content",
 
   await page.goto("/");
   let controls = await screenTool(page);
-  await controls.getByRole("button", { name: "Close All Popups" }).click();
-  await controls.getByRole("button", { name: "Blank Fullscreen" }).click();
+  await controls.getByRole("button", { name: "Clear Popups" }).click();
+  await controls.getByRole("button", { name: "Blank Screen" }).click();
 
   await worldTree(page).getByRole("button", { name: /Sample World Guide/ }).click();
   controls = await screenTool(page);
@@ -2210,6 +2288,10 @@ test("interactive map presents image maps with fog reveals and pins on player sc
   const canvas = map.locator(".map-canvas-stage");
   await dragMapCanvas(map, 0.2, 0.2, 0.55, 0.55);
   await expect(screen.locator(".map-fog-hole")).toHaveCount(1);
+  await expect(canvas).toBeFocused();
+  await dragMapCanvas(map, 0.58, 0.18, 0.72, 0.34);
+  await expect(screen.locator(".map-fog-hole")).toHaveCount(2);
+  await expect(canvas).toBeFocused();
 
   let viewportRequests = 0;
   await page.route("**/api/map/viewport", async (route) => {
@@ -2242,9 +2324,89 @@ test("interactive map presents image maps with fog reveals and pins on player sc
   await map.getByLabel("Pin label").fill("River Gate");
   await clickMapCanvas(map, 0.65, 0.45);
   await expect(screen.getByText("River Gate")).toBeVisible();
+  await expect(canvas).toBeFocused();
 
   await map.getByRole("button", { name: "Stop Map" }).click();
   await expect(screen.locator(".screen-map")).toBeHidden();
+});
+
+test("map tool ignores stale blank refresh after loading and presenting a map", async ({
+  context,
+  page
+}) => {
+  const screen = await context.newPage();
+  await screen.goto("/screen");
+  await page.goto("/");
+  await expect(worldTree(page).getByRole("button", { name: /sample-map/ })).toBeVisible();
+
+  let releaseStaleMapState: (() => void) | null = null;
+  let staleMapStateRequested = false;
+  const staleMapState = {
+    image_path: null,
+    title: null,
+    viewport: { center_x: 0.5, center_y: 0.5, zoom: 1 },
+    grid: { enabled: false, columns: 10, rows: 10, visible_to_players: true },
+    fog_enabled: false,
+    reveals: [],
+    pins: [],
+    presenting: false,
+    updated_at: "2000-01-01T00:00:00Z"
+  };
+  await page.route("**/api/map/state", async (route) => {
+    if (route.request().method() === "GET" && !staleMapStateRequested) {
+      staleMapStateRequested = true;
+      await new Promise<void>((resolve) => {
+        releaseStaleMapState = resolve;
+      });
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify(staleMapState)
+      });
+      return;
+    }
+    await route.continue();
+  });
+
+  await worldTree(page).getByRole("button", { name: /sample-map/ }).click();
+  const map = await mapTool(page);
+  await expect.poll(() => staleMapStateRequested).toBe(true);
+  await map.getByRole("button", { name: "Use Active Image" }).click();
+  await expect(map.getByText(/Current map:/)).toBeVisible();
+  await expect(map.locator(".map-canvas-dm img")).toBeVisible();
+
+  releaseStaleMapState?.();
+  await expect(map.locator(".map-canvas-dm img")).toBeVisible();
+  await map.getByRole("button", { name: "Present Map" }).click();
+  await expect(screen.locator(".screen-map img")).toBeVisible();
+});
+
+test("map tool explains blank map state and keeps present disabled", async ({ page }) => {
+  const blankMapState = {
+    image_path: null,
+    title: null,
+    viewport: { center_x: 0.5, center_y: 0.5, zoom: 1 },
+    grid: { enabled: false, columns: 10, rows: 10, visible_to_players: true },
+    fog_enabled: false,
+    reveals: [],
+    pins: [],
+    presenting: false,
+    updated_at: "2026-05-11T12:00:00Z"
+  };
+  await page.route("**/api/map/state", async (route) => {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        contentType: "application/json",
+        body: JSON.stringify(blankMapState)
+      });
+      return;
+    }
+    await route.continue();
+  });
+  await page.goto("/");
+
+  const map = await mapTool(page);
+  await expect(map.getByText("No map loaded")).toBeVisible();
+  await expect(map.getByRole("button", { name: "Present Map" })).toBeDisabled();
 });
 
 test("interactive map supports grid visibility dm pins reveal undo and measure mode", async ({
@@ -2418,7 +2580,7 @@ test("blank player screen uses optional world background image", async ({ contex
 
   await page.goto("/");
   const controls = await screenTool(page);
-  await controls.getByRole("button", { name: "Blank Fullscreen" }).click();
+  await controls.getByRole("button", { name: "Blank Screen" }).click();
 
   const blankSurface = screen.locator(".screen-fullscreen-blank");
   await expect(blankSurface).toBeVisible();
@@ -2753,8 +2915,10 @@ test("opening files creates recents", async ({ page }) => {
 test("favorites survive reload", async ({ page }) => {
   await page.goto("/");
 
-  await captainTreeButton(page).click();
-  await page.getByRole("button", { name: "Favorite" }).click();
+  const captain = await captainTreeButton(page);
+  await captain.click();
+  await captain.click({ button: "right" });
+  await page.getByRole("menu").getByRole("button", { name: "Favorite" }).click();
 
   const favorites = page.getByRole("region", { name: "Favorites" });
   await expect(favorites.getByRole("button", { name: /Captain Ilyra/ })).toBeVisible();
@@ -2786,16 +2950,16 @@ test("edits markdown, saves, reloads, and shows persisted content", async ({ pag
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: /Sample World Guide/ }).click();
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await enterEditMode(page);
   await expect(page.getByRole("textbox", { name: "Markdown editor" })).not.toContainText("---");
   await fillCodeEditor(page, "Markdown editor", "# Edited Home\n\nSaved during e2e.");
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Split", exact: true }).click();
+  await toggleMarkdownSplit(page);
   await expect(page.getByRole("region", { name: "Markdown preview pane" })).toContainText(
     "Edited Home"
   );
   await expect(page.getByRole("tab", { name: /Sample World Guide \*/ })).toBeVisible();
 
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Save", exact: true }).click();
+  await saveActiveDraft(page);
   await expect(page.locator(".editor-status")).toHaveText(/Saved|Clean/);
   await page.waitForTimeout(300);
   await page.reload();
@@ -2807,10 +2971,9 @@ test("reverts markdown changes before save", async ({ page }) => {
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: /Sample World Guide/ }).click();
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await enterEditMode(page);
   await fillCodeEditor(page, "Markdown editor", "# Not Saved");
-  await page.getByRole("button", { name: "Revert" }).click();
-  await page.getByRole("button", { name: "Preview" }).click();
+  await revertDirtyDraft(page);
 
   await expect(page.getByRole("heading", { name: "Sample World Guide" })).toBeVisible();
   await expect(page.getByText("Not Saved")).toBeHidden();
@@ -2820,9 +2983,9 @@ test("edits a CSV cell, saves, reloads, and shows persisted value", async ({ pag
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: "random-events.csv" }).click();
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await enterEditMode(page);
   await page.getByRole("textbox", { name: "Cell 1-2" }).fill("A fog bank rolls in");
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Save", exact: true }).click();
+  await saveActiveDraft(page);
   await expect(page.locator(".editor-status")).toHaveText(/Saved|Clean/);
   await page.waitForTimeout(300);
   await page.reload();
@@ -2834,14 +2997,31 @@ test("adds a CSV row and column, saves, and previews the new shape", async ({ pa
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: "random-events.csv" }).click();
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
-  await page.getByRole("button", { name: "Add Column" }).click();
-  await page.getByRole("button", { name: "Add Row" }).click();
+  await enterEditMode(page);
+  const addColumn = page.getByRole("button", { name: "Add Column" });
+  const addRow = page.getByRole("button", { name: "Add Row" });
+  const lastHeader = page.getByRole("textbox", { name: "Header 3" });
+  const lastBodyRow = page.locator(".csv-editor tbody tr").last();
+  await expect(async () => {
+    const addColumnBox = await addColumn.boundingBox();
+    const addRowBox = await addRow.boundingBox();
+    const headerBox = await lastHeader.boundingBox();
+    const rowBox = await lastBodyRow.boundingBox();
+    expect(addColumnBox).not.toBeNull();
+    expect(addRowBox).not.toBeNull();
+    expect(headerBox).not.toBeNull();
+    expect(rowBox).not.toBeNull();
+    expect(addColumnBox?.x ?? 0).toBeGreaterThan((headerBox?.x ?? 0) + (headerBox?.width ?? 0) - 1);
+    expect(addRowBox?.y ?? 0).toBeGreaterThan((rowBox?.y ?? 0) + (rowBox?.height ?? 0) - 1);
+  }).toPass();
+
+  await addColumn.click();
+  await addRow.click();
   await page.getByRole("textbox", { name: "Header 4" }).fill("secret");
   await page.getByRole("textbox", { name: "Cell 5-4" }).fill("hidden door");
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Save", exact: true }).click();
+  await saveActiveDraft(page);
   await expect(page.locator(".editor-status")).toHaveText(/Saved|Clean/);
-  await page.getByRole("button", { name: "Preview" }).click();
+  await previewCleanDraft(page);
 
   await expect(page.getByRole("columnheader", { name: "secret" })).toBeVisible();
   await expect(page.getByText("hidden door")).toBeVisible();
@@ -2858,7 +3038,7 @@ test.describe("table state snapshots V1", () => {
     await page.goto("/");
 
     await worldTree(page).getByRole("button", { name: /effects_demo\.dms/ }).click();
-    await page.locator(".editor-toolbar").getByRole("button", { name: "Run", exact: true }).click();
+    await runActiveScript(page);
     await expect(toolsPanel(page).getByRole("button", { name: /Screen sample-map/ })).toBeVisible();
     const audio = await audioTool(page);
     const effectBus = audio.getByRole("region", { name: "Effect Bus" });
@@ -2868,7 +3048,7 @@ test.describe("table state snapshots V1", () => {
     await worldTree(page).getByRole("button", { name: /Sample World Guide/ }).click();
     let screenControls = await screenTool(page);
     await screenControls.getByRole("tab", { name: "Display" }).click();
-    await screenControls.getByRole("button", { name: "Blank Fullscreen" }).click();
+    await screenControls.getByRole("button", { name: "Blank Screen" }).click();
     await screenControls.getByRole("button", { name: "Show Active Fullscreen" }).click();
 
     await captainTreeButton(page).click();
@@ -2906,14 +3086,14 @@ test.describe("table state snapshots V1", () => {
 
     screenControls = await screenTool(page);
     await screenControls.getByRole("tab", { name: "Display" }).click();
-    await screenControls.getByRole("button", { name: "Blank Fullscreen" }).click();
+    await screenControls.getByRole("button", { name: "Blank Screen" }).click();
     const mapAfterSnapshot = await mapTool(page);
     await mapAfterSnapshot.getByRole("button", { name: "Stop Map" }).click();
     await expect(screen.locator(".screen-map")).toBeHidden();
     await expect(screen.getByRole("region", { name: "Popup Captain Ilyra" })).toBeHidden();
     const audioAfterChanges = await audioTool(page);
     const effectBusAfterChanges = audioAfterChanges.getByRole("region", { name: "Effect Bus" });
-    await audioAfterChanges.getByRole("button", { name: "Stop All" }).click();
+    await audioAfterChanges.getByRole("button", { name: "Stop All Audio" }).click();
     await expect(effectBusAfterChanges.getByRole("button", { name: "Play" })).toBeVisible();
 
     await openToolSection(page, "Actions");
@@ -2954,7 +3134,7 @@ test("shows live conflict state and keeps unsaved markdown visible", async ({
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: /Sample World Guide/ }).click();
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await enterEditMode(page);
   await fillCodeEditor(page, "Markdown editor", "# Unsaved Conflict Text");
 
   const current = await (await request.get("/api/world/file?path=README.md")).json();
@@ -2973,8 +3153,8 @@ test("shows live conflict state and keeps unsaved markdown visible", async ({
     "# Unsaved Conflict Text"
   );
   await expect(
-    page.locator(".editor-toolbar").getByRole("button", { name: "Save", exact: true })
-  ).toBeDisabled();
+    page.getByRole("region", { name: "Document status" }).getByRole("button", { name: "Save" })
+  ).toHaveCount(0);
 });
 
 test("creates markdown note, opens it, and indexes it for search", async ({ page }) => {
@@ -3006,7 +3186,7 @@ test("creates CSV table and opens editable grid", async ({ page }) => {
 
   await expect(page.getByRole("tab", { name: /custom-rolls/ })).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "result" })).toBeVisible();
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await enterEditMode(page);
   await expect(page.getByRole("textbox", { name: "Header 1" })).toHaveValue("result");
   await expect(page.getByRole("textbox", { name: "Header 2" })).toHaveValue("event");
 });
@@ -3025,9 +3205,9 @@ test("creates edits and searches DMS scripts", async ({ page }) => {
     "Write DMS script here"
   );
 
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await enterEditMode(page);
   await fillCodeEditor(page, "DMS editor", "render_md('# Hello DMS')\n");
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Save", exact: true }).click();
+  await saveActiveDraft(page);
   await expect(page.locator(".editor-status")).toHaveText(/Saved|Clean/);
 
   const search = await searchTool(page);
@@ -3114,13 +3294,13 @@ test("workspace New Card can create and edit a V2 layout card", async ({ page })
   await expect(mainPane).toContainText("Abilities");
   await expect(mainPane).toContainText("Attacks");
 
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await enterEditMode(page);
   await page.getByLabel("Card title").fill("Playwright V2 Hero Revised");
   await page.getByLabel("Card tags").fill("character, v2, e2e-v2");
   await page.getByLabel("Field value 1-1").fill("Morgan");
   await page.getByLabel("Field value 1-2").fill("Wizard");
   await page.getByLabel("Field value 1-3").fill("5");
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Save", exact: true }).click();
+  await saveActiveDraft(page);
   await expect(page.locator(".editor-status")).toHaveText(/Saved|Clean/);
   await expectWorkspaceActivePath(page, "Cards/Playwright V2 Hero.cs");
 
@@ -3157,6 +3337,38 @@ test("V2 sample cards render layouts and participate in search", async ({ page }
   await expect(search.getByRole("button", { name: /Item Reference Table/ })).toBeVisible();
 });
 
+test("card table add controls sit at the table edges", async ({ page }) => {
+  await page.goto("/");
+
+  await openCardsFile(page, "Item Reference Table\\.cs");
+  await enterEditMode(page);
+  const addColumn = page.getByRole("button", { name: "Add table column 1" });
+  const addRow = page.getByRole("button", { name: "Add table row 1" });
+  const lastHeader = page.getByRole("textbox", { name: "Table column 1-4" });
+  const lastBodyRow = page.locator(".card-editor-table-grid tbody tr").last();
+  await expect(async () => {
+    const addColumnBox = await addColumn.boundingBox();
+    const addRowBox = await addRow.boundingBox();
+    const headerBox = await lastHeader.boundingBox();
+    const rowBox = await lastBodyRow.boundingBox();
+    expect(addColumnBox).not.toBeNull();
+    expect(addRowBox).not.toBeNull();
+    expect(headerBox).not.toBeNull();
+    expect(rowBox).not.toBeNull();
+    expect(addColumnBox?.x ?? 0).toBeGreaterThan((headerBox?.x ?? 0) + (headerBox?.width ?? 0) - 1);
+    expect(addRowBox?.y ?? 0).toBeGreaterThan((rowBox?.y ?? 0) + (rowBox?.height ?? 0) - 1);
+  }).toPass();
+
+  await addColumn.click();
+  await addRow.click();
+  await page.getByRole("textbox", { name: "Table column 1-5" }).fill("GM");
+  await page.getByRole("textbox", { name: "Table cell 1-3-5" }).fill("Secret shelf");
+  await saveActiveDraft(page);
+  await previewCleanDraft(page);
+  await expect(page.getByRole("columnheader", { name: "GM" })).toBeVisible();
+  await expect(page.getByText("Secret shelf")).toBeVisible();
+});
+
 test("computed sample card renders formulas and updates when source fields change", async ({
   page
 }) => {
@@ -3174,9 +3386,9 @@ test("computed sample card renders formulas and updates when source fields chang
     "13"
   );
 
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await enterEditMode(page);
   await page.getByLabel("Field value 2-2").fill("8");
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Save", exact: true }).click();
+  await saveActiveDraft(page);
   await expect(page.locator(".editor-status")).toHaveText(/Saved|Clean/);
   await expectWorkspaceActivePath(page, "Cards/Computed Character Sheet.cs");
   await page.reload();
@@ -3185,9 +3397,9 @@ test("computed sample card renders formulas and updates when source fields chang
     "+2"
   );
 
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await enterEditMode(page);
   await page.getByLabel("Field value 2-3").selectOption("false");
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Save", exact: true }).click();
+  await saveActiveDraft(page);
   await expect(page.locator(".editor-status")).toHaveText(/Saved|Clean/);
   await expectWorkspaceActivePath(page, "Cards/Computed Character Sheet.cs");
   await page.reload();
@@ -3200,11 +3412,11 @@ test("computed card editor shows invalid formula errors inline", async ({ page }
   await page.goto("/");
 
   await openCardsFile(page, "Computed Character Sheet\\.cs");
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await enterEditMode(page);
   await page.getByLabel("Field formula 2-5").fill("Missing + 1");
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Save", exact: true }).click();
+  await saveActiveDraft(page);
   await expect(page.locator(".editor-status")).toHaveText(/Saved|Clean/);
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Preview" }).click();
+  await previewCleanDraft(page);
 
   const mainPane = page.getByRole("region", { name: "Main viewer pane" });
   await expect(mainPane.locator(".card-field-row", { hasText: "Perception_bonus" })).toContainText(
@@ -3243,7 +3455,7 @@ test("DMS card_template can create a computed card from a world-local template",
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: /create_computed_card\.dms/ }).click();
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Run", exact: true }).click();
+  await runActiveScript(page);
 
   await expect(worldTree(page).getByRole("button", { name: /DMS Computed Sentinel\.cs/ })).toBeVisible(
     { timeout: 10000 }
@@ -3299,7 +3511,7 @@ test("DMS card_template can create a card from a world-local template", async ({
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: /create_card_success\.dms/ }).click();
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await enterEditMode(page);
   await fillCodeEditor(
     page,
     "DMS editor",
@@ -3309,9 +3521,9 @@ test("DMS card_template can create a card from a world-local template", async ({
       "create_card('Cards/DMS Contact.cs', card)"
     ].join("\n")
   );
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Save", exact: true }).click();
+  await saveActiveDraft(page);
   await expect(page.locator(".editor-status")).toHaveText(/Saved|Clean/);
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Run", exact: true }).click();
+  await runActiveScript(page);
 
   await expect(worldTree(page).getByRole("button", { name: /DMS Contact\.cs/ })).toBeVisible({
     timeout: 10000
@@ -3325,7 +3537,7 @@ test("DMS card_template can create a V2 card from a world-local template", async
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: /create_card_success\.dms/ }).click();
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await enterEditMode(page);
   await fillCodeEditor(
     page,
     "DMS editor",
@@ -3339,9 +3551,9 @@ test("DMS card_template can create a V2 card from a world-local template", async
       "create_card('Cards/DMS V2 Scout.cs', card)"
     ].join("\n")
   );
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Save", exact: true }).click();
+  await saveActiveDraft(page);
   await expect(page.locator(".editor-status")).toHaveText(/Saved|Clean/);
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Run", exact: true }).click();
+  await runActiveScript(page);
 
   await expect(worldTree(page).getByRole("button", { name: /DMS V2 Scout\.cs/ })).toBeVisible({
     timeout: 10000
@@ -3364,7 +3576,7 @@ test("edits structured card data, saves, reloads, and indexes card text", async 
   await openCardsFile(page, "Moonlit Key\\.cs");
   await expect(page.getByRole("heading", { name: "Moonlit Key" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Edit", exact: true }).click();
+  await enterEditMode(page);
   await expect(page.getByLabel("Card title")).toBeVisible();
   await page.getByLabel("Card title").fill("Moonlit Key Revised");
   await page.getByLabel("Card kind").fill("Relic");
@@ -3372,7 +3584,7 @@ test("edits structured card data, saves, reloads, and indexes card text", async 
   await page.getByRole("button", { name: "Add Field" }).click();
   await page.getByLabel(/Field (name|label)/i).last().fill("Secret");
   await page.getByLabel(/Field value/i).last().fill("Crimson glass field text");
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Save", exact: true }).click();
+  await saveActiveDraft(page);
   await expect(page.locator(".editor-status")).toHaveText(/Saved|Clean/);
 
   await page.waitForTimeout(300);
@@ -3471,7 +3683,9 @@ test("structured cards participate in favorites, recents, and workspace restore 
   await gotoWorkspace(page);
 
   await openCardsFile(page, "Moonlit Key\\.cs");
-  await page.getByRole("button", { name: "Favorite" }).click();
+  const moonlit = worldTree(page).getByRole("button", { name: /Moonlit Key Moonlit Key\.cs/ });
+  await moonlit.click({ button: "right" });
+  await page.getByRole("menu").getByRole("button", { name: "Favorite" }).click();
 
   const favorites = page.getByRole("region", { name: "Favorites" });
   await expect(favorites.getByRole("button", { name: /Moonlit Key/ })).toBeVisible();
@@ -3501,8 +3715,8 @@ test("structured cards can be sent fullscreen and as popups to the player screen
 
   await openCardsFile(page, "Moonlit Key\\.cs");
   const controls = await screenTool(page);
-  await controls.getByRole("button", { name: "Close All Popups" }).click();
-  await controls.getByRole("button", { name: "Blank Fullscreen" }).click();
+  await controls.getByRole("button", { name: "Clear Popups" }).click();
+  await controls.getByRole("button", { name: "Blank Screen" }).click();
   await controls.getByRole("button", { name: "Show Active Fullscreen" }).click();
   await expect(screen.getByRole("heading", { name: "Moonlit Key" })).toBeVisible();
   await expect(screen.getByText("amber spindle phrase")).toBeVisible();
@@ -3555,8 +3769,10 @@ test("invalid structured card JSON shows an invalid card state", async ({ page }
 test("renames markdown and keeps the tab at the new path", async ({ page }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: /Sample World Guide/ }).click();
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Rename", exact: true }).click();
+  const readme = worldTree(page).getByRole("button", { name: /README\.md/ });
+  await readme.click();
+  await readme.click({ button: "right" });
+  await page.getByRole("menu").getByRole("button", { name: "Rename" }).click();
   const dialog = page.getByRole("dialog", { name: "Rename File" });
   await dialog.getByLabel("New file path").fill("Renamed Home.md");
   await dialog.getByRole("button", { name: "Rename File", exact: true }).click();
@@ -3572,8 +3788,10 @@ test("renames markdown and keeps the tab at the new path", async ({ page }) => {
 test("moves CSV to trash and removes it from tree and search", async ({ page }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: "random-events.csv" }).click();
-  await page.getByRole("button", { name: "Move to Trash" }).click();
+  const csv = worldTree(page).getByRole("button", { name: "random-events.csv" });
+  await csv.click();
+  await csv.click({ button: "right" });
+  await page.getByRole("menu").getByRole("button", { name: "Move to Trash" }).click();
   const dialog = page.getByRole("dialog", { name: "Move to Trash" });
   await dialog.getByRole("button", { name: "Move to Trash", exact: true }).click();
 
@@ -3588,8 +3806,10 @@ test("moves CSV to trash and removes it from tree and search", async ({ page }) 
 test("trash manager restores and permanently deletes trashed files", async ({ page }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: "random-events.csv" }).click();
-  await page.getByRole("button", { name: "Move to Trash" }).click();
+  let csv = worldTree(page).getByRole("button", { name: "random-events.csv" });
+  await csv.click();
+  await csv.click({ button: "right" });
+  await page.getByRole("menu").getByRole("button", { name: "Move to Trash" }).click();
   let dialog = page.getByRole("dialog", { name: "Move to Trash" });
   await dialog.getByRole("button", { name: "Move to Trash", exact: true }).click();
 
@@ -3600,8 +3820,10 @@ test("trash manager restores and permanently deletes trashed files", async ({ pa
   await expect(worldTree(page).getByRole("button", { name: "random-events.csv" })).toBeVisible();
   await trash.getByRole("button", { name: "Close Trash" }).click();
 
-  await worldTree(page).getByRole("button", { name: "random-events.csv" }).click();
-  await page.getByRole("button", { name: "Move to Trash" }).click();
+  csv = worldTree(page).getByRole("button", { name: "random-events.csv" });
+  await csv.click();
+  await csv.click({ button: "right" });
+  await page.getByRole("menu").getByRole("button", { name: "Move to Trash" }).click();
   dialog = page.getByRole("dialog", { name: "Move to Trash" });
   await dialog.getByRole("button", { name: "Move to Trash", exact: true }).click();
 
@@ -3631,7 +3853,9 @@ test("renames after live external save refreshes preconditions", async ({
   await expect(page.getByRole("heading", { name: "External Rename Conflict" })).toBeVisible({
     timeout: 10_000
   });
-  await page.locator(".editor-toolbar").getByRole("button", { name: "Rename", exact: true }).click();
+  const readme = worldTree(page).getByRole("button", { name: /README\.md/ });
+  await readme.click({ button: "right" });
+  await page.getByRole("menu").getByRole("button", { name: "Rename" }).click();
   const dialog = page.getByRole("dialog", { name: "Rename File" });
   await dialog.getByLabel("New file path").fill("Conflict Home.md");
   await dialog.getByRole("button", { name: "Rename File", exact: true }).click();
@@ -3644,19 +3868,16 @@ test("media and unsupported files stay read-only", async ({ page }) => {
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: "sample-map.svg" }).click();
-  let editorToolbar = page.locator(".editor-toolbar");
-  await expect(editorToolbar.getByRole("button", { name: "Edit", exact: true })).toBeHidden();
+  await expect(page.locator(".editor-toolbar")).toHaveCount(0);
+  await expect(page.locator("img[alt='sample-map.svg']")).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toHaveCount(0);
   await openToolSection(page, "Metadata");
   await expect(page.getByRole("button", { name: "Edit Metadata" })).toBeVisible();
-  await expect(editorToolbar.getByRole("button", { name: "Rename" })).toBeHidden();
-  await expect(editorToolbar.getByRole("button", { name: "Move to Trash" })).toBeHidden();
 
   await worldTree(page).getByRole("button", { name: "roll.bin" }).click();
   await expect(page.getByRole("heading", { name: "Unsupported File" })).toBeVisible();
-  editorToolbar = page.locator(".editor-toolbar");
-  await expect(editorToolbar.getByRole("button", { name: "Edit", exact: true })).toBeHidden();
+  await expect(page.locator(".editor-toolbar")).toHaveCount(0);
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toHaveCount(0);
   await openToolSection(page, "Metadata");
   await expect(page.getByRole("button", { name: "Edit Metadata" })).toBeVisible();
-  await expect(editorToolbar.getByRole("button", { name: "Rename" })).toBeHidden();
-  await expect(editorToolbar.getByRole("button", { name: "Move to Trash" })).toBeHidden();
 });

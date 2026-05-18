@@ -1,16 +1,19 @@
 import { useState } from "react";
 
+import type { Translator } from "./lang";
+
 type UnlockScreenProps = {
   error: string | null;
   loading: boolean;
   onUnlock: (token: string) => void;
+  t: Translator;
 };
 
-export function UnlockScreen({ error, loading, onUnlock }: UnlockScreenProps) {
+export function UnlockScreen({ error, loading, onUnlock, t }: UnlockScreenProps) {
   const [token, setToken] = useState("");
 
   return (
-    <main className="unlock-screen" aria-label="VirtualScreen Unlock">
+    <main className="unlock-screen" aria-label={t("unlock.label")}>
       <form
         className="unlock-card"
         onSubmit={(event) => {
@@ -19,9 +22,9 @@ export function UnlockScreen({ error, loading, onUnlock }: UnlockScreenProps) {
         }}
       >
         <h1>VirtualScreen</h1>
-        <p>Enter the local table access code to unlock this session.</p>
+        <p>{t("unlock.description")}</p>
         <label>
-          Access code
+          {t("unlock.accessCode")}
           <input
             autoFocus
             onChange={(event) => setToken(event.target.value)}
@@ -31,7 +34,7 @@ export function UnlockScreen({ error, loading, onUnlock }: UnlockScreenProps) {
         </label>
         {error && <p className="inline-error">{error}</p>}
         <button disabled={loading || !token.trim()} type="submit">
-          {loading ? "Unlocking..." : "Unlock"}
+          {loading ? t("unlock.unlocking") : t("unlock.unlock")}
         </button>
       </form>
     </main>

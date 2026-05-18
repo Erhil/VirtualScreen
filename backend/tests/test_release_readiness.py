@@ -37,6 +37,7 @@ def test_readme_documents_fresh_release_setup() -> None:
         "## Install extra Python libraries for DMS scripts",
         ".\\.venv\\Scripts\\python -m pip install numpy",
         "ModuleNotFoundError",
+        "VIRTUALSCREEN_LANGUAGE",
         "GPLv3",
     ]
 

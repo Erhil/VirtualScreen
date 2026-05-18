@@ -214,7 +214,7 @@ test.describe("Action Bindings V1", () => {
     await openToolSection(page, "Screen");
     await toolsPanel(page)
       .getByRole("region", { name: "Screen Control" })
-      .getByRole("button", { name: "Blank Fullscreen" })
+      .getByRole("button", { name: "Blank Screen" })
       .click();
     await expect(screen.getByRole("heading", { name: "Sample World Guide" })).toHaveCount(0);
 
@@ -290,7 +290,7 @@ test.describe("Action Bindings V1", () => {
     await openToolSection(page, "Screen");
     await toolsPanel(page)
       .getByRole("region", { name: "Screen Control" })
-      .getByRole("button", { name: "Blank Fullscreen" })
+      .getByRole("button", { name: "Blank Screen" })
       .click();
     await expect(screen.getByRole("heading", { name: "Sample World Guide" })).toHaveCount(0);
 

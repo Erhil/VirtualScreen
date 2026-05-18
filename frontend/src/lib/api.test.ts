@@ -8,6 +8,7 @@ import {
   blankDisplay,
   closeDisplayPopup,
   clearDisplayPopups,
+  fetchAppConfig,
   fetchPrepHealth,
   fetchHpTracker,
   fetchAuthStatus,
@@ -170,6 +171,21 @@ describe("API types", () => {
 });
 
 describe("world API helpers", () => {
+  it("fetches public app config", async () => {
+    const config = {
+      language: "ru",
+      available_languages: [
+        { code: "en", label: "English", native_label: "English" },
+        { code: "ru", label: "Russian", native_label: "Русский" }
+      ]
+    };
+    const fetchMock = vi.fn(() => mockJsonResponse(config));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchAppConfig()).resolves.toEqual(config);
+    expect(fetchMock).toHaveBeenCalledWith("/api/app/config");
+  });
+
   it("fetches today's quick captures and creates a capture", async () => {
     const today = {
       path: "Session Logs/2026-05-11.md",

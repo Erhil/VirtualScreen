@@ -28,6 +28,7 @@ import {
   normalizeMapRect,
   planViewportSync,
   presentMap,
+  shouldAdoptMapState,
   loadMapPreset,
   saveMapPreset,
   setMapFog,
@@ -215,6 +216,34 @@ describe("map helpers", () => {
     expect(mapFogClassName("player")).toBe("map-canvas-fog map-canvas-fog-player");
     expect(mapFogOverlayOpacity("dm")).toBe(0.7);
     expect(mapFogOverlayOpacity("player")).toBe(1);
+  });
+
+  it("adopts incoming map state only when it is not stale", () => {
+    const loadedState: MapState = {
+      ...blankState,
+      image_path: "Media/map.svg",
+      title: "map",
+      updated_at: "2026-05-11T12:00:02Z"
+    };
+    const olderBlankState: MapState = {
+      ...blankState,
+      updated_at: "2026-05-11T12:00:01Z"
+    };
+    const equalEventState: MapState = {
+      ...loadedState,
+      presenting: true
+    };
+    const newerState: MapState = {
+      ...loadedState,
+      updated_at: "2026-05-11T12:00:03Z"
+    };
+
+    expect(shouldAdoptMapState(null, olderBlankState)).toBe(true);
+    expect(shouldAdoptMapState(loadedState, newerState)).toBe(true);
+    expect(shouldAdoptMapState(loadedState, olderBlankState)).toBe(false);
+    expect(shouldAdoptMapState(loadedState, equalEventState)).toBe(true);
+    expect(shouldAdoptMapState({ ...loadedState, updated_at: "not-a-date" }, olderBlankState)).toBe(true);
+    expect(shouldAdoptMapState(loadedState, { ...olderBlankState, updated_at: "not-a-date" })).toBe(true);
   });
 
   it("creates pin payloads and image points from client coordinates", () => {

@@ -211,16 +211,16 @@ test.describe("World Path Picker V1", () => {
     await page.goto("/");
 
     await openCardsFile(page, "Picker Link Card\\.cs");
-    await page.getByRole("button", { name: "Edit", exact: true }).click();
+    await page.getByRole("region", { name: "Main viewer pane" }).dblclick({ position: { x: 220, y: 180 } });
     await chooseWorldPath(
       page,
       page.getByRole("button", { name: "Choose field value 1-1 path" }),
       "NPCs/Captain Ilyra.md"
     );
     await expect(page.getByRole("textbox", { name: "Field value 1-1" })).toHaveValue("[[NPCs/Captain Ilyra]]");
-    await page.locator(".editor-toolbar").getByRole("button", { name: "Save", exact: true }).click();
+    await page.keyboard.press("ControlOrMeta+S");
     await expect(page.locator(".editor-status")).toHaveText(/Saved|Clean/);
-    await page.locator(".editor-toolbar").getByRole("button", { name: "Preview", exact: true }).click();
+    await page.keyboard.press("Escape");
     await expect(page.getByRole("link", { name: "Captain Ilyra" })).toBeVisible();
   });
 

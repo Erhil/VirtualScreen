@@ -18,11 +18,17 @@ export type WorldPathPickerProps = {
   tree?: WorldEntry | null;
   filter?: WorldPathPickerFilter;
   filterLabel?: string;
+  dialogLabel?: string;
   initialQuery?: string;
   mode?: "dialog" | "popover";
   placeholder?: string;
   title?: string;
   emptyMessage?: string;
+  cancelLabel?: string;
+  filterInputLabel?: string;
+  resultsLabel?: string;
+  searchLabel?: string;
+  useSelectedLabel?: string;
   onClose: () => void;
   onSelect: (path: string, candidate: WorldPathPickerCandidate) => void;
 };
@@ -34,11 +40,17 @@ export function WorldPathPicker({
   tree = null,
   filter,
   filterLabel,
+  dialogLabel = "Choose World Path",
   initialQuery = "",
   mode = "dialog",
   placeholder = "Search world paths",
   title = "Choose World Path",
   emptyMessage = "No matching paths.",
+  cancelLabel = "Cancel",
+  filterInputLabel = "Filter world paths",
+  resultsLabel = "World path results",
+  searchLabel = "Search",
+  useSelectedLabel = "Use Selected Path",
   onClose,
   onSelect
 }: WorldPathPickerProps) {
@@ -114,7 +126,7 @@ export function WorldPathPicker({
 
   const picker = (
     <section
-      aria-label="Choose World Path"
+      aria-label={dialogLabel}
       className={`world-path-picker world-path-picker-${mode}`}
       onKeyDown={handleKeyDown}
       role="dialog"
@@ -130,11 +142,11 @@ export function WorldPathPicker({
       </div>
 
       <label className="world-path-picker-search" htmlFor={inputId}>
-        <span>Search</span>
+        <span>{searchLabel}</span>
         <input
           aria-activedescendant={activeOptionId}
           aria-controls={listId}
-          aria-label="Filter world paths"
+          aria-label={filterInputLabel}
           autoComplete="off"
           id={inputId}
           onChange={(event) => setQuery(event.target.value)}
@@ -146,7 +158,7 @@ export function WorldPathPicker({
       </label>
 
       <div
-        aria-label="World path results"
+        aria-label={resultsLabel}
         className="world-path-picker-results"
         id={listId}
         role="listbox"
@@ -173,10 +185,10 @@ export function WorldPathPicker({
       </div>
       <div className="dialog-actions">
         <button onClick={onClose} type="button">
-          Cancel
+          {cancelLabel}
         </button>
         <button disabled={!activeResult} onClick={() => activeResult && selectResult(activeResult)} type="button">
-          Use Selected Path
+          {useSelectedLabel}
         </button>
       </div>
     </section>

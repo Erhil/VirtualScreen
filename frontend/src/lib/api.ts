@@ -3,6 +3,17 @@ export type HealthResponse = {
   service: string;
 };
 
+export type UiLanguage = "en" | "ru";
+
+export type AppConfig = {
+  language: UiLanguage;
+  available_languages: Array<{
+    code: UiLanguage;
+    label: string;
+    native_label: string;
+  }>;
+};
+
 export type PrepHealthStatus = "ok" | "warning" | "error";
 
 export type PrepHealthIssueKind =
@@ -584,6 +595,10 @@ async function sendJson<T>(
 
 export function fetchHealth(): Promise<HealthResponse> {
   return getJson<HealthResponse>("/api/health");
+}
+
+export function fetchAppConfig(): Promise<AppConfig> {
+  return getJson<AppConfig>("/api/app/config");
 }
 
 export function fetchPrepHealth(): Promise<PrepHealthResponse> {

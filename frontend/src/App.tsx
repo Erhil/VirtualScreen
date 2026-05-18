@@ -1,5 +1,6 @@
 import {
   useEffect,
+  useMemo,
   useRef,
   useState,
   type CSSProperties,
@@ -66,6 +67,7 @@ import {
   deleteWorkspace,
   deleteTrash,
   duplicateWorldPath,
+  fetchAppConfig,
   fetchAuthStatus,
   fetchAudioLibrary,
   fetchCardTemplates,
@@ -122,6 +124,7 @@ import {
   type DisplayPopupPreset,
   type AudioBus,
   type AudioTrack,
+  type AppConfig,
   type AuthStatus,
   type CaptureCategory,
   type CaptureTodayResponse,
@@ -141,6 +144,16 @@ import {
   type WorkspaceState,
   type WorkspaceTab
 } from "./lib/api";
+import {
+  AVAILABLE_LANGUAGES,
+  createTranslator,
+  isUiLanguage,
+  loadStoredUiLanguage,
+  resolveInitialLanguage,
+  saveStoredUiLanguage,
+  type Translator,
+  type UiLanguage
+} from "./lang";
 import {
   filterPrepHealthIssues,
   prepHealthIssueToOpenTab,
@@ -237,9 +250,9 @@ import {
 } from "./lib/csv";
 import {
   createEditorDraft,
+  editorShortcutIntent,
   isDraftDirty,
   normalizeEditorModeForTarget,
-  editorModesForTarget,
   markDraftConflict,
   markDraftChangedOnDisk,
   markDraftError,
@@ -247,9 +260,11 @@ import {
   markDraftSaving,
   revertDraft,
   setDraftMode,
+  supportsEditorMode,
   updateDraftContent,
   type EditorDraft,
-  type EditorMode
+  type EditorMode,
+  type EditorShortcutIntent
 } from "./lib/editor";
 import { buildEditorCompletionItems } from "./lib/editorAutocomplete";
 import {
@@ -300,6 +315,7 @@ import {
   setMapGrid,
   setMapSource,
   setMapViewport,
+  shouldAdoptMapState,
   stopMap,
   type MapGrid,
   type MapPinVisibility,
@@ -335,7 +351,6 @@ import {
   clampWorkspaceSplitRatio,
   defaultWorkspaceLayout,
   groupSearchResults,
-  isFavorite,
   normalizeWorkspaceLayout,
   openFileInActivePane,
   recordRecentItem,
@@ -382,14 +397,7 @@ import {
   type ToolId,
   type ToolPanelState
 } from "./lib/toolPanel";
-import {
-  liveAudioBusSummaries,
-  liveMapSummary,
-  liveOutputSummary,
-  livePaneSummary,
-  livePopupSummary,
-  livePrepHealthLabel
-} from "./lib/liveStatus";
+import { livePrepHealthLabel } from "./lib/liveStatus";
 import { moveSearchResultSelection, selectedSearchResult } from "./lib/searchPalette";
 import {
   flattenWorldPathPickerEntries,
@@ -455,6 +463,10 @@ type TableSnapshotStatus =
   | { status: "saving"; message: string | null }
   | { status: "saved"; message: string }
   | { status: "loaded"; message: string }
+  | { status: "error"; message: string };
+type MapActionStatus =
+  | { status: "idle"; message: string | null }
+  | { status: "ready"; message: string }
   | { status: "error"; message: string };
 type BindingActionKind =
   | Exclude<FastSlotAction["kind"], "scenario">
@@ -859,6 +871,19 @@ function isEditableFile(file: WorldFile): boolean {
   return managedTypeForFile(file) !== null || isCardPath(file.path, file.extension);
 }
 
+function canSaveEditorDraft(file: WorldFile, draft: EditorDraft): boolean {
+  if (!isDraftDirty(draft) || draft.status === "saving" || draft.externalChanged) {
+    return false;
+  }
+  if (file.media_kind === "csv" && !isRectangularCsv(parseCsv(draft.content))) {
+    return false;
+  }
+  if (isCardPath(file.path, file.extension) && !parseCardJson(draft.content).ok) {
+    return false;
+  }
+  return true;
+}
+
 function tabFromFileWithPages(file: WorldFile, pages: PageSummary[]): WorkspaceTab {
   const tab = workspaceTabFromWorldFile(file);
   const page = pages.find((pageItem) => pageItem.path === file.path);
@@ -1078,14 +1103,6 @@ function CsvEditor({
 }) {
   return (
     <div className="csv-editor">
-      <div className="editor-actions">
-        <button onClick={() => onChange(addCsvRow(data))} type="button">
-          Add Row
-        </button>
-        <button onClick={() => onChange(addCsvColumn(data))} type="button">
-          Add Column
-        </button>
-      </div>
       <div className="table-wrap">
         <table>
           <thead>
@@ -1101,6 +1118,7 @@ function CsvEditor({
                   />
                   <button
                     aria-label={`Remove column ${columnIndex + 1}`}
+                    className="table-compact-control"
                     disabled={data.headers.length <= 1}
                     onClick={() => onChange(removeCsvColumn(data, columnIndex))}
                     type="button"
@@ -1109,7 +1127,16 @@ function CsvEditor({
                   </button>
                 </th>
               ))}
-              <th aria-label="Row controls" />
+              <th aria-label="Column controls" className="table-control-cell">
+                <button
+                  aria-label="Add Column"
+                  className="table-compact-control"
+                  onClick={() => onChange(addCsvColumn(data))}
+                  type="button"
+                >
+                  +
+                </button>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -1129,15 +1156,30 @@ function CsvEditor({
                 <td>
                   <button
                     aria-label={`Remove row ${rowIndex + 1}`}
+                    className="table-compact-control"
                     onClick={() => onChange(removeCsvRow(data, rowIndex))}
                     type="button"
                   >
-                    Remove
+                    x
                   </button>
                 </td>
               </tr>
             ))}
           </tbody>
+          <tfoot>
+            <tr>
+              <td className="table-footer-control" colSpan={data.headers.length + 1}>
+                <button
+                  aria-label="Add Row"
+                  className="table-compact-control"
+                  onClick={() => onChange(addCsvRow(data))}
+                  type="button"
+                >
+                  +
+                </button>
+              </td>
+            </tr>
+          </tfoot>
         </table>
       </div>
       {!isRectangularCsv(data) && <p className="editor-message">CSV rows must be rectangular.</p>}
@@ -1540,41 +1582,48 @@ function CardEditor({
     const rows = section.rows ?? [];
     return (
       <div className="card-editor-table">
-        <div className="card-editor-table-columns">
-          {columns.map((column, columnIndex) => (
-            <div className="card-editor-column" key={`column-${sectionIndex}-${columnIndex}`}>
-              <input
-                aria-label={`Table column ${sectionIndex + 1}-${columnIndex + 1}`}
-                onChange={(event) =>
-                  onChange(
-                    updateCardTableColumnName(card, sectionIndex, columnIndex, event.target.value)
-                  )
-                }
-                value={column}
-              />
-              <button
-                onClick={() => onChange(removeCardTableColumn(card, sectionIndex, column))}
-                type="button"
-              >
-                Remove
-              </button>
-            </div>
-          ))}
-          <button
-            onClick={() => onChange(addCardTableColumn(card, sectionIndex, "New Column"))}
-            type="button"
-          >
-            Add Column
-          </button>
-        </div>
         <div className="card-table-wrap">
           <table className="card-table card-editor-table-grid">
             <thead>
               <tr>
-                {columns.map((column) => (
-                  <th key={column}>{column}</th>
+                {columns.map((column, columnIndex) => (
+                  <th key={`column-${sectionIndex}-${columnIndex}`}>
+                    <div className="table-header-control">
+                      <input
+                        aria-label={`Table column ${sectionIndex + 1}-${columnIndex + 1}`}
+                        onChange={(event) =>
+                          onChange(
+                            updateCardTableColumnName(
+                              card,
+                              sectionIndex,
+                              columnIndex,
+                              event.target.value
+                            )
+                          )
+                        }
+                        value={column}
+                      />
+                      <button
+                        aria-label={`Remove table column ${sectionIndex + 1}-${columnIndex + 1}`}
+                        className="table-compact-control"
+                        onClick={() => onChange(removeCardTableColumn(card, sectionIndex, column))}
+                        type="button"
+                      >
+                        x
+                      </button>
+                    </div>
+                  </th>
                 ))}
-                <th>Actions</th>
+                <th className="table-control-cell">
+                  <button
+                    aria-label={`Add table column ${sectionIndex + 1}`}
+                    className="table-compact-control"
+                    onClick={() => onChange(addCardTableColumn(card, sectionIndex, "New Column"))}
+                    type="button"
+                  >
+                    +
+                  </button>
+                </th>
               </tr>
             </thead>
             <tbody>
@@ -1621,21 +1670,33 @@ function CardEditor({
                       Down
                     </button>
                     <button
-                      className="button-danger-subtle"
+                      aria-label={`Remove table row ${sectionIndex + 1}-${rowIndex + 1}`}
+                      className="button-danger-subtle table-compact-control"
                       onClick={() => onChange(removeCardTableRow(card, sectionIndex, rowIndex))}
                       type="button"
                     >
-                      Remove
+                      x
                     </button>
                   </td>
                 </tr>
               ))}
             </tbody>
+            <tfoot>
+              <tr>
+                <td className="table-footer-control" colSpan={columns.length + 1}>
+                  <button
+                    aria-label={`Add table row ${sectionIndex + 1}`}
+                    className="table-compact-control"
+                    onClick={() => onChange(addCardTableRow(card, sectionIndex))}
+                    type="button"
+                  >
+                    +
+                  </button>
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </div>
-        <button onClick={() => onChange(addCardTableRow(card, sectionIndex))} type="button">
-          Add Row
-        </button>
       </div>
     );
   }
@@ -1790,35 +1851,23 @@ function TextViewer({ file }: { file: WorldFile }) {
   return <pre className="text-viewer">{file.content}</pre>;
 }
 
-function EditorToolbar({
+function DocumentChrome({
   draft,
-  favorite,
   file,
-  onModeChange,
   onReload,
-  onRename,
   onCancelScript,
-  onRevert,
+  onRequestEdit,
   onRunScript,
-  onSave,
   onSaveTemporary,
-  onToggleFavorite,
-  onTrash,
   scriptRunState
 }: {
   draft: EditorDraft | null;
-  favorite: boolean;
   file: WorldFile | null;
-  onModeChange: (mode: EditorMode) => void;
   onReload: () => void;
-  onRename: () => void;
   onCancelScript: (runId: string) => void;
-  onRevert: () => void;
+  onRequestEdit: () => void;
   onRunScript: () => void;
-  onSave: () => void;
   onSaveTemporary: () => void;
-  onToggleFavorite: () => void;
-  onTrash: () => void;
   scriptRunState: ScriptRunState;
 }) {
   if (!file) {
@@ -1829,19 +1878,24 @@ function EditorToolbar({
   if (!editable || !draft) {
     if (isTemporaryDmsPath(file.path)) {
       return (
-        <div className="editor-toolbar" aria-label="Editor controls">
-          <button onClick={onSaveTemporary} type="button">
+        <section className="document-chrome" aria-label="Document status">
+          <div className="document-state">
+            <strong>Temporary DMS output</strong>
+            <span>Save this output into the world before closing it.</span>
+          </div>
+          <button className="document-action" onClick={onSaveTemporary} type="button">
             Save As
           </button>
-        </div>
+        </section>
       );
     }
     return (
-      <div className="editor-toolbar" aria-label="Editor controls">
-        <button aria-pressed={favorite} onClick={onToggleFavorite} type="button">
-          {favorite ? "Favorited" : "Favorite"}
-        </button>
-      </div>
+      <section className="document-chrome document-chrome-readonly" aria-label="Document status">
+        <div className="document-state">
+          <strong>Preview</strong>
+          <span>File actions are in the world tree context menu.</span>
+        </div>
+      </section>
     );
   }
 
@@ -1860,24 +1914,62 @@ function EditorToolbar({
     running: runningScript,
     saving
   });
-  const editorModes = draft ? editorModesForTarget(file) : [];
+  const statusText =
+    changedOnDisk
+      ? "Changed on disk"
+      : draft.status === "conflict"
+        ? draft.message ?? "World file changed on disk."
+        : draft.status === "error"
+          ? draft.message ?? "Could not save file."
+          : file.media_kind === "script" && !scriptRun.available
+            ? scriptRun.reason
+            : !cardValid
+              ? "Invalid card JSON"
+              : !csvValid
+                ? "CSV rows must be rectangular"
+                : draft.message
+                  ? draft.message
+                  : dirty
+                    ? "Unsaved changes"
+                    : draft.status === "saved"
+                      ? "Saved"
+                      : "Clean";
+  const shortcutText =
+    file.media_kind === "markdown"
+      ? "Double-click preview to edit. Ctrl+S saves, Esc previews when clean, Ctrl+\\ toggles split, Shift+Esc reverts."
+      : "Double-click preview to edit. Ctrl+S saves, Esc previews when clean, Shift+Esc reverts.";
+  const handleChromeDoubleClick = (event: MouseEvent<HTMLElement>) => {
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (draft.mode === "edit" || target?.closest("button,a,input,textarea,select")) {
+      return;
+    }
+    onRequestEdit();
+  };
 
   return (
-    <div className="editor-toolbar" aria-label="Editor controls">
-      <button
-        aria-pressed={favorite}
-        onClick={onToggleFavorite}
-        type="button"
-      >
-        {favorite ? "Favorited" : "Favorite"}
-      </button>
+    <section className="document-chrome" aria-label="Document status" onDoubleClickCapture={handleChromeDoubleClick}>
+      <div className="document-state">
+        <strong>
+          {draft.mode === "split" ? "Split preview" : draft.mode === "edit" ? "Editing" : "Preview"}
+        </strong>
+        <span
+          className={`editor-status ${
+            changedOnDisk ? "editor-status-external" : `editor-status-${draft.status}`
+          }`}
+        >
+          {statusText}
+        </span>
+        <small className="document-shortcuts">{shortcutText}</small>
+      </div>
+      <div className="document-actions">
       {file.media_kind === "script" && (
         runningScript && scriptRunState.status === "running" && scriptRunState.runId ? (
-          <button onClick={() => onCancelScript(scriptRunState.runId!)} type="button">
+          <button className="document-action" onClick={() => onCancelScript(scriptRunState.runId!)} type="button">
             Cancel
           </button>
         ) : (
           <button
+            className="document-action"
             disabled={!scriptRun.available}
             onClick={onRunScript}
             title={scriptRun.available ? "Run DMS script" : scriptRun.reason}
@@ -1887,61 +1979,13 @@ function EditorToolbar({
           </button>
         )
       )}
-      <div className="editor-mode">
-        {editorModes.map((mode) => (
-          <button
-            aria-pressed={draft.mode === mode}
-            key={mode}
-            onClick={() => onModeChange(mode)}
-            type="button"
-          >
-            {mode === "split" ? "Split" : mode === "edit" ? "Edit" : "Preview"}
-          </button>
-        ))}
-      </div>
-      <button
-        disabled={!dirty || saving || !csvValid || !cardValid || changedOnDisk}
-        onClick={onSave}
-        type="button"
-      >
-        {saving ? "Saving..." : "Save"}
-      </button>
-      <button disabled={!dirty || saving} onClick={onRevert} type="button">
-        Revert
-      </button>
-      <button disabled={dirty || saving} onClick={onRename} type="button">
-        Rename
-      </button>
-      <button disabled={dirty || saving} onClick={onTrash} type="button">
-        Move to Trash
-      </button>
       {(draft.status === "conflict" || changedOnDisk) && (
-        <button disabled={saving} onClick={onReload} type="button">
+        <button className="document-action" disabled={saving} onClick={onReload} type="button">
           Reload from disk
         </button>
       )}
-      <span
-        className={`editor-status ${
-          changedOnDisk ? "editor-status-external" : `editor-status-${draft.status}`
-        }`}
-      >
-        {changedOnDisk
-          ? "Changed on disk"
-          : draft.status === "conflict"
-            ? draft.message ?? "World file changed on disk."
-              : draft.status === "error"
-                ? draft.message ?? "Could not save file."
-                : file.media_kind === "script" && !scriptRun.available
-                  ? scriptRun.reason
-                : !cardValid
-                  ? "Invalid card JSON"
-                : dirty
-                  ? "Unsaved changes"
-                : draft.status === "saved"
-                  ? "Saved"
-                  : "Clean"}
-      </span>
-    </div>
+      </div>
+    </section>
   );
 }
 
@@ -2406,6 +2450,7 @@ function WorldTree({
   dropPath,
   entry,
   expandedPaths,
+  favoritePaths,
   filter,
   menuPath,
   onAdd,
@@ -2422,6 +2467,7 @@ function WorldTree({
   dropPath: string | null;
   entry: WorldEntry;
   expandedPaths: Set<string>;
+  favoritePaths: Set<string>;
   filter: string;
   menuPath: string | null;
   onAdd: (folderPath: string, kind: FolderCreateKind) => void;
@@ -2446,10 +2492,11 @@ function WorldTree({
       return null;
     }
     const label = treeEntryLabel(entry);
+    const favorite = favoritePaths.has(entry.path);
     return (
       <li>
         <button
-          className="tree-item file-item"
+          className={`tree-item file-item${favorite ? " tree-item-favorite" : ""}`}
           draggable
           onClick={() => onOpen(entry)}
           onContextMenu={(event) => onContextEntry(entry, event)}
@@ -2461,6 +2508,7 @@ function WorldTree({
             <span>{label.primary}</span>
             {label.secondary && <small>{label.secondary}</small>}
           </span>
+          {favorite && <span className="tree-favorite-mark">Favorite</span>}
         </button>
       </li>
     );
@@ -2550,6 +2598,7 @@ function WorldTree({
               dragPath={dragPath}
               dropPath={dropPath}
               expandedPaths={expandedPaths}
+              favoritePaths={favoritePaths}
               filter={filter}
               key={child.path}
               menuPath={menuPath}
@@ -2572,21 +2621,44 @@ function WorldTree({
 
 function WorldTreeContextMenu({
   state,
+  favorite,
   onClose,
   onDuplicate,
   onOpen,
   onOpenNewTab,
   onRename,
+  onToggleFavorite,
   onTrash
 }: {
   state: WorldTreeContextMenuState;
-  onClose: () => void;
+  favorite: boolean;
+  onClose: (restoreFocus?: boolean) => void;
   onDuplicate: (entry: WorldEntry) => void;
   onOpen: (entry: WorldEntry) => void;
   onOpenNewTab: (entry: WorldEntry) => void;
   onRename: (entry: WorldEntry) => void;
+  onToggleFavorite: (entry: WorldEntry) => void;
   onTrash: (entry: WorldEntry) => void;
 }) {
+  const menuRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    if (!state.open) {
+      return;
+    }
+
+    function handlePointerDown(event: globalThis.PointerEvent) {
+      const target = event.target instanceof Node ? event.target : null;
+      if (target && menuRef.current?.contains(target)) {
+        return;
+      }
+      onClose(false);
+    }
+
+    window.addEventListener("pointerdown", handlePointerDown);
+    return () => window.removeEventListener("pointerdown", handlePointerDown);
+  }, [onClose, state.open]);
+
   if (!state.open) {
     return null;
   }
@@ -2595,6 +2667,7 @@ function WorldTreeContextMenu({
   return (
     <div
       className="tree-context-menu"
+      ref={menuRef}
       role="menu"
       style={{ left: state.x, top: state.y }}
     >
@@ -2617,6 +2690,16 @@ function WorldTreeContextMenu({
             type="button"
           >
             Open in New Tab
+          </button>
+          <button
+            aria-pressed={favorite}
+            onClick={() => {
+              onToggleFavorite(entry);
+              onClose();
+            }}
+            type="button"
+          >
+            {favorite ? "Unfavorite" : "Favorite"}
           </button>
         </>
       )}
@@ -2661,13 +2744,15 @@ function QuickFileList({
   items,
   onOpen,
   collapsible = false,
-  defaultOpen = true
+  defaultOpen = true,
+  emptyLabel = "None"
 }: {
   title: string;
   items: WorkspaceTab[];
   onOpen: (tab: WorkspaceTab) => void;
   collapsible?: boolean;
   defaultOpen?: boolean;
+  emptyLabel?: string;
 }) {
   const [open, setOpen] = useState(defaultOpen);
   const visible = !collapsible || open;
@@ -2691,7 +2776,7 @@ function QuickFileList({
         </div>
       )}
       {visible && items.length === 0 ? (
-        <p>None</p>
+        <p>{emptyLabel}</p>
       ) : null}
       {visible && items.length > 0 ? (
         <div className="quick-list">
@@ -2726,7 +2811,8 @@ function WorkspaceControls({
   onPrepCheck,
   onSearch,
   onRename,
-  onModeChange
+  onModeChange,
+  t
 }: {
   currentId: string;
   currentName: string;
@@ -2742,13 +2828,14 @@ function WorkspaceControls({
   onSearch: () => void;
   onRename: () => void;
   onModeChange: (mode: WorkspaceLayout["mode"]) => void;
+  t: Translator;
 }) {
   return (
-    <section className="workspace-controls" aria-label="Workspace controls">
+    <section className="workspace-controls" aria-label={t("workspace.controls")}>
       <label>
-        Workspace
+        {t("workspace.workspace")}
         <select
-          aria-label="Select workspace"
+          aria-label={t("workspace.select")}
           onChange={(event) => onActivate(event.target.value)}
           value={currentId}
         >
@@ -2764,101 +2851,146 @@ function WorkspaceControls({
         </select>
       </label>
       <button onClick={onNew} type="button">
-        New
+        {t("workspace.new")}
       </button>
       <button onClick={onRename} type="button">
-        Rename
+        {t("workspace.rename")}
       </button>
       <button disabled={currentId === "default"} onClick={onDelete} type="button">
-        Delete
+        {t("workspace.delete")}
       </button>
       <button onClick={onSearch} type="button">
-        Search
+        {t("workspace.search")}
       </button>
       <button onClick={onCapture} type="button">
-        Capture
+        {t("workspace.capture")}
       </button>
       <button onClick={onNewCard} type="button">
-        New Card
+        {t("workspace.newCard")}
       </button>
       <button onClick={onPrepCheck} type="button">
-        Prep Check: {prepStatus}
+        {t("workspace.prepCheckStatus", { status: prepStatus })}
       </button>
-      <div className="workspace-layout-toggle" role="group" aria-label="Workspace layout">
+      <div className="workspace-layout-toggle" role="group" aria-label={t("workspace.layout")}>
         <button
           aria-pressed={layout.mode === "single"}
           onClick={() => onModeChange("single")}
           type="button"
         >
-          Single
+          {t("workspace.single")}
         </button>
         <button
           aria-pressed={layout.mode === "vertical_split"}
           onClick={() => onModeChange("vertical_split")}
           type="button"
         >
-          Split
+          {t("workspace.split")}
         </button>
       </div>
     </section>
   );
 }
 
-function LiveOutputStrip({
-  audioMixer,
-  displayState,
-  dirtyPaths,
-  layout,
-  mapState,
-  prepReport,
-  tabs
+function SettingsDialog({
+  availableLanguages,
+  language,
+  onClose,
+  onLanguageChange,
+  open,
+  t
 }: {
-  audioMixer: AudioMixerState;
-  displayState: DisplayState | null;
-  dirtyPaths: Set<string>;
-  layout: WorkspaceLayout;
-  mapState: MapState | null;
-  prepReport: PrepHealthReport | null;
-  tabs: WorkspaceTab[];
+  availableLanguages: AppConfig["available_languages"];
+  language: UiLanguage;
+  onClose: () => void;
+  onLanguageChange: (language: UiLanguage) => void;
+  open: boolean;
+  t: Translator;
 }) {
+  useEffect(() => {
+    if (!open) {
+      return;
+    }
+    function handleKeyDown(event: KeyboardEvent) {
+      if (event.key === "Escape") {
+        event.preventDefault();
+        onClose();
+      }
+    }
+    window.addEventListener("keydown", handleKeyDown, true);
+    return () => window.removeEventListener("keydown", handleKeyDown, true);
+  }, [onClose, open]);
+
+  if (!open) {
+    return null;
+  }
+
   return (
-    <section aria-label="Live Output Status" className="live-output-strip">
-      <div className="live-output-group live-output-primary">
-        <strong>{liveOutputSummary(displayState)}</strong>
-        <span>{livePopupSummary(displayState)}</span>
-        <span>{liveMapSummary(mapState)}</span>
-      </div>
-      <div className="live-output-group">
-        {liveAudioBusSummaries(audioMixer).map((summary) => (
-          <span key={summary}>{summary}</span>
-        ))}
-      </div>
-      <div className="live-output-group">
-        {livePaneSummary(layout, tabs, dirtyPaths).map((summary) => (
-          <span key={summary}>{summary}</span>
-        ))}
-        <span>{livePrepHealthLabel(prepReport)}</span>
-      </div>
-      <a className="live-output-screen-link" href="/screen" rel="noreferrer" target="_blank">
-        Open Screen
-      </a>
-    </section>
+    <div className="dialog-overlay" onMouseDown={onClose} role="presentation">
+      <section
+        aria-label={t("app.settingsTitle")}
+        className="file-dialog settings-dialog"
+        onMouseDown={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <div className="dialog-header">
+          <h2>{t("app.settingsTitle")}</h2>
+          <button aria-label={t("app.closeSettings")} onClick={onClose} type="button">
+            x
+          </button>
+        </div>
+        <label>
+          {t("app.language")}
+          <select
+            autoFocus
+            onChange={(event) => {
+              if (isUiLanguage(event.target.value)) {
+                onLanguageChange(event.target.value);
+              }
+            }}
+            value={language}
+          >
+            {availableLanguages.map((option) => (
+              <option key={option.code} value={option.code}>
+                {option.native_label}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="dialog-actions">
+          <button onClick={onClose} type="button">
+            {t("app.close")}
+          </button>
+        </div>
+      </section>
+    </div>
   );
+}
+
+function localizedWorldPathPickerFilterLabel(t: Translator, filter: WorldPathPickerFilter): string {
+  if (filter === "any") {
+    return t("pathPicker.allPaths");
+  }
+  if (filter === "displayable") {
+    return t("pathPicker.displayablePaths");
+  }
+  return t("pathPicker.kindPaths", { kind: filter });
 }
 
 function WorldSelector({
   state,
-  onOpenWorld
+  onOpenWorld,
+  t
 }: {
   state: WorldLibraryState | null;
   onOpenWorld: (id: string) => void;
+  t: Translator;
 }) {
   const currentId = state?.worlds.find((world) => world.path === state.current?.path)?.id ?? "";
 
   return (
     <div className="world-selector">
       <select
-        aria-label="Select world"
+        aria-label={t("world.select")}
         disabled={!state || state.worlds.length === 0}
         onChange={(event) => {
           if (event.target.value) {
@@ -2867,9 +2999,9 @@ function WorldSelector({
         }}
         value={currentId}
       >
-        <option value="">Select world</option>
+        <option value="">{t("world.select")}</option>
         {state?.recent.length ? (
-          <optgroup label="Recent">
+          <optgroup label={t("world.recent")}>
             {state.recent.map((world) => (
               <option key={`recent-${world.id}`} value={world.id}>
                 {world.name}
@@ -2877,7 +3009,7 @@ function WorldSelector({
             ))}
           </optgroup>
         ) : null}
-        <optgroup label="World Library">
+        <optgroup label={t("world.library")}>
           {state?.worlds.map((world) => (
             <option key={world.id} value={world.id}>
               {world.name}
@@ -2893,27 +3025,29 @@ function WorldOpenDialog({
   state,
   onClose,
   onOpenWorld,
-  onRefresh
+  onRefresh,
+  t
 }: {
   state: WorldLibraryState | null;
   onClose: () => void;
   onOpenWorld: (id: string) => void;
   onRefresh: () => void;
+  t: Translator;
 }) {
   return (
     <div className="dialog-overlay" role="presentation">
-      <section aria-label="Open Folder as World" className="file-dialog world-dialog" role="dialog">
+      <section aria-label={t("world.openFolderTitle")} className="file-dialog world-dialog" role="dialog">
         <div className="dialog-header">
-          <h2>Open Folder as World</h2>
-          <button aria-label="Close Open Folder as World" onClick={onClose} type="button">
+          <h2>{t("world.openFolderTitle")}</h2>
+          <button aria-label={t("world.closeOpenFolder")} onClick={onClose} type="button">
             x
           </button>
         </div>
-        <p className="dialog-note">{state?.worlds_root ?? "World library is not loaded yet."}</p>
+        <p className="dialog-note">{state?.worlds_root ?? t("world.libraryNotLoaded")}</p>
         <button className="panel-action" onClick={onRefresh} type="button">
-          Scan Worlds
+          {t("world.scanWorlds")}
         </button>
-        {state && state.worlds.length === 0 ? <p>No world folders found.</p> : null}
+        {state && state.worlds.length === 0 ? <p>{t("world.noWorlds")}</p> : null}
         {state && state.worlds.length > 0 ? (
           <div className="world-dialog-list">
             {state.worlds.map((world) => (
@@ -2938,12 +3072,14 @@ function WorldCreateDialog({
   state,
   onClose,
   onNameChange,
-  onSubmit
+  onSubmit,
+  t
 }: {
   state: WorldCreateDialogState;
   onClose: () => void;
   onNameChange: (name: string) => void;
   onSubmit: () => void;
+  t: Translator;
 }) {
   if (!state.open) {
     return null;
@@ -2951,15 +3087,15 @@ function WorldCreateDialog({
 
   return (
     <div className="dialog-overlay" role="presentation">
-      <section aria-label="Add New World" className="file-dialog world-dialog" role="dialog">
+      <section aria-label={t("world.addTitle")} className="file-dialog world-dialog" role="dialog">
         <div className="dialog-header">
-          <h2>Add New World</h2>
-          <button aria-label="Close Add New World" onClick={onClose} type="button">
+          <h2>{t("world.addTitle")}</h2>
+          <button aria-label={t("world.closeAdd")} onClick={onClose} type="button">
             x
           </button>
         </div>
         <label>
-          World name
+          {t("world.name")}
           <input
             autoFocus
             onChange={(event) => onNameChange(event.target.value)}
@@ -2969,10 +3105,10 @@ function WorldCreateDialog({
         {state.error && <p className="dialog-error">{state.error}</p>}
         <div className="dialog-actions">
           <button disabled={state.status === "submitting"} onClick={onClose} type="button">
-            Cancel
+            {t("app.cancel")}
           </button>
           <button disabled={state.status === "submitting"} onClick={onSubmit} type="button">
-            {state.status === "submitting" ? "Creating..." : "Create World"}
+            {state.status === "submitting" ? t("world.creating") : t("world.create")}
           </button>
         </div>
       </section>
@@ -3142,6 +3278,7 @@ function InnerToolTabs<T extends string>({
 function ScreenTool({
   activeTab,
   displayState,
+  mapActionStatus,
   mapPresets,
   mapState,
   onBlank,
@@ -3170,10 +3307,12 @@ function ScreenTool({
   onMapViewportPreview,
   onTabChange,
   onPickPath,
-  tab
+  tab,
+  t
 }: {
   activeTab: OpenTab | null;
   displayState: DisplayState | null;
+  mapActionStatus: MapActionStatus;
   mapPresets: MapPreset[];
   mapState: MapState | null;
   onBlank: () => void;
@@ -3203,6 +3342,7 @@ function ScreenTool({
   onTabChange: (tab: ScreenToolTabId) => void;
   onPickPath: (filter: WorldPathPickerFilter, title: string, onSelect: (path: string) => void) => void;
   tab: ScreenToolTabId;
+  t: Translator;
 }) {
   const displayable = canSendToScreen(activeTab?.mediaKind);
   const [popupPreset, setPopupPreset] = useState<DisplayPopupPreset>("plain");
@@ -3243,19 +3383,20 @@ function ScreenTool({
   }
 
   return (
-    <section aria-label="Screen Control" className="screen-tool">
+    <section aria-label={t("screen.control")} className="screen-tool">
       <InnerToolTabs
         active={tab}
-        ariaLabel="Screen sections"
+        ariaLabel={t("screen.sections")}
         onChange={onTabChange}
         tabs={[
-          { id: "display", label: "Display" },
-          { id: "map", label: "Map" }
+          { id: "display", label: t("screen.display") },
+          { id: "map", label: t("screen.map") }
         ]}
       />
       {tab === "map" ? (
         <MapTool
           activeTab={activeTab}
+          actionStatus={mapActionStatus}
           onClearReveals={onMapClearReveals}
           onDeletePin={onMapDeletePin}
           onDeletePreset={onMapDeletePreset}
@@ -3279,20 +3420,20 @@ function ScreenTool({
       ) : (
         <>
       <label>
-        Fullscreen path
+        {t("screen.fullscreenPath")}
         <div className="inline-input-action">
           <input
-            aria-label="Fullscreen path"
+            aria-label={t("screen.fullscreenPath")}
             onChange={(event) => setDisplayTargetPath(event.target.value)}
             placeholder={activeTab?.path ?? "Blank means current page"}
             value={displayTargetPath}
           />
           <button
-            aria-label="Choose fullscreen path"
-            onClick={() => onPickPath("displayable", "Choose Screen Target", setDisplayTargetPath)}
+            aria-label={t("screen.chooseTarget")}
+            onClick={() => onPickPath("displayable", t("screen.chooseTarget"), setDisplayTargetPath)}
             type="button"
           >
-            Pick
+            {t("screen.pick")}
           </button>
         </div>
       </label>
@@ -3307,20 +3448,20 @@ function ScreenTool({
           {targetPath ? `Stage Popup: ${targetLabel}` : `Stage Active as Popup: ${targetLabel}`}
         </button>
         <button className="button-danger-subtle" disabled={!canUseTarget} onClick={() => onClearAndShowFullscreen(targetPath || undefined)} type="button">
-          Clear + Fullscreen: {targetLabel}
+          Clear + Show: {targetLabel}
         </button>
         <button className="button-danger-subtle" onClick={onBlank} type="button">
-          Blank Fullscreen
+          {t("screen.blank")}
         </button>
         <button className="button-danger-subtle" onClick={onClearPopups} type="button">
-          Close All Popups
+          {t("screen.clearPopups")}
         </button>
         <a href="/screen" rel="noreferrer" target="_blank">
-          Open Player Screen
+          {t("screen.openPlayer")}
         </a>
       </div>
       <label className="compact-inline-control">
-        Popup preset
+        {t("screen.popupPreset")}
         <select
           onChange={(event) => setPopupPreset(event.target.value as DisplayPopupPreset)}
           value={popupPreset}
@@ -3333,15 +3474,15 @@ function ScreenTool({
         </select>
       </label>
       {!canUseTarget && <p>Select a supported file or choose a target path before sending content to the screen.</p>}
-      <section className="screen-state" aria-label="Current Screen">
-        <h3>Fullscreen</h3>
+      <section className="screen-state" aria-label={t("screen.current")}>
+        <h3>{t("screen.fullscreen")}</h3>
         <p>{displayState?.fullscreen?.title ?? displayState?.fullscreen?.name ?? "Blank"}</p>
       </section>
-      <section className="screen-state" aria-label="Screen Popups">
-        <h3>Popups</h3>
-        <h4>Visible</h4>
+      <section className="screen-state" aria-label={t("screen.popups")}>
+        <h3>{t("screen.popups")}</h3>
+        <h4>{t("screen.visible")}</h4>
         {renderPopupList(visiblePopups, "No visible popups.")}
-        <h4>Staged</h4>
+        <h4>{t("screen.staged")}</h4>
         {renderPopupList(stagedPopups, "No staged popups.")}
       </section>
         </>
@@ -3352,6 +3493,7 @@ function ScreenTool({
 
 function MapTool({
   activeTab,
+  actionStatus,
   presets,
   state,
   onClearReveals,
@@ -3373,6 +3515,7 @@ function MapTool({
   onViewportPreview
 }: {
   activeTab: OpenTab | null;
+  actionStatus: MapActionStatus;
   presets: MapPreset[];
   state: MapState | null;
   onClearReveals: () => void;
@@ -3443,6 +3586,14 @@ function MapTool({
           { id: "setup", label: "Setup" }
         ]}
       />
+      <div className="map-tool-status" aria-live="polite">
+        <p>{shownMap.image_path ? `Current map: ${shownMap.title ?? shownMap.image_path}` : "No map loaded"}</p>
+        {actionStatus.message && (
+          <p className={actionStatus.status === "error" ? "map-tool-error" : "map-tool-message"}>
+            {actionStatus.message}
+          </p>
+        )}
+      </div>
       {mapPanel === "live" ? (
         <>
       <div className="map-tool-actions">
@@ -3666,6 +3817,7 @@ function SearchTool({
   inputRef,
   query,
   state,
+  t,
   onOpenOtherPane,
   onOpenResult,
   onPeekResult,
@@ -3676,6 +3828,7 @@ function SearchTool({
   inputRef: RefObject<HTMLInputElement | null>;
   query: string;
   state: SearchLoadState;
+  t: Translator;
   onOpenOtherPane: (result: SearchResult) => void;
   onOpenResult: (result: SearchResult) => void;
   onPeekResult: (result: SearchResult) => void;
@@ -3708,7 +3861,7 @@ function SearchTool({
 
   return (
     <section aria-label="Global Search" className="search-tool">
-      <label htmlFor="world-search">Search World</label>
+      <label htmlFor="world-search">{t("search.world")}</label>
       <input
         id="world-search"
         onChange={(event) => onQueryChange(event.target.value)}
@@ -3720,7 +3873,7 @@ function SearchTool({
       />
       <div className="search-results">
         {state.status === "idle" && <p>Type to search the indexed world.</p>}
-        {state.status === "loading" && <p>Searching...</p>}
+        {state.status === "loading" && <p>{t("search.loading")}</p>}
         {state.status === "error" && <p>{state.message}</p>}
         {state.status === "ready" && groups.length === 0 && <p>No results.</p>}
         {groups.map((group) => (
@@ -3889,7 +4042,8 @@ function AudioTool({
   onStopBus,
   onVolumeChange,
   query,
-  state
+  state,
+  t
 }: {
   expansionState: PlaylistExpansionState;
   mixer: AudioMixerState;
@@ -3909,13 +4063,14 @@ function AudioTool({
   onVolumeChange: (bus: AudioBus, volume: number) => void;
   query: string;
   state: AudioLoadState;
+  t: Translator;
 }) {
   const groupsByBus = state.status === "ready" ? groupAudioTracksByBus(state.tracks) : groupAudioTracksByBus([]);
 
   return (
     <section aria-label="Audio Control" className="audio-tool">
       <label className="audio-search-label" htmlFor="audio-search">
-        Music Search
+        {t("audio.search")}
         <input
           id="audio-search"
           onChange={(event) => onQueryChange(event.target.value)}
@@ -4060,7 +4215,7 @@ function AudioTool({
         })}
       </div>
       <button className="audio-stop-all" onClick={onStopAll} type="button">
-        Stop All
+        {t("audio.stopAll")}
       </button>
     </section>
   );
@@ -5299,6 +5454,7 @@ function CaptureTool({
   onSave,
   onTextChange,
   status,
+  t,
   today
 }: {
   draft: CaptureDraft;
@@ -5308,6 +5464,7 @@ function CaptureTool({
   onSave: () => void;
   onTextChange: (text: string) => void;
   status: CaptureStatus;
+  t: Translator;
   today: CaptureTodayResponse | null;
 }) {
   function handleKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
@@ -5335,7 +5492,7 @@ function CaptureTool({
         ))}
       </div>
       <label>
-        Capture text <small>Ctrl+Enter to save</small>
+        {t("capture.text")} <small>{t("capture.shortcut")}</small>
         <textarea
           autoFocus
           disabled={status.status === "saving"}
@@ -5349,7 +5506,7 @@ function CaptureTool({
       </label>
       <div className="capture-actions">
         <button disabled={status.status === "saving"} onClick={onSave} type="button">
-          {status.status === "saving" ? "Saving..." : "Save Capture"}
+          {status.status === "saving" ? t("capture.saving") : t("capture.save")}
         </button>
         <button disabled={!today?.exists} onClick={onOpenLog} type="button">
           Open Log
@@ -5373,7 +5530,8 @@ function SearchDialog({
   onStageResult,
   open,
   query,
-  state
+  state,
+  t
 }: {
   inputRef: RefObject<HTMLInputElement | null>;
   onClose: () => void;
@@ -5386,6 +5544,7 @@ function SearchDialog({
   open: boolean;
   query: string;
   state: SearchLoadState;
+  t: Translator;
 }) {
   if (!open) {
     return null;
@@ -5394,14 +5553,14 @@ function SearchDialog({
   return (
     <div className="dialog-overlay" role="presentation" onMouseDown={onClose}>
       <section
-        aria-label="Search"
+        aria-label={t("search.title")}
         className="file-dialog tool-dialog"
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
       >
         <div className="dialog-header">
-          <h2>Search</h2>
-          <button aria-label="Close Search" onClick={onClose} type="button">
+          <h2>{t("search.title")}</h2>
+          <button aria-label={t("search.close")} onClick={onClose} type="button">
             x
           </button>
         </div>
@@ -5415,6 +5574,7 @@ function SearchDialog({
           onStageResult={onStageResult}
           query={query}
           state={state}
+          t={t}
         />
       </section>
     </div>
@@ -5431,7 +5591,8 @@ function CaptureDialog({
   onTextChange,
   open,
   status,
-  today
+  today,
+  t
 }: {
   draft: CaptureDraft;
   onCategoryChange: (category: CaptureCategory) => void;
@@ -5443,6 +5604,7 @@ function CaptureDialog({
   open: boolean;
   status: CaptureStatus;
   today: CaptureTodayResponse | null;
+  t: Translator;
 }) {
   if (!open) {
     return null;
@@ -5456,14 +5618,14 @@ function CaptureDialog({
   return (
     <div className="dialog-overlay" role="presentation" onMouseDown={handleClose}>
       <section
-        aria-label="Capture"
+        aria-label={t("capture.title")}
         className="file-dialog tool-dialog"
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
       >
         <div className="dialog-header">
-          <h2>Capture</h2>
-          <button aria-label="Close Capture" onClick={handleClose} type="button">
+          <h2>{t("capture.title")}</h2>
+          <button aria-label={t("capture.close")} onClick={handleClose} type="button">
             x
           </button>
         </div>
@@ -5475,6 +5637,7 @@ function CaptureDialog({
           onSave={onSave}
           onTextChange={onTextChange}
           status={status}
+          t={t}
           today={today}
         />
       </section>
@@ -5512,7 +5675,8 @@ function PrepHealthDialog({
   onRun,
   open,
   report,
-  status
+  status,
+  t
 }: {
   filter: PrepHealthFilter;
   onClose: () => void;
@@ -5523,6 +5687,7 @@ function PrepHealthDialog({
   open: boolean;
   report: PrepHealthReport | null;
   status: PrepHealthStatus;
+  t: Translator;
 }) {
   if (!open) {
     return null;
@@ -5535,14 +5700,14 @@ function PrepHealthDialog({
   return (
     <div className="dialog-overlay" role="presentation" onMouseDown={onClose}>
       <section
-        aria-label="Prep Check"
+        aria-label={t("prep.title")}
         className="file-dialog prep-health-dialog tool-dialog"
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
       >
         <div className="dialog-header">
-          <h2>Prep Check</h2>
-          <button aria-label="Close Prep Check" onClick={onClose} type="button">
+          <h2>{t("prep.title")}</h2>
+          <button aria-label={t("prep.close")} onClick={onClose} type="button">
             x
           </button>
         </div>
@@ -5756,6 +5921,7 @@ function ToolSection({
   open,
   pinned = false,
   summary,
+  t,
   title,
   tool
 }: {
@@ -5766,6 +5932,7 @@ function ToolSection({
   open: boolean;
   pinned?: boolean;
   summary: string;
+  t: Translator;
   title: string;
   tool: ToolId;
 }) {
@@ -5780,16 +5947,16 @@ function ToolSection({
         >
           <span>{title}</span>
           <small>{summary}</small>
-          {locked && <em>Editing</em>}
+          {locked && <em>{t("tools.editing")}</em>}
         </button>
         <button
-          aria-label={`${pinned ? "Unpin" : "Pin"} ${title}`}
+          aria-label={`${pinned ? t("tools.unpin") : t("tools.pin")} ${title}`}
           aria-pressed={pinned}
           className="tool-pin-button"
           onClick={() => onTogglePin(tool)}
           type="button"
         >
-          {pinned ? "Pinned" : "Pin"}
+          {pinned ? t("tools.pinned") : t("tools.pin")}
         </button>
       </div>
       {open && (
@@ -5971,6 +6138,7 @@ function ToolsPanel({
   linksState,
   hpRows,
   hpStatus,
+  mapActionStatus,
   mapPresets,
   mapState,
   metadataEditState,
@@ -6064,6 +6232,7 @@ function ToolsPanel({
   tableSnapshotSelectedId,
   tableSnapshotStatus,
   tableSnapshots,
+  t
 }: {
   activeTab: OpenTab | null;
   actionBindings: ActionBinding[];
@@ -6080,6 +6249,7 @@ function ToolsPanel({
   linksState: LinksLoadState;
   hpRows: HpTrackerRow[];
   hpStatus: HpToolStatus;
+  mapActionStatus: MapActionStatus;
   mapPresets: MapPreset[];
   mapState: MapState | null;
   metadataEditState: MetadataEditState;
@@ -6173,13 +6343,14 @@ function ToolsPanel({
   tableSnapshotSelectedId: string;
   tableSnapshotStatus: TableSnapshotStatus;
   tableSnapshots: TableSnapshotSummary[];
+  t: Translator;
 }) {
   const metadataLocked = metadataEditState.mode === "edit";
 
   return (
-    <aside className="tools-panel" aria-label="DM Tools">
+    <aside className="tools-panel" aria-label={t("tools.panel")}>
       <div className="tools-heading">
-        <h2>Tools</h2>
+        <h2>{t("tools.title")}</h2>
       </div>
       <ToolSection
         locked={metadataLocked}
@@ -6188,7 +6359,8 @@ function ToolsPanel({
         open={isToolOpen(openTools, "metadata")}
         pinned={isToolPinned(openTools, "metadata")}
         summary={metadataSummary(activeTab, pageState, metadataEditState)}
-        title="Metadata"
+        t={t}
+        title={t("tools.metadata")}
         tool="metadata"
       >
         <MetadataTool
@@ -6215,7 +6387,8 @@ function ToolsPanel({
         open={isToolOpen(openTools, "audio")}
         pinned={isToolPinned(openTools, "audio")}
         summary={audioSummary(audioMixer)}
-        title="Audio"
+        t={t}
+        title={t("tools.audio")}
         tool="audio"
       >
         <AudioTool
@@ -6237,6 +6410,7 @@ function ToolsPanel({
           onVolumeChange={onAudioVolumeChange}
           query={audioQuery}
           state={audioState}
+          t={t}
         />
       </ToolSection>
       <ToolSection
@@ -6245,7 +6419,8 @@ function ToolsPanel({
         open={isToolOpen(openTools, "hp")}
         pinned={isToolPinned(openTools, "hp")}
         summary={hpSummary(hpRows, hpStatus)}
-        title="HP"
+        t={t}
+        title={t("tools.hp")}
         tool="hp"
       >
         <HpTool
@@ -6265,7 +6440,8 @@ function ToolsPanel({
         open={isToolOpen(openTools, "actions")}
         pinned={isToolPinned(openTools, "actions")}
         summary={actionsSummary(fastSlots, actionBindings, midiBindings)}
-        title="Actions"
+        t={t}
+        title={t("tools.actions")}
         tool="actions"
       >
         <ActionsTool
@@ -6310,7 +6486,8 @@ function ToolsPanel({
         open={isToolOpen(openTools, "scripts")}
         pinned={isToolPinned(openTools, "scripts")}
         summary={scriptsSummary(scriptState, scriptRunState)}
-        title="Scripts"
+        t={t}
+        title={t("tools.scripts")}
         tool="scripts"
       >
         <ScriptsTool
@@ -6326,12 +6503,14 @@ function ToolsPanel({
         open={isToolOpen(openTools, "screen")}
         pinned={isToolPinned(openTools, "screen")}
         summary={screenSummary(displayState, mapState)}
-        title="Screen"
+        t={t}
+        title={t("tools.screen")}
         tool="screen"
       >
         <ScreenTool
           activeTab={activeTab}
           displayState={displayState}
+          mapActionStatus={mapActionStatus}
           mapPresets={mapPresets}
           mapState={mapState}
           onBlank={onBlankDisplay}
@@ -6361,6 +6540,7 @@ function ToolsPanel({
           onMapViewportPreview={onMapViewportPreview}
           onTabChange={onScreenToolTabChange}
           tab={screenToolTab}
+          t={t}
         />
       </ToolSection>
     </aside>
@@ -6674,6 +6854,12 @@ function DmsOutputSaveDialog({
 }
 
 export function App() {
+  const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
+  const [uiLanguage, setUiLanguage] = useState<UiLanguage>(() =>
+    resolveInitialLanguage({ stored: loadStoredUiLanguage() })
+  );
+  const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
+  const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
   const [authState, setAuthState] = useState<AuthGateState>({ status: "checking" });
   const [loadState, setLoadState] = useState<LoadState>("idle");
   const [worldLibrary, setWorldLibrary] = useState<WorldLibraryState | null>(null);
@@ -6774,12 +6960,17 @@ export function App() {
   const [folderMenuPath, setFolderMenuPath] = useState<string | null>(null);
   const [worldTreeContextMenu, setWorldTreeContextMenu] =
     useState<WorldTreeContextMenuState>({ open: false });
+  const worldTreeContextTriggerRef = useRef<HTMLElement | null>(null);
   const [worldTreeDragPath, setWorldTreeDragPath] = useState<string | null>(null);
   const [worldTreeDropPath, setWorldTreeDropPath] = useState<string | null>(null);
   const [worldTreeStatus, setWorldTreeStatus] = useState<string | null>(null);
   const [trashDialog, setTrashDialog] = useState<TrashDialogState>({ open: false });
   const [displayState, setDisplayState] = useState<DisplayState | null>(null);
   const [mapState, setMapState] = useState<MapState | null>(null);
+  const [mapActionStatus, setMapActionStatus] = useState<MapActionStatus>({
+    status: "idle",
+    message: null
+  });
   const [mapPresets, setMapPresets] = useState<MapPreset[]>([]);
   const [localMapViewport, setLocalMapViewport] = useState<MapViewport | null>(null);
   const [worldOpenDialog, setWorldOpenDialog] = useState(false);
@@ -6811,6 +7002,46 @@ export function App() {
     worldTree,
     audioState.status === "ready" ? audioState.tracks : audioAutocompleteTracks
   );
+  const t = useMemo(() => createTranslator(uiLanguage), [uiLanguage]);
+  const availableLanguageOptions = appConfig?.available_languages ?? AVAILABLE_LANGUAGES;
+
+  function adoptMapState(nextMapState: MapState) {
+    setMapState((current) => (shouldAdoptMapState(current, nextMapState) ? nextMapState : current));
+  }
+
+  function mapActionErrorMessage(error: unknown, fallback: string): string {
+    return error instanceof Error ? error.message : fallback;
+  }
+
+  function handleLanguageChange(language: UiLanguage) {
+    setUiLanguage(language);
+    saveStoredUiLanguage(language);
+  }
+
+  function closeSettingsDialog() {
+    setSettingsDialogOpen(false);
+    window.setTimeout(() => settingsButtonRef.current?.focus(), 0);
+  }
+
+  useEffect(() => {
+    let mounted = true;
+    fetchAppConfig()
+      .then((config) => {
+        if (!mounted) {
+          return;
+        }
+        setAppConfig(config);
+        setUiLanguage(resolveInitialLanguage({ stored: loadStoredUiLanguage(), configured: config.language }));
+      })
+      .catch(() => {
+        if (mounted) {
+          setUiLanguage(resolveInitialLanguage({ stored: loadStoredUiLanguage() }));
+        }
+      });
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   useEffect(() => {
     let mounted = true;
@@ -6894,7 +7125,7 @@ export function App() {
         setFavorites(workspace.favorites);
         setRecentFiles(workspace.recentFiles);
         setDisplayState(nextDisplayState);
-        setMapState(nextMapState);
+        adoptMapState(nextMapState);
         const sortedTableSnapshots = sortTableSnapshots(nextTableSnapshots);
         setTableSnapshots(sortedTableSnapshots);
         setSelectedTableSnapshotId(sortedTableSnapshots[0]?.id ?? "");
@@ -7257,7 +7488,7 @@ export function App() {
       return;
     }
     fetchMapState()
-      .then(setMapState)
+      .then(adoptMapState)
       .catch(() => {});
     fetchMapPresets()
       .then((response) => setMapPresets(response.presets))
@@ -7286,12 +7517,12 @@ export function App() {
       : mainPaneTab
         ? [mainPaneTab]
         : [];
-  const workspaceTabs = tabState.tabs.map(openTabToWorkspaceTab);
   const dirtyPaths = new Set(
     Object.entries(editorDrafts)
       .filter(([, draft]) => isDraftDirty(draft))
       .map(([path]) => path)
   );
+  const favoritePaths = new Set(favorites.map((favorite) => favorite.path));
   const idleFileState: FileLoadState = { status: "idle" };
   const idlePageState: PageLoadState = { status: "idle" };
   const idleLinksState: LinksLoadState = { status: "idle" };
@@ -7310,6 +7541,13 @@ export function App() {
     : { mode: "view" };
   const activeContentDirty = activeDraft ? isDraftDirty(activeDraft) : false;
   const visiblePanePathKey = visiblePaneTabs.map((tab) => tab.path).join("\u0000");
+
+  function closeWorldTreeContextMenu(restoreFocus = false) {
+    setWorldTreeContextMenu({ open: false });
+    if (restoreFocus) {
+      window.requestAnimationFrame(() => worldTreeContextTriggerRef.current?.focus());
+    }
+  }
 
   useEffect(() => {
     setToolPanelState((state) =>
@@ -7335,13 +7573,42 @@ export function App() {
         return;
       }
       setLinkContextMenu({ open: false });
-      setWorldTreeContextMenu({ open: false });
+      closeWorldTreeContextMenu(true);
       setPeekState({ open: false });
     }
 
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
   }, []);
+
+  useEffect(() => {
+    function handleEditorKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented) {
+        return;
+      }
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (target?.closest("[role='dialog'],[role='menu']")) {
+        return;
+      }
+      if (!activeDraft || activeFileState.status !== "ready" || !isEditableFile(activeFileState.file)) {
+        return;
+      }
+      const intent = editorShortcutIntent(event, {
+        dirty: isDraftDirty(activeDraft),
+        mode: activeDraft.mode,
+        supportsSplit: supportsEditorMode(activeFileState.file, "split")
+      });
+      if (!intent) {
+        return;
+      }
+      event.preventDefault();
+      event.stopPropagation();
+      runEditorShortcutIntent(activeFileState.file, activeDraft, intent);
+    }
+
+    window.addEventListener("keydown", handleEditorKeyDown);
+    return () => window.removeEventListener("keydown", handleEditorKeyDown);
+  }, [activeDraft, activeFileState]);
 
   const syncStateRef = useRef({
     activeContentDirty,
@@ -7715,6 +7982,7 @@ export function App() {
 
   function handleWorldTreeContextEntry(entry: WorldEntry, event: MouseEvent<HTMLElement>) {
     event.preventDefault();
+    worldTreeContextTriggerRef.current = event.currentTarget;
     setFolderMenuPath(null);
     setWorldTreeContextMenu({
       open: true,
@@ -8100,7 +8368,7 @@ export function App() {
     try {
       const restored = await restoreTableSnapshot(snapshotId);
       setDisplayState(restored.display);
-      setMapState(restored.map);
+      adoptMapState(restored.map);
       setLocalMapViewport(null);
       mapViewportSyncRef.current.lastSyncedAt = 0;
       applyWorkspaceState(restored.workspace);
@@ -8175,7 +8443,7 @@ export function App() {
     } else if (nextMapState.presenting) {
       nextMapState = await stopMap();
     }
-    setMapState(nextMapState);
+    adoptMapState(nextMapState);
   }
 
   async function applyDmsEffects(run: DmsRunState) {
@@ -8191,7 +8459,7 @@ export function App() {
         if (effect.present) {
           nextMapState = await presentMap();
         }
-        setMapState(nextMapState);
+        adoptMapState(nextMapState);
         setScreenToolTab("map");
         setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       } else if (effect.kind === "map_preset") {
@@ -8199,15 +8467,15 @@ export function App() {
         setScreenToolTab("map");
         setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       } else if (effect.kind === "map_present") {
-        setMapState(await presentMap());
+        adoptMapState(await presentMap());
         setScreenToolTab("map");
         setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       } else if (effect.kind === "map_stop") {
-        setMapState(await stopMap());
+        adoptMapState(await stopMap());
         setScreenToolTab("map");
         setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       } else if (effect.kind === "map_fog") {
-        setMapState(await setMapFog(effect.enabled));
+        adoptMapState(await setMapFog(effect.enabled));
         setScreenToolTab("map");
         setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       } else if (effect.kind === "audio_play") {
@@ -8633,12 +8901,12 @@ export function App() {
     }
   }
 
-  function handleToggleFavorite() {
-    if (!activeTab) {
+  function handleWorldTreeToggleFavorite(entry: WorldEntry) {
+    if (entry.kind !== "file") {
       return;
     }
 
-    const nextFavorites = toggleFavorite(favorites, openTabToWorkspaceTab(activeTab));
+    const nextFavorites = toggleFavorite(favorites, tabForEntry(entry));
     setFavorites(nextFavorites);
     void saveFavorites(nextFavorites)
       .then((workspace) => setFavorites(workspace.favorites))
@@ -8865,35 +9133,6 @@ export function App() {
           : state
       );
     }
-  }
-
-  function handleOpenRenameDialog() {
-    if (!activeTab || activeFileState.status !== "ready" || !isEditableFile(activeFileState.file)) {
-      return;
-    }
-
-    setFileDialog({
-      kind: "rename",
-      path: activeTab.path,
-      newPath: activeTab.path,
-      entryKind: "file",
-      status: "idle",
-      error: null
-    });
-  }
-
-  function handleOpenTrashDialog() {
-    if (!activeTab || activeFileState.status !== "ready" || !isEditableFile(activeFileState.file)) {
-      return;
-    }
-
-    setFileDialog({
-      kind: "trash",
-      path: activeTab.path,
-      entryKind: "file",
-      status: "idle",
-      error: null
-    });
   }
 
   function treePathValidation(path: string, entryKind: "file" | "directory"): string | null {
@@ -9493,17 +9732,6 @@ export function App() {
     }
   }
 
-  function handleRevertDraft() {
-    if (!activeTab || !activeDraft) {
-      return;
-    }
-
-    setEditorDrafts((drafts) => ({
-      ...drafts,
-      [activeTab.path]: revertDraft(activeDraft)
-    }));
-  }
-
   async function reloadTabFile(tab: OpenTab) {
     setFileStates((states) => ({
       ...states,
@@ -9706,6 +9934,7 @@ export function App() {
     setRecentFiles([]);
     setDisplayState(null);
     setMapState(null);
+    setMapActionStatus({ status: "idle", message: null });
     setMapPresets([]);
     setLocalMapViewport(null);
     mapViewportSyncRef.current.lastSyncedAt = 0;
@@ -9754,7 +9983,7 @@ export function App() {
     setFavorites(workspace.favorites);
     setRecentFiles(workspace.recentFiles);
     setDisplayState(nextDisplayState);
-    setMapState(nextMapState);
+    adoptMapState(nextMapState);
     const sortedTableSnapshots = sortTableSnapshots(nextTableSnapshots);
     setTableSnapshots(sortedTableSnapshots);
     setSelectedTableSnapshotId(sortedTableSnapshots[0]?.id ?? "");
@@ -10108,10 +10337,15 @@ export function App() {
       return;
     }
     try {
-      setMapState(await setMapSource(trimmedPath));
+      adoptMapState(await setMapSource(trimmedPath));
       setLocalMapViewport(null);
       mapViewportSyncRef.current.lastSyncedAt = 0;
-    } catch {
+      setMapActionStatus({ status: "ready", message: `Loaded map: ${trimmedPath}` });
+    } catch (error: unknown) {
+      setMapActionStatus({
+        status: "error",
+        message: mapActionErrorMessage(error, "Could not load map.")
+      });
     }
   }
 
@@ -10124,8 +10358,12 @@ export function App() {
 
   async function syncMapViewport(viewport: MapViewport) {
     try {
-      setMapState(await setMapViewport(viewport));
-    } catch {
+      adoptMapState(await setMapViewport(viewport));
+    } catch (error: unknown) {
+      setMapActionStatus({
+        status: "error",
+        message: mapActionErrorMessage(error, "Could not update map view.")
+      });
     }
   }
 
@@ -10158,22 +10396,37 @@ export function App() {
 
   async function handleMapFogChange(enabled: boolean) {
     try {
-      setMapState(await setMapFog(enabled));
-    } catch {
+      adoptMapState(await setMapFog(enabled));
+      setMapActionStatus({ status: "ready", message: enabled ? "Fog enabled." : "Fog disabled." });
+    } catch (error: unknown) {
+      setMapActionStatus({
+        status: "error",
+        message: mapActionErrorMessage(error, "Could not update fog.")
+      });
     }
   }
 
   async function handleMapGridChange(grid: MapGrid) {
     try {
-      setMapState(await setMapGrid(grid));
-    } catch {
+      adoptMapState(await setMapGrid(grid));
+      setMapActionStatus({ status: "ready", message: "Grid updated." });
+    } catch (error: unknown) {
+      setMapActionStatus({
+        status: "error",
+        message: mapActionErrorMessage(error, "Could not update grid.")
+      });
     }
   }
 
   async function handleMapRevealCreate(reveal: Omit<MapReveal, "id">) {
     try {
-      setMapState(await addMapReveal(reveal));
-    } catch {
+      adoptMapState(await addMapReveal(reveal));
+      setMapActionStatus({ status: "ready", message: "Reveal added." });
+    } catch (error: unknown) {
+      setMapActionStatus({
+        status: "error",
+        message: mapActionErrorMessage(error, "Could not add reveal.")
+      });
     }
   }
 
@@ -10183,8 +10436,13 @@ export function App() {
       return;
     }
     try {
-      setMapState(await deleteMapReveal(latestReveal.id));
-    } catch {
+      adoptMapState(await deleteMapReveal(latestReveal.id));
+      setMapActionStatus({ status: "ready", message: "Reveal undone." });
+    } catch (error: unknown) {
+      setMapActionStatus({
+        status: "error",
+        message: mapActionErrorMessage(error, "Could not undo reveal.")
+      });
     }
   }
 
@@ -10198,36 +10456,61 @@ export function App() {
       return;
     }
     try {
-      setMapState(await addMapPin(createPinPayload(point, trimmedLabel, visibility)));
-    } catch {
+      adoptMapState(await addMapPin(createPinPayload(point, trimmedLabel, visibility)));
+      setMapActionStatus({ status: "ready", message: "Pin added." });
+    } catch (error: unknown) {
+      setMapActionStatus({
+        status: "error",
+        message: mapActionErrorMessage(error, "Could not add pin.")
+      });
     }
   }
 
   async function handleMapDeletePin(pinId: string) {
     try {
-      setMapState(await deleteMapPin(pinId));
-    } catch {
+      adoptMapState(await deleteMapPin(pinId));
+      setMapActionStatus({ status: "ready", message: "Pin removed." });
+    } catch (error: unknown) {
+      setMapActionStatus({
+        status: "error",
+        message: mapActionErrorMessage(error, "Could not remove pin.")
+      });
     }
   }
 
   async function handleMapClearReveals() {
     try {
-      setMapState(await clearMapReveals());
-    } catch {
+      adoptMapState(await clearMapReveals());
+      setMapActionStatus({ status: "ready", message: "Reveals cleared." });
+    } catch (error: unknown) {
+      setMapActionStatus({
+        status: "error",
+        message: mapActionErrorMessage(error, "Could not clear reveals.")
+      });
     }
   }
 
   async function handleMapPresent() {
     try {
-      setMapState(await presentMap());
-    } catch {
+      adoptMapState(await presentMap());
+      setMapActionStatus({ status: "ready", message: "Map presented to player screen." });
+    } catch (error: unknown) {
+      setMapActionStatus({
+        status: "error",
+        message: mapActionErrorMessage(error, "Could not present map.")
+      });
     }
   }
 
   async function handleMapStop() {
     try {
-      setMapState(await stopMap());
-    } catch {
+      adoptMapState(await stopMap());
+      setMapActionStatus({ status: "ready", message: "Map stopped." });
+    } catch (error: unknown) {
+      setMapActionStatus({
+        status: "error",
+        message: mapActionErrorMessage(error, "Could not stop map.")
+      });
     }
   }
 
@@ -10238,16 +10521,26 @@ export function App() {
         preset,
         ...currentPresets.filter((currentPreset) => currentPreset.id !== preset.id)
       ]);
-    } catch {
+      setMapActionStatus({ status: "ready", message: `Saved map preset: ${name}` });
+    } catch (error: unknown) {
+      setMapActionStatus({
+        status: "error",
+        message: mapActionErrorMessage(error, "Could not save map preset.")
+      });
     }
   }
 
   async function handleMapLoadPreset(presetId: string) {
     try {
-      setMapState(await loadMapPreset(presetId));
+      adoptMapState(await loadMapPreset(presetId));
       setLocalMapViewport(null);
       mapViewportSyncRef.current.lastSyncedAt = 0;
-    } catch {
+      setMapActionStatus({ status: "ready", message: "Map preset loaded." });
+    } catch (error: unknown) {
+      setMapActionStatus({
+        status: "error",
+        message: mapActionErrorMessage(error, "Could not load map preset.")
+      });
     }
   }
 
@@ -10401,10 +10694,10 @@ export function App() {
       return;
     }
     fetchMapState()
-      .then(setMapState)
+      .then(adoptMapState)
       .catch(() => {});
     return createMapEventClient({
-      onEvent: setMapState,
+      onEvent: adoptMapState,
       url: buildMapEventsUrl()
     });
   }, [authState.status]);
@@ -10429,13 +10722,105 @@ export function App() {
     });
   }
 
+  function requestEditMode(path: string, file: WorldFile) {
+    if (!isEditableFile(file)) {
+      return;
+    }
+    setEditorDrafts((drafts) => {
+      const draft = drafts[path] ?? createEditorDraft(file);
+      return { ...drafts, [path]: setDraftMode(draft, "edit") };
+    });
+  }
+
+  function handlePaneDoubleClick(
+    paneActive: boolean,
+    tab: OpenTab | null,
+    fileState: FileLoadState,
+    event: MouseEvent<HTMLElement>
+  ) {
+    if (!paneActive || !tab || fileState.status !== "ready") {
+      return;
+    }
+    const target = event.target instanceof HTMLElement ? event.target : null;
+    if (target?.closest("button,a,input,textarea,select,[role='menu'],[role='dialog']")) {
+      return;
+    }
+    requestEditMode(tab.path, fileState.file);
+  }
+
+  function runEditorShortcutIntent(file: WorldFile, draft: EditorDraft, intent: EditorShortcutIntent) {
+    if (intent === "save") {
+      if (canSaveEditorDraft(file, draft)) {
+        void handleSaveDraft();
+      } else if (isDraftDirty(draft)) {
+        setEditorDrafts((drafts) => ({
+          ...drafts,
+          [draft.path]: {
+            ...draft,
+            message: "Fix validation errors or reload disk changes before saving."
+          }
+        }));
+      }
+      return;
+    }
+
+    if (intent === "toggle-split") {
+      handleDraftModeChange(draft.mode === "split" ? "edit" : "split");
+      return;
+    }
+
+    if (intent === "dirty-escape") {
+      setEditorDrafts((drafts) => ({
+        ...drafts,
+        [draft.path]: {
+          ...draft,
+          message: "Unsaved changes. Use Ctrl+S to save or Shift+Esc to revert."
+        }
+      }));
+      return;
+    }
+
+    if (intent === "exit-edit") {
+      handleDraftModeChange("preview");
+      return;
+    }
+
+    if (intent === "revert" && window.confirm("Revert unsaved changes?")) {
+      setEditorDrafts((drafts) => ({
+        ...drafts,
+        [draft.path]: setDraftMode(revertDraft(draft), "preview")
+      }));
+    }
+  }
+
+  function handlePaneKeyDown(
+    paneActive: boolean,
+    fileState: FileLoadState,
+    draft: EditorDraft | null,
+    event: ReactKeyboardEvent<HTMLElement>
+  ) {
+    if (!paneActive || fileState.status !== "ready" || !draft || !isEditableFile(fileState.file)) {
+      return;
+    }
+    const intent = editorShortcutIntent(event, {
+      dirty: isDraftDirty(draft),
+      mode: draft.mode,
+      supportsSplit: supportsEditorMode(fileState.file, "split")
+    });
+    if (!intent) {
+      return;
+    }
+    event.preventDefault();
+    event.stopPropagation();
+    runEditorShortcutIntent(fileState.file, draft, intent);
+  }
+
   function renderWorkspacePane(paneId: WorkspacePaneId, tab: OpenTab | null) {
     const paneActive = normalizedWorkspaceLayout.activePaneId === paneId;
     const paneFileState = tab ? fileStates[tab.path] ?? idleFileState : idleFileState;
     const paneLinksState = tab ? linksStates[tab.path] ?? idleLinksState : idleLinksState;
     const paneDraft = tab ? editorDrafts[tab.path] ?? null : null;
     const viewerDraft = paneActive || !paneDraft ? paneDraft : { ...paneDraft, mode: "preview" as const };
-    const paneFavorite = tab ? isFavorite(favorites, tab.path) : false;
 
     return (
       <section
@@ -10443,7 +10828,14 @@ export function App() {
         className={`viewer-surface workspace-viewer-pane ${
           paneActive ? "workspace-viewer-pane-active" : ""
         }`}
+        onClickCapture={(event) => {
+          if (event.detail === 2) {
+            handlePaneDoubleClick(paneActive, tab, paneFileState, event);
+          }
+        }}
         onClick={() => handleActivatePane(paneId, tab?.path ?? null)}
+        onDoubleClickCapture={(event) => handlePaneDoubleClick(paneActive, tab, paneFileState, event)}
+        onKeyDownCapture={(event) => handlePaneKeyDown(paneActive, paneFileState, paneDraft, event)}
       >
         <div className="workspace-pane-header">
           <strong>{paneId === "main" ? "Main" : "Secondary"}</strong>
@@ -10453,20 +10845,18 @@ export function App() {
         {tab ? (
           <>
             {paneActive && (
-              <EditorToolbar
+              <DocumentChrome
                 draft={paneDraft}
-                favorite={paneFavorite}
                 file={paneFileState.status === "ready" ? paneFileState.file : null}
                 onCancelScript={(runId) => void handleCancelDmsScript(runId)}
-                onModeChange={handleDraftModeChange}
                 onReload={handleReloadActiveFile}
-                onRename={handleOpenRenameDialog}
-                onRevert={handleRevertDraft}
+                onRequestEdit={() => {
+                  if (paneFileState.status === "ready") {
+                    requestEditMode(tab.path, paneFileState.file);
+                  }
+                }}
                 onRunScript={() => void handleRunDmsScript(tab.path)}
-                onSave={handleSaveDraft}
                 onSaveTemporary={handleOpenDmsOutputSaveDialog}
-                onToggleFavorite={handleToggleFavorite}
-                onTrash={handleOpenTrashDialog}
                 scriptRunState={scriptRunState}
               />
             )}
@@ -10486,8 +10876,8 @@ export function App() {
           </>
         ) : (
           <div className="empty-surface">
-            <h2>Select a File</h2>
-            <p>Open Markdown, CSV, or media from the world tree.</p>
+            <h2>{t("workspace.selectFile")}</h2>
+            <p>{t("workspace.openFromTree")}</p>
           </div>
         )}
       </section>
@@ -10495,7 +10885,7 @@ export function App() {
   }
 
   if (authState.status === "checking") {
-    return <UnlockScreen error={null} loading onUnlock={() => {}} />;
+    return <UnlockScreen error={null} loading onUnlock={() => {}} t={t} />;
   }
 
   if (authState.status === "locked" || authState.status === "unlocking") {
@@ -10504,6 +10894,7 @@ export function App() {
         error={authState.error}
         loading={authState.status === "unlocking"}
         onUnlock={(token) => void handleAuthUnlock(token)}
+        t={t}
       />
     );
   }
@@ -10521,10 +10912,11 @@ export function App() {
           <WorldSelector
             onOpenWorld={(id) => void handleOpenWorld(id)}
             state={worldLibrary}
+            t={t}
           />
           <div className="panel-actions-row">
             <button className="panel-action" onClick={() => setWorldOpenDialog(true)} type="button">
-              Open Folder
+              {t("side.openFolder")}
             </button>
             <button
               className="panel-action"
@@ -10538,32 +10930,40 @@ export function App() {
               }
               type="button"
             >
-              New World
+              {t("side.newWorld")}
             </button>
             <button className="panel-action" onClick={() => void refreshWorldLibrary()} type="button">
-              Scan
+              {t("side.scan")}
             </button>
             <button className="panel-action" onClick={() => void loadTrashDialog()} type="button">
-              Trash
+              {t("side.trash")}
+            </button>
+            <button
+              className="panel-action"
+              onClick={() => setSettingsDialogOpen(true)}
+              ref={settingsButtonRef}
+              type="button"
+            >
+              {t("app.settings")}
             </button>
           </div>
         </div>
-        <nav className="world-tree" aria-label="World files">
+        <nav className="world-tree" aria-label={t("side.worldFiles")}>
           <div className="world-tree-controls">
             <input
-              aria-label="Filter world tree"
+              aria-label={t("side.filterWorldTree")}
               onChange={(event) => setTreeFilter(event.target.value)}
-              placeholder="Filter world"
+              placeholder={t("side.filterWorld")}
               type="search"
               value={treeFilter}
             />
             <button onClick={() => setExpandedPaths(new Set([""]))} type="button">
-              Collapse All
+              {t("side.collapseAll")}
             </button>
           </div>
           {worldTreeStatus && <p className="world-tree-status">{worldTreeStatus}</p>}
           {loadState === "error" ? (
-            <p className="load-error">Could not load world.</p>
+            <p className="load-error">{t("side.couldNotLoadWorld")}</p>
           ) : worldTree ? (
             <ul>
               <WorldTree
@@ -10571,6 +10971,7 @@ export function App() {
                 dropPath={worldTreeDropPath}
                 entry={worldTree}
                 expandedPaths={expandedPaths}
+                favoritePaths={favoritePaths}
                 filter={treeFilter}
                 menuPath={folderMenuPath}
                 onAdd={handleFolderAdd}
@@ -10585,26 +10986,34 @@ export function App() {
               />
             </ul>
           ) : (
-            <p>Loading world...</p>
+            <p>{t("side.loadingWorld")}</p>
           )}
           <WorldTreeContextMenu
-            onClose={() => setWorldTreeContextMenu({ open: false })}
+            favorite={worldTreeContextMenu.open ? favoritePaths.has(worldTreeContextMenu.entry.path) : false}
+            onClose={closeWorldTreeContextMenu}
             onDuplicate={(entry) => void handleWorldTreeDuplicate(entry)}
             onOpen={handleOpenEntry}
             onOpenNewTab={handleOpenEntry}
             onRename={handleWorldTreeRename}
+            onToggleFavorite={handleWorldTreeToggleFavorite}
             onTrash={handleWorldTreeTrash}
             state={worldTreeContextMenu}
           />
         </nav>
         <div className="side-bottom">
-          <QuickFileList items={favorites} onOpen={handleOpenFavorite} title="Favorites" />
+          <QuickFileList
+            emptyLabel={t("app.none")}
+            items={favorites}
+            onOpen={handleOpenFavorite}
+            title={t("side.favorites")}
+          />
           <QuickFileList
             collapsible
             defaultOpen={false}
+            emptyLabel={t("app.none")}
             items={recentFiles}
             onOpen={handleOpenRecent}
-            title="Recent"
+            title={t("side.recent")}
           />
         </div>
       </aside>
@@ -10643,18 +11052,10 @@ export function App() {
             }}
             prepStatus={livePrepHealthLabel(prepHealthReport).replace("Prep: ", "")}
             summaries={workspaces}
-          />
-          <LiveOutputStrip
-            audioMixer={audioMixer}
-            dirtyPaths={dirtyPaths}
-            displayState={displayState}
-            layout={normalizedWorkspaceLayout}
-            mapState={visibleMapState}
-            prepReport={prepHealthReport}
-            tabs={workspaceTabs}
+            t={t}
           />
           {tabState.tabs.length > 0 && (
-            <div className="tab-strip" role="tablist" aria-label="Open files">
+            <div className="tab-strip" role="tablist" aria-label={t("workspace.openFiles")}>
               {tabState.tabs.map((tab) => {
                 const tabDraft = editorDrafts[tab.path];
                 const dirty = tabDraft ? isDraftDirty(tabDraft) : false;
@@ -10743,6 +11144,7 @@ export function App() {
                 hasPageSavePreconditions(activePageState.page)
               }
               linksState={activeLinksState}
+              mapActionStatus={mapActionStatus}
               mapPresets={mapPresets}
               mapState={visibleMapState}
               metadataEditState={activeMetadataEdit}
@@ -10843,6 +11245,7 @@ export function App() {
               tableSnapshotSelectedId={selectedTableSnapshotId}
               tableSnapshotStatus={tableSnapshotStatus}
               tableSnapshots={tableSnapshots}
+              t={t}
             />
           </div>
           <FastSlotBar slots={fastSlots} onTrigger={(slot) => void handleFastSlotTrigger(slot)} />
@@ -10875,6 +11278,7 @@ export function App() {
         open={searchDialogOpen}
         query={searchQuery}
         state={searchState}
+        t={t}
       />
       <CaptureDialog
         draft={captureDraft}
@@ -10886,6 +11290,7 @@ export function App() {
         onTextChange={handleCaptureTextChange}
         open={captureDialogOpen}
         status={captureStatus}
+        t={t}
         today={captureToday}
       />
       <PrepHealthDialog
@@ -10898,10 +11303,27 @@ export function App() {
         open={prepHealthDialogOpen}
         report={prepHealthReport}
         status={prepHealthStatus}
+        t={t}
+      />
+      <SettingsDialog
+        availableLanguages={availableLanguageOptions}
+        language={uiLanguage}
+        onClose={closeSettingsDialog}
+        onLanguageChange={handleLanguageChange}
+        open={settingsDialogOpen}
+        t={t}
       />
       <WorldPathPicker
         candidates={pathPickerCandidates}
+        cancelLabel={t("app.cancel")}
+        dialogLabel={t("pathPicker.label")}
         filter={pathPickerState.open ? pathPickerState.filter : "any"}
+        filterInputLabel={t("pathPicker.filter")}
+        filterLabel={localizedWorldPathPickerFilterLabel(
+          t,
+          pathPickerState.open ? pathPickerState.filter : "any"
+        )}
+        emptyMessage={t("pathPicker.empty")}
         onClose={() => setPathPickerState({ open: false })}
         onSelect={(path) => {
           if (pathPickerState.open) {
@@ -10910,7 +11332,11 @@ export function App() {
           setPathPickerState({ open: false });
         }}
         open={pathPickerState.open}
-        title={pathPickerState.open ? pathPickerState.title : "Choose World Path"}
+        placeholder={t("pathPicker.placeholder")}
+        resultsLabel={t("pathPicker.results")}
+        searchLabel={t("pathPicker.search")}
+        title={pathPickerState.open ? pathPickerState.title : t("pathPicker.title")}
+        useSelectedLabel={t("pathPicker.use")}
       />
       <FileManagementDialog
         onCardTemplateChange={handleFileDialogCardTemplateChange}
@@ -10937,6 +11363,7 @@ export function App() {
           onOpenWorld={(id) => void handleOpenWorld(id)}
           onRefresh={() => void refreshWorldLibrary()}
           state={worldLibrary}
+          t={t}
         />
       )}
       <WorldCreateDialog
@@ -10944,6 +11371,7 @@ export function App() {
         onNameChange={handleWorldNameChange}
         onSubmit={() => void handleCreateWorld()}
         state={worldCreateDialog}
+        t={t}
       />
       <WorkspaceDialog
         onClose={() => setWorkspaceDialog({ kind: "closed" })}

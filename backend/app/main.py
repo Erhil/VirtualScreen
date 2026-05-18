@@ -4,6 +4,7 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from app.api.routes import (
+    app_config,
     audio,
     auth,
     capture,
@@ -58,6 +59,7 @@ def create_app() -> FastAPI:
     )
     app.add_middleware(AuthMiddleware)
 
+    app.include_router(app_config.router, prefix="/api", tags=["app"])
     app.include_router(health.router, prefix="/api", tags=["health"])
     app.include_router(auth.router, prefix="/api", tags=["auth"])
     app.include_router(card_templates.router, prefix="/api", tags=["card-templates"])
