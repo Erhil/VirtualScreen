@@ -38,6 +38,9 @@ def test_readme_documents_fresh_release_setup() -> None:
         ".\\.venv\\Scripts\\python -m pip install numpy",
         "ModuleNotFoundError",
         "VIRTUALSCREEN_LANGUAGE",
+        "VIRTUALSCREEN_LANGUAGE_DIR",
+        "lang/en.json",
+        "lang/languages.json",
         "GPLv3",
     ]
 

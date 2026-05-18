@@ -3,7 +3,7 @@ export type HealthResponse = {
   service: string;
 };
 
-export type UiLanguage = "en" | "ru";
+export type UiLanguage = string;
 
 export type AppConfig = {
   language: UiLanguage;
@@ -13,6 +13,8 @@ export type AppConfig = {
     native_label: string;
   }>;
 };
+
+export type TranslationCatalog = Record<string, string>;
 
 export type PrepHealthStatus = "ok" | "warning" | "error";
 
@@ -599,6 +601,10 @@ export function fetchHealth(): Promise<HealthResponse> {
 
 export function fetchAppConfig(): Promise<AppConfig> {
   return getJson<AppConfig>("/api/app/config");
+}
+
+export function fetchLanguageCatalog(language: UiLanguage): Promise<TranslationCatalog> {
+  return getJson<TranslationCatalog>(`/api/app/language/${encodeURIComponent(language)}`);
 }
 
 export function fetchPrepHealth(): Promise<PrepHealthResponse> {

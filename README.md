@@ -28,7 +28,10 @@ Useful settings:
 - `VIRTUALSCREEN_HOST` and `VIRTUALSCREEN_PORT`: backend bind address and port.
 - `VIRTUALSCREEN_LAN_MODE`: enables LAN-facing behavior when set to `true`.
 - `VIRTUALSCREEN_ACCESS_TOKEN`: fixed unlock code. If omitted, `scripts/dev.ps1` generates one.
-- `VIRTUALSCREEN_LANGUAGE`: startup UI language, `en` or `ru`. The DM workspace can also switch language from Settings.
+- `VIRTUALSCREEN_LANGUAGE`: startup UI language, default `en`. The DM workspace can also switch language from Settings.
+- `VIRTUALSCREEN_LANGUAGE_DIR`: localization table folder, default `lang`.
+
+UI localization tables are ordinary JSON files in `lang/`. To add a language without changing code, copy `lang/en.json` to `lang/<code>.json`, translate the values, add the language to `lang/languages.json`, then restart or reload VirtualScreen. New UI features still require new translation keys.
 
 # Start app
 

@@ -54,6 +54,8 @@ def _is_public(scope: Scope) -> bool:
         return True
     if path.startswith("/api/screen/") or path in {"/ws/screen/display", "/ws/screen/map"}:
         return True
+    if path.startswith("/api/app/language/"):
+        return True
     if path in PUBLIC_API_PATHS:
         return True
     return not (path.startswith("/api/") or path.startswith("/ws/"))

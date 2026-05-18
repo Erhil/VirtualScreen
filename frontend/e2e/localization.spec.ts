@@ -44,12 +44,12 @@ test("Settings switches the UI language and persists it after reload @smoke", as
   await expect(page.getByRole("complementary", { name: "Инструменты ведущего" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Настройки" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Настройки" })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Настр." })).toBeFocused();
 
   await page.reload();
 
   await expect(page.getByRole("navigation", { name: "Файлы мира" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Настройки" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Настр." })).toBeVisible();
 
   await page.evaluate(() => window.localStorage.removeItem("virtualscreen.uiLanguage"));
   await page.reload();
@@ -71,10 +71,51 @@ test("Russian shell labels fit supported desktop layouts", async ({ page }) => {
   ]) {
     await page.setViewportSize(viewport);
     await expect(page.getByRole("navigation", { name: "Файлы мира" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Открыть папку" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Настройки" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Открыть" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Настр." })).toBeVisible();
     await expect(page.getByRole("complementary", { name: "Инструменты ведущего" })).toBeVisible();
+    const actionBoxes = await page.locator(".panel-actions-row .panel-action").evaluateAll((buttons) =>
+      buttons.map((button) => {
+        const rect = button.getBoundingClientRect();
+        return { top: rect.top, bottom: rect.bottom };
+      })
+    );
+    expect(actionBoxes).toHaveLength(5);
+    for (const box of actionBoxes) {
+      expect(Math.abs(box.top - actionBoxes[0].top)).toBeLessThan(2);
+      expect(Math.abs(box.bottom - actionBoxes[0].bottom)).toBeLessThan(2);
+    }
   }
+});
+
+test("Russian labels cover core tools and document state", async ({ page }) => {
+  await page.goto("/");
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByLabel("Language").selectOption("ru");
+  await page.getByRole("button", { name: "Закрыть", exact: true }).click();
+
+  await page.getByRole("button", { name: "README.md" }).click();
+  await expect(page.locator(".document-state")).toContainText("Просмотр");
+
+  await page.locator(".tool-section-header").filter({ hasText: "Метаданные" }).click();
+  await expect(page.getByRole("button", { name: "Изменить метаданные" })).toBeVisible();
+
+  await page.locator(".tool-section-header").filter({ hasText: "Аудио" }).click();
+  await expect(page.getByRole("region", { name: "Управление аудио" })).toBeVisible();
+  await expect(page.getByLabel("Поиск музыки")).toBeVisible();
+
+  await page.locator(".tool-section-header").filter({ hasText: "Хиты" }).click();
+  const hpTool = page.getByRole("region", { name: "Хиты", exact: true });
+  await expect(hpTool).toBeVisible();
+  await expect(hpTool.getByRole("button", { name: "Добавить" })).toBeVisible();
+
+  await page.locator(".tool-section-header").filter({ hasText: "Действия" }).click();
+  await expect(page.getByRole("region", { name: "Настройка быстрых действий" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Слоты" })).toBeVisible();
+
+  await page.locator(".tool-section-header").filter({ hasText: "Экран" }).click();
+  await expect(page.getByRole("region", { name: "Управление экраном" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Пустой экран" })).toBeVisible();
 });
 
 test("Player screen does not expose DM Settings controls", async ({ page }) => {
@@ -82,5 +123,5 @@ test("Player screen does not expose DM Settings controls", async ({ page }) => {
 
   await expect(page.getByRole("main", { name: "Player Screen" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Settings" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Настройки" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Настр." })).toHaveCount(0);
 });

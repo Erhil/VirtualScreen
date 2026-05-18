@@ -1,24 +1,36 @@
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { describe, expect, it } from "vitest";
 
 import {
   AVAILABLE_LANGUAGES,
+  FALLBACK_CATALOG,
   UI_LANGUAGE_STORAGE_KEY,
   createTranslator,
-  en,
   isUiLanguage,
   loadStoredUiLanguage,
   resolveInitialLanguage,
-  ru,
   saveStoredUiLanguage,
-  type TranslationKey
+  type TranslationCatalog
 } from ".";
+
+function readCatalog(code: string): TranslationCatalog {
+  return JSON.parse(
+    readFileSync(resolve(process.cwd(), "..", "lang", `${code}.json`), "utf-8")
+  ) as TranslationCatalog;
+}
 
 describe("localization catalogs", () => {
   it("keeps English and Russian key coverage identical", () => {
+    const en = readCatalog("en");
+    const ru = readCatalog("ru");
+
     expect(Object.keys(ru).sort()).toEqual(Object.keys(en).sort());
+    expect(Object.keys(en).sort()).toEqual(Object.keys(FALLBACK_CATALOG).sort());
   });
 
-  it("lists the available UI languages", () => {
+  it("lists fallback UI languages used when the backend config is unavailable", () => {
     expect(AVAILABLE_LANGUAGES).toEqual([
       { code: "en", label: "English", native_label: "English" },
       { code: "ru", label: "Russian", native_label: "Русский" }
@@ -27,30 +39,42 @@ describe("localization catalogs", () => {
 });
 
 describe("createTranslator", () => {
-  it("translates and interpolates simple UI labels", () => {
-    const t = createTranslator("en");
+  it("translates and interpolates simple UI labels from a loaded catalog", () => {
+    const t = createTranslator(readCatalog("en"));
 
     expect(t("workspace.prepCheckStatus", { status: "OK" })).toBe("Prep Check: OK");
   });
 
-  it("returns a visible deterministic fallback for missing keys", () => {
-    const t = createTranslator("en");
+  it("falls back to bundled English for missing loaded catalog keys", () => {
+    const t = createTranslator({});
 
-    expect(t("missing.key" as TranslationKey)).toBe("[[missing.key]]");
+    expect(t("app.settings")).toBe("Settings");
+  });
+
+  it("returns a visible deterministic fallback for unknown keys", () => {
+    const t = createTranslator(readCatalog("en"));
+
+    expect(t("missing.key")).toBe("[[missing.key]]");
   });
 });
 
 describe("language resolution", () => {
-  it("validates supported languages", () => {
+  it("validates safe language codes", () => {
     expect(isUiLanguage("en")).toBe(true);
     expect(isUiLanguage("ru")).toBe(true);
-    expect(isUiLanguage("de")).toBe(false);
+    expect(isUiLanguage("pt-BR")).toBe(true);
+    expect(isUiLanguage("../secret")).toBe(false);
   });
 
   it("prefers stored language over backend config and falls back to English", () => {
-    expect(resolveInitialLanguage({ stored: "ru", configured: "en" })).toBe("ru");
-    expect(resolveInitialLanguage({ stored: "bad", configured: "ru" })).toBe("ru");
-    expect(resolveInitialLanguage({ stored: null, configured: "bad" })).toBe("en");
+    const available = [
+      { code: "en", label: "English", native_label: "English" },
+      { code: "zz", label: "Test", native_label: "Test" }
+    ];
+
+    expect(resolveInitialLanguage({ stored: "zz", configured: "en", available })).toBe("zz");
+    expect(resolveInitialLanguage({ stored: "bad", configured: "zz", available })).toBe("zz");
+    expect(resolveInitialLanguage({ stored: null, configured: "ru", available })).toBe("en");
   });
 
   it("loads and saves the stored language defensively", () => {
@@ -66,7 +90,7 @@ describe("language resolution", () => {
     expect(storage.get(UI_LANGUAGE_STORAGE_KEY)).toBe("ru");
     expect(loadStoredUiLanguage(fakeStorage)).toBe("ru");
 
-    storage.set(UI_LANGUAGE_STORAGE_KEY, "bad");
+    storage.set(UI_LANGUAGE_STORAGE_KEY, "../bad");
     expect(loadStoredUiLanguage(fakeStorage)).toBeNull();
   });
 });

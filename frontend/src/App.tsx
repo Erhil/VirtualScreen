@@ -76,6 +76,7 @@ import {
   fetchDmsRun,
   fetchFastSlots,
   fetchHpTracker,
+  fetchLanguageCatalog,
   fetchPage,
   fetchPageBacklinks,
   fetchPageLinks,
@@ -120,6 +121,7 @@ import {
   type PrepHealthReport,
   type SearchResult,
   type TableSnapshotSummary,
+  type TranslationCatalog,
   type DisplayState,
   type DisplayPopupPreset,
   type AudioBus,
@@ -1859,7 +1861,8 @@ function DocumentChrome({
   onRequestEdit,
   onRunScript,
   onSaveTemporary,
-  scriptRunState
+  scriptRunState,
+  t
 }: {
   draft: EditorDraft | null;
   file: WorldFile | null;
@@ -1869,6 +1872,7 @@ function DocumentChrome({
   onRunScript: () => void;
   onSaveTemporary: () => void;
   scriptRunState: ScriptRunState;
+  t: Translator;
 }) {
   if (!file) {
     return null;
@@ -1878,22 +1882,22 @@ function DocumentChrome({
   if (!editable || !draft) {
     if (isTemporaryDmsPath(file.path)) {
       return (
-        <section className="document-chrome" aria-label="Document status">
+        <section className="document-chrome" aria-label={t("document.status")}>
           <div className="document-state">
-            <strong>Temporary DMS output</strong>
-            <span>Save this output into the world before closing it.</span>
+            <strong>{t("document.temporaryOutput")}</strong>
+            <span>{t("document.saveOutputHint")}</span>
           </div>
           <button className="document-action" onClick={onSaveTemporary} type="button">
-            Save As
+            {t("document.saveAs")}
           </button>
         </section>
       );
     }
     return (
-      <section className="document-chrome document-chrome-readonly" aria-label="Document status">
+      <section className="document-chrome document-chrome-readonly" aria-label={t("document.status")}>
         <div className="document-state">
-          <strong>Preview</strong>
-          <span>File actions are in the world tree context menu.</span>
+          <strong>{t("document.preview")}</strong>
+          <span>{t("document.fileActionsHint")}</span>
         </div>
       </section>
     );
@@ -1916,28 +1920,28 @@ function DocumentChrome({
   });
   const statusText =
     changedOnDisk
-      ? "Changed on disk"
+      ? t("document.changedOnDisk")
       : draft.status === "conflict"
-        ? draft.message ?? "World file changed on disk."
+        ? draft.message ?? t("document.conflict")
         : draft.status === "error"
-          ? draft.message ?? "Could not save file."
+          ? draft.message ?? t("document.saveError")
           : file.media_kind === "script" && !scriptRun.available
             ? scriptRun.reason
             : !cardValid
-              ? "Invalid card JSON"
+              ? t("document.invalidCardJson")
               : !csvValid
-                ? "CSV rows must be rectangular"
+                ? t("document.invalidCsv")
                 : draft.message
                   ? draft.message
                   : dirty
-                    ? "Unsaved changes"
+                    ? t("document.unsaved")
                     : draft.status === "saved"
-                      ? "Saved"
-                      : "Clean";
+                      ? t("document.saved")
+                      : t("document.clean");
   const shortcutText =
     file.media_kind === "markdown"
-      ? "Double-click preview to edit. Ctrl+S saves, Esc previews when clean, Ctrl+\\ toggles split, Shift+Esc reverts."
-      : "Double-click preview to edit. Ctrl+S saves, Esc previews when clean, Shift+Esc reverts.";
+      ? t("document.markdownShortcuts")
+      : t("document.defaultShortcuts");
   const handleChromeDoubleClick = (event: MouseEvent<HTMLElement>) => {
     const target = event.target instanceof HTMLElement ? event.target : null;
     if (draft.mode === "edit" || target?.closest("button,a,input,textarea,select")) {
@@ -1947,10 +1951,14 @@ function DocumentChrome({
   };
 
   return (
-    <section className="document-chrome" aria-label="Document status" onDoubleClickCapture={handleChromeDoubleClick}>
+    <section className="document-chrome" aria-label={t("document.status")} onDoubleClickCapture={handleChromeDoubleClick}>
       <div className="document-state">
         <strong>
-          {draft.mode === "split" ? "Split preview" : draft.mode === "edit" ? "Editing" : "Preview"}
+          {draft.mode === "split"
+            ? t("document.splitPreview")
+            : draft.mode === "edit"
+              ? t("document.editing")
+              : t("document.preview")}
         </strong>
         <span
           className={`editor-status ${
@@ -1965,23 +1973,23 @@ function DocumentChrome({
       {file.media_kind === "script" && (
         runningScript && scriptRunState.status === "running" && scriptRunState.runId ? (
           <button className="document-action" onClick={() => onCancelScript(scriptRunState.runId!)} type="button">
-            Cancel
+            {t("document.cancel")}
           </button>
         ) : (
           <button
             className="document-action"
             disabled={!scriptRun.available}
             onClick={onRunScript}
-            title={scriptRun.available ? "Run DMS script" : scriptRun.reason}
+            title={scriptRun.available ? t("document.runScript") : scriptRun.reason}
             type="button"
           >
-            Run
+            {t("document.run")}
           </button>
         )
       )}
       {(draft.status === "conflict" || changedOnDisk) && (
         <button className="document-action" disabled={saving} onClick={onReload} type="button">
-          Reload from disk
+          {t("document.reloadFromDisk")}
         </button>
       )}
       </div>
@@ -2328,7 +2336,8 @@ function MetadataTool({
   onCancelEdit,
   onRevertEdit,
   onSaveEdit,
-  onReloadEdit
+  onReloadEdit,
+  t
 }: {
   tab: OpenTab | null;
   pageState: PageLoadState;
@@ -2345,20 +2354,21 @@ function MetadataTool({
   onRevertEdit: () => void;
   onSaveEdit: () => void;
   onReloadEdit: () => void;
+  t: Translator;
 }) {
   if (pageState.status === "loading" || pageState.status === "idle") {
     return (
-      <section className="metadata-tool" aria-label="Metadata">
-        {tab ? <p>Loading metadata...</p> : <p>Select a file to inspect page metadata.</p>}
+      <section className="metadata-tool" aria-label={t("metadata.title")}>
+        {tab ? <p>{t("metadata.loading")}</p> : <p>{t("metadata.selectFile")}</p>}
       </section>
     );
   }
 
   if (pageState.status === "error") {
     return (
-      <section className="metadata-tool" aria-label="Metadata">
+      <section className="metadata-tool" aria-label={t("metadata.title")}>
         <div className="metadata-empty">
-          <h3>Could Not Load Metadata</h3>
+          <h3>{t("metadata.loadError")}</h3>
           <p>{pageState.message}</p>
         </div>
       </section>
@@ -2371,7 +2381,7 @@ function MetadataTool({
   const linksError = linksState.status === "error" ? linksState.message : null;
 
   return (
-    <section className="metadata-tool" aria-label="Metadata">
+    <section className="metadata-tool" aria-label={t("metadata.title")}>
       <div className="metadata-heading">
         {editState.mode === "view" && (
           <button
@@ -2379,7 +2389,7 @@ function MetadataTool({
             onClick={onStartEdit}
             type="button"
           >
-            Edit Metadata
+            {t("metadata.edit")}
           </button>
         )}
       </div>
@@ -2405,11 +2415,11 @@ function MetadataTool({
               </div>
             ))}
           </dl>
-          <section className="link-section" aria-label="Outgoing Links">
-            <h3>Outgoing Links</h3>
+          <section className="link-section" aria-label={t("metadata.outgoingLinks")}>
+            <h3>{t("metadata.outgoingLinks")}</h3>
             {linksError && <p>{linksError}</p>}
-            {linksState.status === "loading" && <p>Loading links...</p>}
-            {linksState.status !== "loading" && outgoing.length === 0 && <p>None</p>}
+            {linksState.status === "loading" && <p>{t("metadata.loadingLinks")}</p>}
+            {linksState.status !== "loading" && outgoing.length === 0 && <p>{t("app.none")}</p>}
             {outgoing.map((link, index) => (
               <button
                 className="panel-link"
@@ -2422,10 +2432,10 @@ function MetadataTool({
               </button>
             ))}
           </section>
-          <section className="link-section" aria-label="Backlinks">
-            <h3>Backlinks</h3>
-            {linksState.status === "loading" && <p>Loading backlinks...</p>}
-            {linksState.status !== "loading" && backlinks.length === 0 && <p>None</p>}
+          <section className="link-section" aria-label={t("metadata.backlinks")}>
+            <h3>{t("metadata.backlinks")}</h3>
+            {linksState.status === "loading" && <p>{t("metadata.loadingBacklinks")}</p>}
+            {linksState.status !== "loading" && backlinks.length === 0 && <p>{t("app.none")}</p>}
             {backlinks.map((link) => {
               const sourcePage = pages.find((page) => page.path === link.source_path);
               return (
@@ -2461,7 +2471,8 @@ function WorldTree({
   onDropEntry,
   onOpen,
   onToggle,
-  onMenuToggle
+  onMenuToggle,
+  t
 }: {
   dragPath: string | null;
   dropPath: string | null;
@@ -2479,6 +2490,7 @@ function WorldTree({
   onToggle: (path: string) => void;
   onMenuToggle: (path: string | null) => void;
   onOpen: (entry: WorldEntry) => void;
+  t: Translator;
 }) {
   const normalizedFilter = filter.trim().toLowerCase();
   const entryMatches =
@@ -2508,7 +2520,7 @@ function WorldTree({
             <span>{label.primary}</span>
             {label.secondary && <small>{label.secondary}</small>}
           </span>
-          {favorite && <span className="tree-favorite-mark">Favorite</span>}
+          {favorite && <span className="tree-favorite-mark">{t("world.tree.favorite")}</span>}
         </button>
       </li>
     );
@@ -2521,7 +2533,7 @@ function WorldTree({
     return null;
   }
   const expanded = normalizedFilter ? true : expandedPaths.has(entry.path);
-  const addLabel = entry.path === "" ? "Add in world" : `Add in ${entry.name}`;
+  const addLabel = entry.path === "" ? t("world.tree.addRoot") : t("world.tree.addFolder", { name: entry.name });
 
   return (
     <li>
@@ -2573,19 +2585,19 @@ function WorldTree({
         {menuPath === entry.path && (
           <div className="tree-add-menu" role="menu">
             <button onClick={() => onAdd(entry.path, "markdown")} type="button">
-              New Markdown
+              {t("world.tree.newMarkdown")}
             </button>
               <button onClick={() => onAdd(entry.path, "card")} type="button">
-                New Card
+                {t("world.tree.newCard")}
               </button>
               <button onClick={() => onAdd(entry.path, "csv")} type="button">
-                New CSV
+                {t("world.tree.newCsv")}
               </button>
               <button onClick={() => onAdd(entry.path, "script")} type="button">
-                New Script
+                {t("world.tree.newScript")}
               </button>
               <button onClick={() => onAdd(entry.path, "folder")} type="button">
-                New Folder
+                {t("world.tree.newFolder")}
               </button>
           </div>
         )}
@@ -2611,6 +2623,7 @@ function WorldTree({
               onMenuToggle={onMenuToggle}
               onOpen={onOpen}
               onToggle={onToggle}
+              t={t}
             />
           ))}
         </ul>
@@ -2628,7 +2641,8 @@ function WorldTreeContextMenu({
   onOpenNewTab,
   onRename,
   onToggleFavorite,
-  onTrash
+  onTrash,
+  t
 }: {
   state: WorldTreeContextMenuState;
   favorite: boolean;
@@ -2639,6 +2653,7 @@ function WorldTreeContextMenu({
   onRename: (entry: WorldEntry) => void;
   onToggleFavorite: (entry: WorldEntry) => void;
   onTrash: (entry: WorldEntry) => void;
+  t: Translator;
 }) {
   const menuRef = useRef<HTMLDivElement | null>(null);
 
@@ -2680,7 +2695,7 @@ function WorldTreeContextMenu({
             }}
             type="button"
           >
-            Open
+            {t("world.menu.open")}
           </button>
           <button
             onClick={() => {
@@ -2689,7 +2704,7 @@ function WorldTreeContextMenu({
             }}
             type="button"
           >
-            Open in New Tab
+            {t("world.menu.openNewTab")}
           </button>
           <button
             aria-pressed={favorite}
@@ -2699,7 +2714,7 @@ function WorldTreeContextMenu({
             }}
             type="button"
           >
-            {favorite ? "Unfavorite" : "Favorite"}
+          {favorite ? t("world.menu.unfavorite") : t("world.menu.favorite")}
           </button>
         </>
       )}
@@ -2712,7 +2727,7 @@ function WorldTreeContextMenu({
             }}
             type="button"
           >
-            Rename
+          {t("world.menu.rename")}
           </button>
           <button
             onClick={() => {
@@ -2721,7 +2736,7 @@ function WorldTreeContextMenu({
             }}
             type="button"
           >
-            Duplicate
+          {t("world.menu.duplicate")}
           </button>
           <button
             className="danger-action"
@@ -2731,7 +2746,7 @@ function WorldTreeContextMenu({
             }}
             type="button"
           >
-            Move to Trash
+          {t("world.menu.trash")}
           </button>
         </>
       )}
@@ -3347,7 +3362,7 @@ function ScreenTool({
   const displayable = canSendToScreen(activeTab?.mediaKind);
   const [popupPreset, setPopupPreset] = useState<DisplayPopupPreset>("plain");
   const [displayTargetPath, setDisplayTargetPath] = useState("");
-  const activeTargetLabel = activeTab?.title ?? activeTab?.name ?? "active file";
+  const activeTargetLabel = activeTab?.title ?? activeTab?.name ?? t("screen.activeFile");
   const targetPath = displayTargetPath.trim();
   const targetLabel = targetPath || activeTargetLabel;
   const canUseTarget = Boolean(targetPath) || displayable;
@@ -3363,18 +3378,18 @@ function ScreenTool({
         {popups.map((popup) => (
           <div className="screen-popup-item" key={popup.id}>
             <span>{popup.title ?? popup.name}</span>
-            <small>{popup.preset ?? "plain"}</small>
+            <small>{popup.preset ?? t("screen.popupPresetPlain")}</small>
             {popup.visible === false ? (
               <button onClick={() => onPopupVisibleChange(popup.id, true)} type="button">
-                Show
+                {t("app.show")}
               </button>
             ) : (
               <button onClick={() => onPopupVisibleChange(popup.id, false)} type="button">
-                Hide
+                {t("app.hide")}
               </button>
             )}
             <button className="button-danger-subtle" onClick={() => onClosePopup(popup.id)} type="button">
-              Close
+              {t("app.close")}
             </button>
           </div>
         ))}
@@ -3416,6 +3431,7 @@ function ScreenTool({
           onViewportPreview={onMapViewportPreview}
           presets={mapPresets}
           state={mapState}
+          t={t}
         />
       ) : (
         <>
@@ -3425,7 +3441,7 @@ function ScreenTool({
           <input
             aria-label={t("screen.fullscreenPath")}
             onChange={(event) => setDisplayTargetPath(event.target.value)}
-            placeholder={activeTab?.path ?? "Blank means current page"}
+            placeholder={activeTab?.path ?? t("screen.pathPlaceholder")}
             value={displayTargetPath}
           />
           <button
@@ -3439,16 +3455,16 @@ function ScreenTool({
       </label>
       <div className="screen-actions">
         <button disabled={!canUseTarget} onClick={() => onShowFullscreen(targetPath || undefined)} type="button">
-          {targetPath ? "Show Path Fullscreen" : `Show Active Fullscreen: ${targetLabel}`}
+          {targetPath ? t("screen.showPathFullscreen") : t("screen.showActiveFullscreen", { target: targetLabel })}
         </button>
         <button disabled={!canUseTarget} onClick={() => onOpenPopup(popupPreset, targetPath || undefined)} type="button">
-          {targetPath ? `Open Popup: ${targetLabel}` : `Open Active as Popup: ${targetLabel}`}
+          {targetPath ? t("screen.openPopup", { target: targetLabel }) : t("screen.openActivePopup", { target: targetLabel })}
         </button>
         <button disabled={!canUseTarget} onClick={() => onStagePopup(popupPreset, targetPath || undefined)} type="button">
-          {targetPath ? `Stage Popup: ${targetLabel}` : `Stage Active as Popup: ${targetLabel}`}
+          {targetPath ? t("screen.stagePopup", { target: targetLabel }) : t("screen.stageActivePopup", { target: targetLabel })}
         </button>
         <button className="button-danger-subtle" disabled={!canUseTarget} onClick={() => onClearAndShowFullscreen(targetPath || undefined)} type="button">
-          Clear + Show: {targetLabel}
+          {t("screen.clearShow", { target: targetLabel })}
         </button>
         <button className="button-danger-subtle" onClick={onBlank} type="button">
           {t("screen.blank")}
@@ -3466,24 +3482,24 @@ function ScreenTool({
           onChange={(event) => setPopupPreset(event.target.value as DisplayPopupPreset)}
           value={popupPreset}
         >
-          <option value="plain">Plain</option>
-          <option value="note">Note</option>
-          <option value="letter">Letter</option>
-          <option value="portrait">Portrait</option>
-          <option value="clue">Clue</option>
+          <option value="plain">{t("screen.popupPlain")}</option>
+          <option value="note">{t("screen.popupNote")}</option>
+          <option value="letter">{t("screen.popupLetter")}</option>
+          <option value="portrait">{t("screen.popupPortrait")}</option>
+          <option value="clue">{t("screen.popupClue")}</option>
         </select>
       </label>
-      {!canUseTarget && <p>Select a supported file or choose a target path before sending content to the screen.</p>}
+      {!canUseTarget && <p>{t("screen.selectTarget")}</p>}
       <section className="screen-state" aria-label={t("screen.current")}>
         <h3>{t("screen.fullscreen")}</h3>
-        <p>{displayState?.fullscreen?.title ?? displayState?.fullscreen?.name ?? "Blank"}</p>
+        <p>{displayState?.fullscreen?.title ?? displayState?.fullscreen?.name ?? t("screen.blank")}</p>
       </section>
       <section className="screen-state" aria-label={t("screen.popups")}>
         <h3>{t("screen.popups")}</h3>
         <h4>{t("screen.visible")}</h4>
-        {renderPopupList(visiblePopups, "No visible popups.")}
+        {renderPopupList(visiblePopups, t("screen.noVisiblePopups"))}
         <h4>{t("screen.staged")}</h4>
-        {renderPopupList(stagedPopups, "No staged popups.")}
+        {renderPopupList(stagedPopups, t("screen.noStagedPopups"))}
       </section>
         </>
       )}
@@ -3512,7 +3528,8 @@ function MapTool({
   onUndoReveal,
   onUseActiveImage,
   onViewportCommit,
-  onViewportPreview
+  onViewportPreview,
+  t
 }: {
   activeTab: OpenTab | null;
   actionStatus: MapActionStatus;
@@ -3535,6 +3552,7 @@ function MapTool({
   onUseActiveImage: () => void;
   onViewportCommit: (viewport: MapViewport) => void;
   onViewportPreview: (viewport: MapViewport) => void;
+  t: Translator;
 }) {
   const currentMap = state ?? {
     image_path: null,
@@ -3576,18 +3594,18 @@ function MapTool({
   }
 
   return (
-    <section aria-label="Map Control" className="map-tool">
+    <section aria-label={t("map.control")} className="map-tool">
       <InnerToolTabs
         active={mapPanel}
-        ariaLabel="Map controls"
+        ariaLabel={t("map.controls")}
         onChange={setMapPanel}
         tabs={[
-          { id: "live", label: "Live" },
-          { id: "setup", label: "Setup" }
+          { id: "live", label: t("map.live") },
+          { id: "setup", label: t("map.setup") }
         ]}
       />
       <div className="map-tool-status" aria-live="polite">
-        <p>{shownMap.image_path ? `Current map: ${shownMap.title ?? shownMap.image_path}` : "No map loaded"}</p>
+        <p>{shownMap.image_path ? t("map.current", { map: shownMap.title ?? shownMap.image_path }) : t("map.noMapLoaded")}</p>
         {actionStatus.message && (
           <p className={actionStatus.status === "error" ? "map-tool-error" : "map-tool-message"}>
             {actionStatus.message}
@@ -3598,65 +3616,65 @@ function MapTool({
         <>
       <div className="map-tool-actions">
         <button disabled={!activeImage} onClick={onUseActiveImage} type="button">
-          Use Active Image
+          {t("map.useActiveImage")}
         </button>
         <button disabled={!shownMap.image_path} onClick={onPresent} type="button">
-          Present Map
+          {t("map.present")}
         </button>
         <button disabled={!shownMap.presenting} onClick={onStop} type="button">
-          Stop Map
+          {t("map.stop")}
         </button>
       </div>
       <div className="map-tool-row">
         <label className="compact-inline-control">
-          Fog enabled
+          {t("map.fog")}
           <input
-            aria-label="Fog enabled"
+            aria-label={t("map.fog")}
             checked={shownMap.fog_enabled}
             onChange={(event) => handleFogChange(event.target.checked)}
             type="checkbox"
           />
         </label>
         <button disabled={shownMap.reveals.length === 0} onClick={onClearReveals} type="button">
-          Clear Reveals
+          {t("map.clearReveals")}
         </button>
         <button disabled={shownMap.reveals.length === 0} onClick={onUndoReveal} type="button">
-          Undo Reveal
+          {t("map.undoReveal")}
         </button>
       </div>
-      <div className="map-tool-modes" role="group" aria-label="Map interaction mode">
+      <div className="map-tool-modes" role="group" aria-label={t("map.mode")}>
         <button aria-pressed={tool === "pan"} onClick={() => setTool("pan")} type="button">
-          Pan Mode
+          {t("map.pan")}
         </button>
         <button aria-pressed={tool === "reveal"} onClick={() => setTool("reveal")} type="button">
-          Reveal Mode
+          {t("map.reveal")}
         </button>
         <button aria-pressed={tool === "pin"} onClick={() => setTool("pin")} type="button">
-          Pin Mode
+          {t("map.pin")}
         </button>
         <button aria-pressed={tool === "measure"} onClick={() => setTool("measure")} type="button">
-          Measure Mode
+          {t("map.measure")}
         </button>
       </div>
       {tool === "pin" && (
         <div className="map-pin-controls">
           <label>
-            Pin label
+            {t("map.pinLabel")}
             <input
-              aria-label="Pin label"
+              aria-label={t("map.pinLabel")}
               onChange={(event) => setPinLabel(event.target.value)}
               value={pinLabel}
             />
           </label>
           <label>
-            Visibility
+            {t("map.visibility")}
             <select
-              aria-label="Pin visibility"
+              aria-label={t("map.pinVisibility")}
               onChange={(event) => setPinVisibility(event.target.value as MapPinVisibility)}
               value={pinVisibility}
             >
-              <option value="player">Players</option>
-              <option value="dm">DM only</option>
+              <option value="player">{t("map.players")}</option>
+              <option value="dm">{t("map.dmOnly")}</option>
             </select>
           </label>
         </div>
@@ -3672,13 +3690,13 @@ function MapTool({
         tool={tool}
       />
       {shownMap.pins.length > 0 && (
-        <section className="map-pin-list" aria-label="Map Pins">
+        <section className="map-pin-list" aria-label={t("map.pins")}>
           {shownMap.pins.map((pin) => (
             <div className="map-pin-row" key={pin.id}>
               <span>{pin.label}</span>
-              <small>{pin.visibility === "dm" ? "DM" : "Players"}</small>
+              <small>{pin.visibility === "dm" ? t("map.dmOnly") : t("map.players")}</small>
               <button onClick={() => onDeletePin(pin.id)} type="button">
-                Remove
+                {t("map.removePin")}
               </button>
             </div>
           ))}
@@ -3689,38 +3707,38 @@ function MapTool({
         <>
       <div className="map-tool-actions">
         <button disabled={!activeImage} onClick={onUseActiveImage} type="button">
-          Use Active Image
+          {t("map.useActiveImage")}
         </button>
       </div>
       <label>
-        Map image path
+        {t("map.imagePath")}
         <div className="inline-input-action">
           <input
-            aria-label="Map image path"
+            aria-label={t("map.imagePath")}
             onChange={(event) => setSourcePath(event.target.value)}
             placeholder="Media/sample-map.svg"
             value={sourcePath}
           />
           <button
-            aria-label="Choose map image path"
-            onClick={() => onPickPath("image", "Choose Map Image", setSourcePath)}
+            aria-label={t("map.chooseImage")}
+            onClick={() => onPickPath("image", t("map.chooseImageTitle"), setSourcePath)}
             type="button"
           >
-            Pick
+            {t("app.pick")}
           </button>
           <button disabled={!sourcePath.trim()} onClick={() => onLoadSource(sourcePath)} type="button">
-            Load Map
+            {t("map.load")}
           </button>
         </div>
       </label>
-      <section className="map-presets" aria-label="Map Presets">
+      <section className="map-presets" aria-label={t("map.presets")}>
         <label>
-          Preset name
+          {t("map.presetName")}
           <div className="inline-input-action">
             <input
-              aria-label="Preset name"
+              aria-label={t("map.presetName")}
               onChange={(event) => setPresetName(event.target.value)}
-              placeholder="Current encounter"
+              placeholder={t("map.presetPlaceholder")}
               value={presetName}
             />
             <button
@@ -3731,7 +3749,7 @@ function MapTool({
               }}
               type="button"
             >
-              Save Preset
+              {t("map.savePreset")}
             </button>
           </div>
         </label>
@@ -3740,39 +3758,39 @@ function MapTool({
             {presets.map((preset) => (
               <div className="map-preset-row" key={preset.id}>
                 <button
-                  aria-label={`Load ${preset.name}`}
+                  aria-label={t("map.loadPreset", { name: preset.name })}
                   onClick={() => onLoadPreset(preset.id)}
                   type="button"
                 >
                   {preset.name}
                 </button>
                 <button
-                  aria-label={`Delete ${preset.name}`}
+                  aria-label={t("map.deletePreset", { name: preset.name })}
                   className="button-danger-subtle"
                   onClick={() => onDeletePreset(preset.id)}
                   type="button"
                 >
-                  Delete
+                  {t("app.delete")}
                 </button>
               </div>
             ))}
           </div>
         ) : null}
       </section>
-      <div className="map-grid-controls" aria-label="Map Grid">
+      <div className="map-grid-controls" aria-label={t("map.grid")}>
         <label className="compact-inline-control">
-          Grid
+          {t("map.gridShort")}
           <input
-            aria-label="Grid enabled"
+            aria-label={t("map.gridEnabled")}
             checked={shownMap.grid.enabled}
             onChange={(event) => handleGridChange({ ...shownMap.grid, enabled: event.target.checked })}
             type="checkbox"
           />
         </label>
         <label>
-          Columns
+          {t("map.columns")}
           <input
-            aria-label="Grid columns"
+            aria-label={t("map.gridColumns")}
             min={1}
             max={200}
             onChange={(event) =>
@@ -3783,9 +3801,9 @@ function MapTool({
           />
         </label>
         <label>
-          Rows
+          {t("map.rows")}
           <input
-            aria-label="Grid rows"
+            aria-label={t("map.gridRows")}
             min={1}
             max={200}
             onChange={(event) =>
@@ -3796,9 +3814,9 @@ function MapTool({
           />
         </label>
         <label className="compact-inline-control">
-          Players
+          {t("map.gridPlayers")}
           <input
-            aria-label="Grid visible to players"
+            aria-label={t("map.gridVisiblePlayers")}
             checked={shownMap.grid.visible_to_players}
             onChange={(event) =>
               handleGridChange({ ...shownMap.grid, visible_to_players: event.target.checked })
@@ -3860,22 +3878,22 @@ function SearchTool({
   }
 
   return (
-    <section aria-label="Global Search" className="search-tool">
+    <section aria-label={t("search.title")} className="search-tool">
       <label htmlFor="world-search">{t("search.world")}</label>
       <input
         id="world-search"
         onChange={(event) => onQueryChange(event.target.value)}
         onKeyDown={handleSearchKeyDown}
-        placeholder="Title, alias, tag, metadata, or body text"
+        placeholder={t("search.placeholder")}
         ref={inputRef}
         type="search"
         value={query}
       />
       <div className="search-results">
-        {state.status === "idle" && <p>Type to search the indexed world.</p>}
+        {state.status === "idle" && <p>{t("search.idle")}</p>}
         {state.status === "loading" && <p>{t("search.loading")}</p>}
         {state.status === "error" && <p>{state.message}</p>}
-        {state.status === "ready" && groups.length === 0 && <p>No results.</p>}
+        {state.status === "ready" && groups.length === 0 && <p>{t("search.noResults")}</p>}
         {groups.map((group) => (
           <section aria-label={`${group.label} Results`} key={group.label}>
             <h3>{group.label}</h3>
@@ -3899,19 +3917,19 @@ function SearchTool({
                 </button>
                 <div className="search-result-actions">
                   <button onClick={() => onOpenResult(result)} type="button">
-                    Open
+                    {t("search.open")}
                   </button>
                   <button onClick={() => onOpenOtherPane(result)} type="button">
-                    Other
+                    {t("search.otherPane")}
                   </button>
                   <button onClick={() => onPeekResult(result)} type="button">
-                    Peek
+                    {t("search.peek")}
                   </button>
                   <button onClick={() => onStageResult(result)} type="button">
-                    Stage
+                    {t("search.stage")}
                   </button>
                   <button onClick={() => onShowResult(result)} type="button">
-                    Show
+                    {t("app.show")}
                   </button>
                 </div>
               </article>
@@ -4068,13 +4086,13 @@ function AudioTool({
   const groupsByBus = state.status === "ready" ? groupAudioTracksByBus(state.tracks) : groupAudioTracksByBus([]);
 
   return (
-    <section aria-label="Audio Control" className="audio-tool">
+    <section aria-label={t("audio.control")} className="audio-tool">
       <label className="audio-search-label" htmlFor="audio-search">
         {t("audio.search")}
         <input
           id="audio-search"
           onChange={(event) => onQueryChange(event.target.value)}
-          placeholder="Track, playlist, or bus"
+          placeholder={t("audio.searchPlaceholder")}
           type="search"
           value={query}
         />
@@ -4083,17 +4101,18 @@ function AudioTool({
         {AUDIO_BUSES.map((bus) => {
           const busState = mixer[bus];
           const groups = groupsByBus[bus];
+          const busName = busLabel(bus);
           return (
-            <section className="audio-bus" aria-label={`${busLabel(bus)} Bus`} key={bus}>
+            <section className="audio-bus" aria-label={t("audio.bus", { bus: busName })} key={bus}>
               <div className="audio-bus-heading">
-                <h3>{busLabel(bus)}</h3>
-                <span>{busState.track ? displayAudioTrackTitle(busState.track) : "Empty"}</span>
+                <h3>{busName}</h3>
+                <span>{busState.track ? displayAudioTrackTitle(busState.track) : t("audio.empty")}</span>
               </div>
               {busState.track && (
                 <div className="audio-queue-line">
                   <span>{audioQueueLabel(busState)}</span>
                   {busState.fadeStatus !== "idle" && (
-                    <small>{busState.fadeStatus === "fading_in" ? "Fading in" : "Fading out"}</small>
+                    <small>{busState.fadeStatus === "fading_in" ? t("audio.fadingIn") : t("audio.fadingOut")}</small>
                   )}
                 </div>
               )}
@@ -4104,37 +4123,37 @@ function AudioTool({
                     onClick={() => onPlayingChange(bus, !busState.playing)}
                     type="button"
                   >
-                    {busState.playing ? "Pause" : "Play"}
+                    {busState.playing ? t("audio.pause") : t("audio.play")}
                   </button>
                   <button disabled={!busState.track} onClick={() => onStopBus(bus)} type="button">
-                    Stop
+                    {t("audio.stop")}
                   </button>
                   <button
                     disabled={!busState.playlistMode}
                     onClick={() => onPreviousTrack(bus)}
                     type="button"
                   >
-                    Prev
+                    {t("audio.prev")}
                   </button>
                   <button
                     disabled={!busState.playlistMode}
                     onClick={() => onNextTrack(bus)}
                     type="button"
                   >
-                    Next
+                    {t("audio.next")}
                   </button>
                   <button disabled={!busState.track} onClick={() => onFadeIn(bus)} type="button">
-                    Fade In
+                    {t("audio.fadeIn")}
                   </button>
                   <button
                     disabled={!busState.track || !busState.playing}
                     onClick={() => onFadeOut(bus)}
                     type="button"
                   >
-                    Fade Out
+                    {t("audio.fadeOut")}
                   </button>
                   <label>
-                    Track
+                    {t("audio.track")}
                     <input
                       checked={busState.loop}
                       onChange={(event) => onLoopChange(bus, event.target.checked)}
@@ -4142,7 +4161,7 @@ function AudioTool({
                     />
                   </label>
                   <label>
-                    Queue
+                    {t("audio.queue")}
                     <input
                       checked={busState.playlistLoop}
                       onChange={(event) => onPlaylistLoopChange(bus, event.target.checked)}
@@ -4151,9 +4170,9 @@ function AudioTool({
                   </label>
                 </div>
                 <label className="audio-volume">
-                  <span>Volume</span>
+                  <span>{t("audio.volume")}</span>
                   <input
-                    aria-label={`${busLabel(bus)} volume`}
+                    aria-label={t("audio.busVolume", { bus: busName })}
                     max="1"
                     min="0"
                     onChange={(event) => onVolumeChange(bus, Number(event.target.value))}
@@ -4163,11 +4182,11 @@ function AudioTool({
                   />
                 </label>
               </div>
-              <div className="audio-playlists" aria-label={`${busLabel(bus)} Playlists`}>
-                {state.status === "idle" && <p>Open the audio library to load tracks.</p>}
-                {state.status === "loading" && <p>Scanning audio...</p>}
+              <div className="audio-playlists" aria-label={t("audio.playlists", { bus: busName })}>
+                {state.status === "idle" && <p>{t("audio.openLibrary")}</p>}
+                {state.status === "loading" && <p>{t("audio.scanning")}</p>}
                 {state.status === "error" && <p>{state.message}</p>}
-                {state.status === "ready" && groups.length === 0 && <p>No tracks.</p>}
+                {state.status === "ready" && groups.length === 0 && <p>{t("audio.noTracks")}</p>}
                 {groups.map((group) => {
                   const expanded = expansionState[playlistExpansionKey(bus, group.playlist)] ?? false;
                   return (
@@ -4179,16 +4198,16 @@ function AudioTool({
                           onClick={() => onPlaylistToggle(bus, group.playlist)}
                           type="button"
                         >
-                          <span>{group.playlist ?? "Tracks"}</span>
+                          <span>{group.playlist ?? t("audio.tracks")}</span>
                           <small>{group.tracks.length}</small>
                         </button>
                         <button
-                          aria-label={`Queue ${busLabel(bus)} ${group.playlist ?? "Tracks"}`}
+                          aria-label={t("audio.queuePlaylist", { bus: busName, playlist: group.playlist ?? t("audio.tracks") })}
                           className="audio-playlist-play"
                           onClick={() => onLoadPlaylist(bus, group.playlist, group.tracks)}
                           type="button"
                         >
-                          Queue
+                          {t("audio.queue")}
                         </button>
                       </div>
                       {expanded && (
@@ -4386,7 +4405,8 @@ function ActionsTool({
   onSelectSnapshot,
   onStartMidiLearn,
   onSnapshotNameChange,
-  onSaveSlot
+  onSaveSlot,
+  t
 }: {
   activeTab: OpenTab | null;
   actionBindings: ActionBinding[];
@@ -4421,6 +4441,7 @@ function ActionsTool({
   onStartMidiLearn: () => void;
   onSnapshotNameChange: (name: string) => void;
   onSaveSlot: (slot: FastSlot) => void;
+  t: Translator;
 }) {
   const [position, setPosition] = useState(1);
   const [kind, setKind] = useState<FastSlotAction["kind"]>("open_file");
@@ -4653,7 +4674,7 @@ function ActionsTool({
           onClick={() => onPickPath(pathPickerFilterForAction(kind), title, onChange)}
           type="button"
         >
-          Pick
+          {t("app.pick")}
         </button>
       </div>
     );
@@ -4662,24 +4683,24 @@ function ActionsTool({
   const [activeTabId, setActiveTabId] = useState<ActionsToolTabId>(DEFAULT_ACTIONS_TOOL_TAB);
 
   return (
-    <section className="actions-tool" aria-label="Fast Slot Configuration">
+    <section className="actions-tool" aria-label={t("actions.control")}>
       <InnerToolTabs
         active={activeTabId}
-        ariaLabel="Tool sections"
+        ariaLabel={t("actions.toolSections")}
         onChange={setActiveTabId}
         tabs={[
-          { id: "slots", label: "Slots" },
-          { id: "state", label: "State" },
-          { id: "keys", label: "Keys" },
-          { id: "midi", label: "MIDI" }
+          { id: "slots", label: t("actions.slots") },
+          { id: "state", label: t("actions.state") },
+          { id: "keys", label: t("actions.keys") },
+          { id: "midi", label: t("actions.midi") }
         ]}
       />
       {activeTabId === "state" && (
-      <div className="actions-subsection" aria-label="Table State Snapshots" role="region">
-        <h3>Table State</h3>
+      <div className="actions-subsection" aria-label={t("actions.tableStateSnapshots")} role="region">
+        <h3>{t("actions.tableState")}</h3>
         <div className="compact-form-grid">
           <label>
-            Title
+            {t("actions.title")}
             <input
               onChange={(event) => onSnapshotNameChange(event.target.value)}
               placeholder="Tavern default"
@@ -4687,13 +4708,13 @@ function ActionsTool({
             />
           </label>
           <label>
-            Saved
+            {t("actions.saved")}
             <select
-              aria-label="Saved table state"
+              aria-label={t("actions.savedTableState")}
               onChange={(event) => onSelectSnapshot(event.target.value)}
               value={snapshotSelectedId}
             >
-              <option value="">Choose state</option>
+              <option value="">{t("actions.chooseState")}</option>
               {snapshots.map((snapshot) => (
                 <option key={snapshot.id} value={snapshot.id}>
                   {snapshot.name}
@@ -4704,7 +4725,7 @@ function ActionsTool({
         </div>
         {selectedSnapshot && (
           <p className="tool-note">
-            Selected: {selectedSnapshot.name}
+            {t("actions.selected")} {selectedSnapshot.name}
           </p>
         )}
         {snapshotStatus.message && (
@@ -4718,7 +4739,7 @@ function ActionsTool({
             onClick={() => onSaveSnapshot()}
             type="button"
           >
-            Save Current
+            {t("actions.saveCurrent")}
           </button>
           <button
             disabled={!snapshotSelectedId || snapshotStatus.status === "loading"}
@@ -4732,7 +4753,7 @@ function ActionsTool({
             }}
             type="button"
           >
-            {confirmLoadId === snapshotSelectedId ? "Confirm Load" : "Load"}
+            {confirmLoadId === snapshotSelectedId ? t("actions.confirmLoad") : t("actions.load")}
           </button>
           <button
             disabled={!snapshotSelectedId || snapshotStatus.status === "loading"}
@@ -4746,17 +4767,17 @@ function ActionsTool({
             }}
             type="button"
           >
-            {confirmDeleteId === snapshotSelectedId ? "Confirm Delete" : "Delete"}
+            {confirmDeleteId === snapshotSelectedId ? t("actions.confirmDelete") : t("app.delete")}
           </button>
         </div>
       </div>
       )}
       {activeTabId === "keys" && (
-      <div className="actions-subsection" aria-label="Keyboard Bindings" role="region">
-        <h3>Keyboard Bindings</h3>
+      <div className="actions-subsection" aria-label={t("actions.keyboardBindings")} role="region">
+        <h3>{t("actions.keyboardBindings")}</h3>
         <div className="compact-form-grid">
           <label>
-            Title
+            {t("actions.title")}
             <input
               aria-label="Keyboard binding title"
               onChange={(event) => setBindingLabel(event.target.value)}
@@ -4771,7 +4792,7 @@ function ActionsTool({
             />
           </label>
           <label>
-            Shortcut
+            {t("actions.shortcut")}
             <input
               aria-label="Keyboard binding shortcut"
               onChange={(event) => {
@@ -4784,30 +4805,30 @@ function ActionsTool({
             />
           </label>
           <label>
-            Binding type
+            {t("actions.bindingType")}
             <select
               aria-label="Keyboard binding type"
               onChange={(event) => setBindingKind(event.target.value as BindingActionKind)}
               value={bindingKind}
             >
-              <option value="open_file">Open file</option>
-              <option value="screen_fullscreen">Screen fullscreen</option>
-              <option value="screen_popup">Screen popup</option>
-              <option value="audio_track">Audio track</option>
-              <option value="script_run">Run script</option>
-              <option value="map_preset">Map preset</option>
-              <option value="table_snapshot_restore">Restore table state</option>
+              <option value="open_file">{t("actions.openFile")}</option>
+              <option value="screen_fullscreen">{t("actions.screenFullscreen")}</option>
+              <option value="screen_popup">{t("actions.screenPopup")}</option>
+              <option value="audio_track">{t("actions.audioTrack")}</option>
+              <option value="script_run">{t("actions.runScript")}</option>
+              <option value="map_preset">{t("actions.mapPreset")}</option>
+              <option value="table_snapshot_restore">{t("actions.restoreTableState")}</option>
             </select>
           </label>
           {bindingKind === "map_preset" ? (
             <label>
-              Map preset
+              {t("actions.mapPreset")}
               <select
                 aria-label="Keyboard binding map preset"
                 onChange={(event) => setBindingMapPresetId(event.target.value)}
                 value={bindingMapPresetId}
               >
-                <option value="">Choose preset</option>
+                <option value="">{t("actions.choosePreset")}</option>
                 {mapPresets.map((preset) => (
                   <option key={preset.id} value={preset.id}>
                     {preset.name}
@@ -4817,13 +4838,13 @@ function ActionsTool({
             </label>
           ) : bindingKind === "table_snapshot_restore" ? (
             <label>
-              Table state
+              {t("actions.tableState")}
               <select
                 aria-label="Keyboard binding table state"
                 onChange={(event) => setBindingSnapshotId(event.target.value)}
                 value={bindingSnapshotId}
               >
-                <option value="">Choose state</option>
+                <option value="">{t("actions.chooseState")}</option>
                 {snapshots.map((snapshot) => (
                   <option key={snapshot.id} value={snapshot.id}>
                     {snapshot.name}
@@ -4833,14 +4854,14 @@ function ActionsTool({
             </label>
           ) : (
             <label>
-              Target
+              {t("actions.target")}
               {renderPathInput(
                 bindingPath,
                 setBindingPath,
                 bindingKind,
                 "Keyboard binding target",
                 bindingKind === "screen_fullscreen" || bindingKind === "screen_popup"
-                  ? activeTab?.path ?? "Blank means current page"
+                  ? activeTab?.path ?? t("screen.pathPlaceholder")
                   : bindingKind === "audio_track"
                     ? ".music/effects/file.mp3"
                     : bindingKind === "script_run"
@@ -4853,23 +4874,23 @@ function ActionsTool({
           )}
           {bindingKind === "screen_popup" && (
             <label>
-              Preset
+              {t("actions.preset")}
               <select
                 aria-label="Keyboard binding popup preset"
                 onChange={(event) => setBindingPopupPreset(event.target.value as DisplayPopupPreset)}
                 value={bindingPopupPreset}
               >
-                <option value="plain">Plain</option>
-                <option value="note">Note</option>
-                <option value="letter">Letter</option>
-                <option value="portrait">Portrait</option>
-                <option value="clue">Clue</option>
+                <option value="plain">{t("screen.popupPlain")}</option>
+                <option value="note">{t("screen.popupNote")}</option>
+                <option value="letter">{t("screen.popupLetter")}</option>
+                <option value="portrait">{t("screen.popupPortrait")}</option>
+                <option value="clue">{t("screen.popupClue")}</option>
               </select>
             </label>
           )}
           {bindingKind === "map_preset" && (
             <label className="compact-inline-control">
-              Present
+              {t("actions.present")}
               <input
                 aria-label="Keyboard binding presents map preset"
                 checked={bindingMapPresetPresent}
@@ -4919,16 +4940,16 @@ function ActionsTool({
             }}
             type="button"
           >
-            {bindingId ? "Update Binding" : "Save Binding"}
+            {bindingId ? t("actions.updateBinding") : t("actions.saveBinding")}
           </button>
           <button onClick={resetBindingForm} type="button">
-            New
+            {t("actions.new")}
           </button>
         </div>
         {actionBindings.length === 0 ? (
-          <p className="tool-note">No keyboard bindings yet.</p>
+          <p className="tool-note">{t("actions.noKeyboardBindings")}</p>
         ) : (
-          <div className="binding-list" aria-label="Saved keyboard bindings">
+          <div className="binding-list" aria-label={t("actions.savedKeyboardBindings")}>
             {actionBindings.map((binding) => (
               <div className="binding-row" key={binding.id}>
                 <button onClick={() => onRunBinding(binding)} type="button">
@@ -4936,10 +4957,10 @@ function ActionsTool({
                 </button>
                 <kbd>{binding.shortcut}</kbd>
                 <button onClick={() => editBinding(binding)} type="button">
-                  Edit
+                  {t("app.edit")}
                 </button>
                 <button onClick={() => onDeleteBinding(binding.id)} type="button">
-                  Remove
+                  {t("app.remove")}
                 </button>
               </div>
             ))}
@@ -4948,22 +4969,22 @@ function ActionsTool({
       </div>
       )}
       {activeTabId === "midi" && (
-      <div className="actions-subsection" aria-label="MIDI Bindings" role="region">
-        <h3>MIDI Bindings</h3>
+      <div className="actions-subsection" aria-label={t("actions.midiBindings")} role="region">
+        <h3>{t("actions.midiBindings")}</h3>
         <div className="inline-actions">
           <button
             disabled={midiStatus.status === "unsupported" || midiStatus.status === "connecting"}
             onClick={onConnectMidi}
             type="button"
           >
-            {midiStatus.status === "connecting" ? "Connecting..." : "Connect MIDI"}
+            {midiStatus.status === "connecting" ? t("actions.connecting") : t("actions.connectMidi")}
           </button>
           <button
             disabled={midiStatus.status === "unsupported" || midiStatus.status === "connecting"}
             onClick={onStartMidiLearn}
             type="button"
           >
-            {midiLearning ? "Listening..." : "Learn Control"}
+            {midiLearning ? t("actions.listening") : t("actions.learnControl")}
           </button>
           <button
             disabled={!midiBindingMessageValue}
@@ -4975,12 +4996,12 @@ function ActionsTool({
             }}
             type="button"
           >
-            Clear Learn
+            {t("actions.clearLearn")}
           </button>
         </div>
         <div className="compact-form-grid">
           <label>
-            Title
+            {t("actions.title")}
             <input
               aria-label="MIDI binding title"
               onChange={(event) => setMidiBindingLabel(event.target.value)}
@@ -4995,7 +5016,7 @@ function ActionsTool({
             />
           </label>
           <label>
-            Control
+            {t("actions.controlLabel")}
             <input
               aria-label="MIDI learned control"
               readOnly
@@ -5007,7 +5028,7 @@ function ActionsTool({
             />
           </label>
           <label>
-            Input
+            {t("actions.input")}
             <select
               aria-label="MIDI input"
               onChange={(event) => {
@@ -5019,39 +5040,39 @@ function ActionsTool({
               }}
               value={midiBindingInputId ?? ""}
             >
-              <option value="">Any connected input</option>
+              <option value="">{t("actions.anyMidiInput")}</option>
               {midiInputs.map((input) => (
                 <option key={input.id ?? input.name ?? "midi-input"} value={input.id ?? ""}>
-                  {input.name ?? input.id ?? "MIDI input"}
+                  {input.name ?? input.id ?? t("actions.midiInput")}
                 </option>
               ))}
             </select>
           </label>
           <label>
-            Binding type
+            {t("actions.bindingType")}
             <select
               aria-label="MIDI binding type"
               onChange={(event) => setMidiBindingKind(event.target.value as BindingActionKind)}
               value={midiBindingKind}
             >
-              <option value="open_file">Open file</option>
-              <option value="screen_fullscreen">Screen fullscreen</option>
-              <option value="screen_popup">Screen popup</option>
-              <option value="audio_track">Audio track</option>
-              <option value="script_run">Run script</option>
-              <option value="map_preset">Map preset</option>
-              <option value="table_snapshot_restore">Restore table state</option>
+              <option value="open_file">{t("actions.openFile")}</option>
+              <option value="screen_fullscreen">{t("actions.screenFullscreen")}</option>
+              <option value="screen_popup">{t("actions.screenPopup")}</option>
+              <option value="audio_track">{t("actions.audioTrack")}</option>
+              <option value="script_run">{t("actions.runScript")}</option>
+              <option value="map_preset">{t("actions.mapPreset")}</option>
+              <option value="table_snapshot_restore">{t("actions.restoreTableState")}</option>
             </select>
           </label>
           {midiBindingKind === "map_preset" ? (
             <label>
-              Map preset
+              {t("actions.mapPreset")}
               <select
                 aria-label="MIDI binding map preset"
                 onChange={(event) => setMidiBindingMapPresetId(event.target.value)}
                 value={midiBindingMapPresetId}
               >
-                <option value="">Choose preset</option>
+                <option value="">{t("actions.choosePreset")}</option>
                 {mapPresets.map((preset) => (
                   <option key={preset.id} value={preset.id}>
                     {preset.name}
@@ -5061,13 +5082,13 @@ function ActionsTool({
             </label>
           ) : midiBindingKind === "table_snapshot_restore" ? (
             <label>
-              Table state
+              {t("actions.tableState")}
               <select
                 aria-label="MIDI binding table state"
                 onChange={(event) => setMidiBindingSnapshotId(event.target.value)}
                 value={midiBindingSnapshotId}
               >
-                <option value="">Choose state</option>
+                <option value="">{t("actions.chooseState")}</option>
                 {snapshots.map((snapshot) => (
                   <option key={snapshot.id} value={snapshot.id}>
                     {snapshot.name}
@@ -5077,14 +5098,14 @@ function ActionsTool({
             </label>
           ) : (
             <label>
-              Target
+              {t("actions.target")}
               {renderPathInput(
                 midiBindingPath,
                 setMidiBindingPath,
                 midiBindingKind,
                 "MIDI binding target",
                 midiBindingKind === "screen_fullscreen" || midiBindingKind === "screen_popup"
-                  ? activeTab?.path ?? "Blank means current page"
+                  ? activeTab?.path ?? t("screen.pathPlaceholder")
                   : midiBindingKind === "audio_track"
                     ? ".music/effects/file.mp3"
                     : midiBindingKind === "script_run"
@@ -5097,7 +5118,7 @@ function ActionsTool({
           )}
           {midiBindingKind === "screen_popup" && (
             <label>
-              Preset
+              {t("actions.preset")}
               <select
                 aria-label="MIDI binding popup preset"
                 onChange={(event) =>
@@ -5105,17 +5126,17 @@ function ActionsTool({
                 }
                 value={midiBindingPopupPreset}
               >
-                <option value="plain">Plain</option>
-                <option value="note">Note</option>
-                <option value="letter">Letter</option>
-                <option value="portrait">Portrait</option>
-                <option value="clue">Clue</option>
+                <option value="plain">{t("screen.popupPlain")}</option>
+                <option value="note">{t("screen.popupNote")}</option>
+                <option value="letter">{t("screen.popupLetter")}</option>
+                <option value="portrait">{t("screen.popupPortrait")}</option>
+                <option value="clue">{t("screen.popupClue")}</option>
               </select>
             </label>
           )}
           {midiBindingKind === "map_preset" && (
             <label className="compact-inline-control">
-              Present
+              {t("actions.present")}
               <input
                 aria-label="MIDI binding presents map preset"
                 checked={midiBindingMapPresetPresent}
@@ -5179,16 +5200,16 @@ function ActionsTool({
             }}
             type="button"
           >
-            {midiBindingId ? "Update MIDI Binding" : "Save MIDI Binding"}
+            {midiBindingId ? t("actions.updateMidiBinding") : t("actions.saveMidiBinding")}
           </button>
           <button onClick={resetMidiBindingForm} type="button">
-            New
+            {t("actions.new")}
           </button>
         </div>
         {midiBindings.length === 0 ? (
-          <p className="tool-note">No MIDI bindings yet.</p>
+          <p className="tool-note">{t("actions.noMidiBindings")}</p>
         ) : (
-          <div className="binding-list" aria-label="Saved MIDI bindings">
+          <div className="binding-list" aria-label={t("actions.savedMidiBindings")}>
             {midiBindings.map((binding) => (
               <div className="binding-row" key={binding.id}>
                 <button onClick={() => onRunMidiBinding(binding)} type="button">
@@ -5202,10 +5223,10 @@ function ActionsTool({
                   }}
                   type="button"
                 >
-                  Relearn
+                  {t("actions.relearn")}
                 </button>
                 <button onClick={() => onDeleteMidiBinding(binding.id)} type="button">
-                  Remove
+                  {t("app.remove")}
                 </button>
               </div>
             ))}
@@ -5214,11 +5235,11 @@ function ActionsTool({
       </div>
       )}
       {activeTabId === "slots" && (
-      <div className="actions-subsection" aria-label="Fast Slots" role="region">
-        <h3>Fast Slots</h3>
+      <div className="actions-subsection" aria-label={t("actions.fastSlots")} role="region">
+        <h3>{t("actions.fastSlots")}</h3>
       <div className="compact-form-grid">
         <label>
-          Slot
+          {t("actions.slot")}
           <select
             onChange={(event) => setPosition(Number(event.target.value))}
             value={position}
@@ -5231,21 +5252,21 @@ function ActionsTool({
           </select>
         </label>
         <label>
-          Action
+          {t("actions.action")}
           <select
             onChange={(event) => setKind(event.target.value as FastSlotAction["kind"])}
             value={kind}
           >
-            <option value="open_file">Open file</option>
-            <option value="screen_fullscreen">Screen fullscreen</option>
-            <option value="screen_popup">Screen popup</option>
-            <option value="audio_track">Audio track</option>
-            <option value="script_run">Run script</option>
-            <option value="map_preset">Map preset</option>
+            <option value="open_file">{t("actions.openFile")}</option>
+            <option value="screen_fullscreen">{t("actions.screenFullscreen")}</option>
+            <option value="screen_popup">{t("actions.screenPopup")}</option>
+            <option value="audio_track">{t("actions.audioTrack")}</option>
+            <option value="script_run">{t("actions.runScript")}</option>
+            <option value="map_preset">{t("actions.mapPreset")}</option>
           </select>
         </label>
         <label>
-          Label
+          {t("actions.label")}
           <input
             onChange={(event) => setLabel(event.target.value)}
             placeholder={existing?.label ?? activeTab?.title ?? activeTab?.name ?? "Slot"}
@@ -5254,13 +5275,13 @@ function ActionsTool({
         </label>
         {kind === "map_preset" ? (
           <label>
-            Map preset
+            {t("actions.mapPreset")}
             <select
               aria-label="Map preset"
               onChange={(event) => setMapPresetId(event.target.value)}
               value={mapPresetId}
             >
-              <option value="">Choose preset</option>
+              <option value="">{t("actions.choosePreset")}</option>
               {mapPresets.map((preset) => (
                 <option key={preset.id} value={preset.id}>
                   {preset.name}
@@ -5270,14 +5291,14 @@ function ActionsTool({
           </label>
         ) : (
           <label>
-            Path
+            {t("actions.path")}
             {renderPathInput(
               path,
               setPath,
               kind,
               "Fast slot path",
               kind === "screen_fullscreen" || kind === "screen_popup"
-                ? activeTab?.path ?? "Blank means current page"
+                ? activeTab?.path ?? t("screen.pathPlaceholder")
                 : kind === "audio_track"
                   ? ".music/effects/file.mp3"
                   : kind === "script_run"
@@ -5290,23 +5311,23 @@ function ActionsTool({
         )}
         {kind === "screen_popup" && (
           <label>
-            Preset
+            {t("actions.preset")}
             <select
               aria-label="Popup preset"
               onChange={(event) => setPopupPreset(event.target.value as DisplayPopupPreset)}
               value={popupPreset}
             >
-              <option value="plain">Plain</option>
-              <option value="note">Note</option>
-              <option value="letter">Letter</option>
-              <option value="portrait">Portrait</option>
-              <option value="clue">Clue</option>
+              <option value="plain">{t("screen.popupPlain")}</option>
+              <option value="note">{t("screen.popupNote")}</option>
+              <option value="letter">{t("screen.popupLetter")}</option>
+              <option value="portrait">{t("screen.popupPortrait")}</option>
+              <option value="clue">{t("screen.popupClue")}</option>
             </select>
           </label>
         )}
         {kind === "map_preset" && (
           <label className="compact-inline-control">
-            Present
+            {t("actions.present")}
             <input
               aria-label="Present map preset"
               checked={mapPresetPresent}
@@ -5317,9 +5338,9 @@ function ActionsTool({
         )}
       </div>
       {kind === "map_preset" && mapPresets.length === 0 && (
-        <p className="tool-note">Save a map preset in the Map tool first.</p>
+        <p className="tool-note">{t("actions.saveMapPresetFirst")}</p>
       )}
-      {existing && <p className="tool-note">Current: {fastSlotSummary(existing)}</p>}
+      {existing && <p className="tool-note">{t("actions.current", { summary: fastSlotSummary(existing) })}</p>}
       {(localMessage || message) && <p className="tool-note">{localMessage || message}</p>}
       <div className="inline-actions">
         <button
@@ -5352,10 +5373,10 @@ function ActionsTool({
           }}
           type="button"
         >
-          Save Slot
+          {t("actions.saveSlot")}
         </button>
         <button disabled={!existing} onClick={() => onClearSlot(position)} type="button">
-          Clear
+          {t("actions.clear")}
         </button>
       </div>
       </div>
@@ -5368,21 +5389,23 @@ function ScriptsTool({
   onCancel,
   onRun,
   runState,
-  state
+  state,
+  t
 }: {
   onCancel: (runId: string) => void;
   onRun: (path: string) => void;
   runState: ScriptRunState;
   state: ScriptLoadState;
+  t: Translator;
 }) {
   const runningRunId = runState.status === "running" ? runState.runId : null;
   return (
-    <section className="scenarios-tool" aria-label="DMS Scripts">
-      {state.status === "idle" && <p>Open scripts to scan saved DMS files.</p>}
-      {state.status === "loading" && <p>Scanning scripts...</p>}
+    <section className="scenarios-tool" aria-label={t("scripts.title")}>
+      {state.status === "idle" && <p>{t("scripts.openToScan")}</p>}
+      {state.status === "loading" && <p>{t("scripts.scanning")}</p>}
       {state.status === "error" && <p className="inline-error">{state.message}</p>}
       <details className="script-reference">
-        <summary>Command Reference</summary>
+        <summary>{t("scripts.commandReference")}</summary>
         <div className="script-command-list">
           <code>{'form({"name": "text"})'}</code>
           <code>{'choose_file("Pick a page")'}</code>
@@ -5400,7 +5423,7 @@ function ScriptsTool({
           <code>{'append_note("README.md", "\\nMore")'}</code>
         </div>
       </details>
-      {state.status === "ready" && state.scripts.length === 0 && <p>No DMS scripts found.</p>}
+      {state.status === "ready" && state.scripts.length === 0 && <p>{t("scripts.none")}</p>}
       {state.status === "ready" &&
         state.scripts.map((script) => (
           <section className="scenario-card script-row" key={script.path}>
@@ -5414,31 +5437,31 @@ function ScriptsTool({
               type="button"
             >
               {runState.status === "running" && runState.path === script.path
-                ? "Running..."
-                : "Run"}
+                ? t("scripts.running")
+                : t("scripts.run")}
             </button>
           </section>
         ))}
       {runState.status === "running" && (
-        <section className="scenario-output" aria-label="Latest Script Run">
-          <strong>Running</strong>
+        <section className="scenario-output" aria-label={t("scripts.latestRun")}>
+          <strong>{t("scripts.running")}</strong>
           <small>{runState.path}</small>
           {runningRunId && (
             <button onClick={() => onCancel(runningRunId)} type="button">
-              Cancel
+              {t("scripts.cancel")}
             </button>
           )}
         </section>
       )}
       {runState.status === "ready" && (
-        <section className="scenario-output" aria-label="Latest Script Run">
+        <section className="scenario-output" aria-label={t("scripts.latestRun")}>
           <strong>{runState.run.status}</strong>
           {runState.run.stderr && <pre>{runState.run.stderr}</pre>}
           {runState.run.stdout && <pre>{runState.run.stdout}</pre>}
           {runState.run.outputs.length > 0 && (
             <small>{runState.run.outputs.length} output tab opened</small>
           )}
-          {runState.run.status === "cancelled" && <small>Cancelled</small>}
+          {runState.run.status === "cancelled" && <small>{t("scripts.cancelled")}</small>}
         </section>
       )}
       {runState.status === "error" && <p className="inline-error">{runState.message}</p>}
@@ -5476,8 +5499,8 @@ function CaptureTool({
   }
 
   return (
-    <section aria-label="Quick Capture" className="capture-tool">
-      <div className="capture-category-chips" role="group" aria-label="Capture category">
+    <section aria-label={t("capture.title")} className="capture-tool">
+      <div className="capture-category-chips" role="group" aria-label={t("capture.title")}>
         {CAPTURE_CATEGORY_OPTIONS.map((option) => (
           <button
             aria-pressed={draft.category === option.value}
@@ -5499,7 +5522,7 @@ function CaptureTool({
           onBlur={onPersistDraft}
           onChange={(event) => onTextChange(event.target.value)}
           onKeyDown={handleKeyDown}
-          placeholder="Quick note from the table..."
+          placeholder={t("capture.placeholder")}
           rows={4}
           value={draft.text}
         />
@@ -5509,11 +5532,11 @@ function CaptureTool({
           {status.status === "saving" ? t("capture.saving") : t("capture.save")}
         </button>
         <button disabled={!today?.exists} onClick={onOpenLog} type="button">
-          Open Log
+          {t("capture.openLog")}
         </button>
       </div>
       <p className={`capture-status capture-status-${status.status}`}>
-        {status.message ?? (today?.exists ? today.path : "No capture log yet.")}
+        {status.message ?? (today?.exists ? today.path : t("capture.noLog"))}
       </p>
     </section>
   );
@@ -5713,15 +5736,15 @@ function PrepHealthDialog({
         </div>
         <div className="prep-health-summary">
           <div>
-            <strong>{report ? prepHealthStatusLabel(report.status) : "Not checked"}</strong>
+            <strong>{report ? prepHealthStatusLabel(report.status) : t("prep.notChecked")}</strong>
             <span>
               {report
                 ? `${report.errors} errors / ${report.warnings} warnings`
-                : "Run an on-demand broken reference audit."}
+                : t("prep.runDescription")}
             </span>
           </div>
           <button disabled={status.status === "loading"} onClick={onRun} type="button">
-            {status.status === "loading" ? "Checking..." : "Run Check"}
+            {status.status === "loading" ? t("prep.checking") : t("prep.run")}
           </button>
         </div>
         {status.message && (
@@ -5745,9 +5768,9 @@ function PrepHealthDialog({
               ))}
             </div>
             {filteredIssues.length === 0 ? (
-              <p className="dialog-note">No issues in this filter.</p>
+              <p className="dialog-note">{t("prep.noIssues")}</p>
             ) : (
-              <div className="prep-health-issues" aria-label="Prep Health Issues">
+              <div className="prep-health-issues" aria-label={t("prep.issues")}>
                 {filteredIssues.map((issue) => (
                   <article className="prep-health-issue" key={issue.id}>
                     <div>
@@ -5756,19 +5779,19 @@ function PrepHealthDialog({
                     </div>
                     <p>{issue.message}</p>
                     <small>
-                      Target: {issue.raw_target || "(script syntax)"}
+                      {t("prep.target")} {issue.raw_target || t("prep.scriptSyntax")}
                       {issue.command ? ` / ${issue.command}` : ""}
                     </small>
                     <div className="prep-health-actions">
                       <button onClick={() => onOpenSource(issue)} type="button">
-                        Open Source
+                        {t("prep.openSource")}
                       </button>
                       <button
                         disabled={!issue.raw_target}
                         onClick={() => onCopyTarget(issue.raw_target)}
                         type="button"
                       >
-                        Copy Target
+                        {t("prep.copyTarget")}
                       </button>
                     </div>
                   </article>
@@ -5790,7 +5813,8 @@ function HpTool({
   onRemove,
   onUpdate,
   rows,
-  status
+  status,
+  t
 }: {
   onAdd: () => void;
   onAdjust: (rowId: string, amount: number) => void;
@@ -5800,18 +5824,19 @@ function HpTool({
   onUpdate: (rowId: string, updates: Partial<Omit<HpTrackerRow, "id">>) => void;
   rows: HpTrackerRow[];
   status: HpToolStatus;
+  t: Translator;
 }) {
   const [confirmClear, setConfirmClear] = useState(false);
   const disabled = status.status === "loading" || status.status === "saving";
 
   return (
-    <section aria-label="HP Scratchpad" className="hp-tool">
+    <section aria-label={t("hp.title")} className="hp-tool">
       <div className="hp-tool-actions">
         <button disabled={disabled} onClick={onAdd} type="button">
-          Add
+          {t("hp.add")}
         </button>
         <button disabled={disabled || rows.length === 0} onClick={onPersist} type="button">
-          {status.status === "saving" ? "Saving..." : "Save"}
+          {status.status === "saving" ? t("app.saving") : t("hp.save")}
         </button>
         <button
           disabled={disabled || rows.length === 0}
@@ -5825,11 +5850,11 @@ function HpTool({
           }}
           type="button"
         >
-          {confirmClear ? "Confirm Clear" : "Clear"}
+          {confirmClear ? t("hp.confirmClear") : t("hp.clear")}
         </button>
       </div>
       {rows.length === 0 ? (
-        <p className="tool-note">No combatants yet.</p>
+        <p className="tool-note">{t("hp.empty")}</p>
       ) : (
         <div className="hp-rows">
           {rows.map((row) => (
@@ -5839,7 +5864,7 @@ function HpTool({
                   aria-label={`Name for ${row.name || "HP row"}`}
                   disabled={disabled}
                   onChange={(event) => onUpdate(row.id, { name: event.target.value })}
-                  placeholder="Name"
+                  placeholder={t("hp.name")}
                   value={row.name}
                 />
                 <input
@@ -5858,7 +5883,7 @@ function HpTool({
                   onChange={(event) =>
                     onUpdate(row.id, { max_hp: parseHpMaxValue(event.target.value) })
                   }
-                  placeholder="max"
+                  placeholder={t("hp.max")}
                   type="number"
                   value={row.max_hp ?? ""}
                 />
@@ -5883,11 +5908,11 @@ function HpTool({
                 disabled={disabled}
                 maxLength={120}
                 onChange={(event) => onUpdate(row.id, { status: event.target.value })}
-                placeholder="Status"
+                placeholder={t("hp.status")}
                 value={row.status}
               />
               <details className="hp-notes">
-                <summary>Notes</summary>
+                <summary>{t("hp.notes")}</summary>
                 <textarea
                   aria-label={`Notes for ${row.name || "HP row"}`}
                   disabled={disabled}
@@ -5904,10 +5929,10 @@ function HpTool({
       <p className={`capture-status capture-status-${status.status}`}>
         {status.message ??
           (status.status === "loading"
-            ? "Loading..."
+            ? t("app.loading")
             : status.status === "saving"
-              ? "Saving..."
-              : "Workspace HP scratchpad")}
+              ? t("app.saving")
+              : t("hp.workspace"))}
       </p>
     </section>
   );
@@ -6378,6 +6403,7 @@ function ToolsPanel({
           onStartEdit={onStartMetadataEdit}
           pageState={pageState}
           pages={pages}
+          t={t}
           tab={activeTab}
         />
       </ToolSection>
@@ -6432,6 +6458,7 @@ function ToolsPanel({
           onUpdate={onHpUpdate}
           rows={hpRows}
           status={hpStatus}
+          t={t}
         />
       </ToolSection>
       <ToolSection
@@ -6478,6 +6505,7 @@ function ToolsPanel({
           snapshotSelectedId={tableSnapshotSelectedId}
           snapshotStatus={tableSnapshotStatus}
           snapshots={tableSnapshots}
+          t={t}
         />
       </ToolSection>
       <ToolSection
@@ -6495,6 +6523,7 @@ function ToolsPanel({
           onRun={onScriptRun}
           runState={scriptRunState}
           state={scriptState}
+          t={t}
         />
       </ToolSection>
       <ToolSection
@@ -6858,6 +6887,7 @@ export function App() {
   const [uiLanguage, setUiLanguage] = useState<UiLanguage>(() =>
     resolveInitialLanguage({ stored: loadStoredUiLanguage() })
   );
+  const [uiCatalog, setUiCatalog] = useState<TranslationCatalog | null>(null);
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
   const [authState, setAuthState] = useState<AuthGateState>({ status: "checking" });
@@ -7002,7 +7032,7 @@ export function App() {
     worldTree,
     audioState.status === "ready" ? audioState.tracks : audioAutocompleteTracks
   );
-  const t = useMemo(() => createTranslator(uiLanguage), [uiLanguage]);
+  const t = useMemo(() => createTranslator(uiCatalog ?? undefined), [uiCatalog]);
   const availableLanguageOptions = appConfig?.available_languages ?? AVAILABLE_LANGUAGES;
 
   function adoptMapState(nextMapState: MapState) {
@@ -7013,9 +7043,34 @@ export function App() {
     return error instanceof Error ? error.message : fallback;
   }
 
-  function handleLanguageChange(language: UiLanguage) {
+  function applyLanguage(language: UiLanguage, catalog: TranslationCatalog, persist: boolean) {
     setUiLanguage(language);
-    saveStoredUiLanguage(language);
+    setUiCatalog(catalog);
+    if (persist) {
+      saveStoredUiLanguage(language);
+    }
+  }
+
+  function loadLanguage(language: UiLanguage, persist = false) {
+    fetchLanguageCatalog(language)
+      .then((catalog) => applyLanguage(language, catalog, persist))
+      .catch(() => {
+        if (language !== "en") {
+          void fetchLanguageCatalog("en")
+            .then((catalog) => applyLanguage("en", catalog, persist))
+            .catch(() => {
+              setUiLanguage("en");
+              setUiCatalog(null);
+            });
+          return;
+        }
+        setUiLanguage("en");
+        setUiCatalog(null);
+      });
+  }
+
+  function handleLanguageChange(language: UiLanguage) {
+    loadLanguage(language, true);
   }
 
   function closeSettingsDialog() {
@@ -7031,11 +7086,17 @@ export function App() {
           return;
         }
         setAppConfig(config);
-        setUiLanguage(resolveInitialLanguage({ stored: loadStoredUiLanguage(), configured: config.language }));
+        loadLanguage(
+          resolveInitialLanguage({
+            stored: loadStoredUiLanguage(),
+            configured: config.language,
+            available: config.available_languages
+          })
+        );
       })
       .catch(() => {
         if (mounted) {
-          setUiLanguage(resolveInitialLanguage({ stored: loadStoredUiLanguage() }));
+          loadLanguage(resolveInitialLanguage({ stored: loadStoredUiLanguage() }));
         }
       });
     return () => {
@@ -10397,7 +10458,7 @@ export function App() {
   async function handleMapFogChange(enabled: boolean) {
     try {
       adoptMapState(await setMapFog(enabled));
-      setMapActionStatus({ status: "ready", message: enabled ? "Fog enabled." : "Fog disabled." });
+      setMapActionStatus({ status: "ready", message: enabled ? t("map.fogEnabled") : t("map.fogDisabled") });
     } catch (error: unknown) {
       setMapActionStatus({
         status: "error",
@@ -10858,6 +10919,7 @@ export function App() {
                 onRunScript={() => void handleRunDmsScript(tab.path)}
                 onSaveTemporary={handleOpenDmsOutputSaveDialog}
                 scriptRunState={scriptRunState}
+                t={t}
               />
             )}
             <FileViewer
@@ -10915,7 +10977,7 @@ export function App() {
             t={t}
           />
           <div className="panel-actions-row">
-            <button className="panel-action" onClick={() => setWorldOpenDialog(true)} type="button">
+            <button className="panel-action" onClick={() => setWorldOpenDialog(true)} title={t("side.openFolderFull")} type="button">
               {t("side.openFolder")}
             </button>
             <button
@@ -10928,23 +10990,25 @@ export function App() {
                   error: null
                 })
               }
+              title={t("side.newWorldFull")}
               type="button"
             >
               {t("side.newWorld")}
             </button>
-            <button className="panel-action" onClick={() => void refreshWorldLibrary()} type="button">
+            <button className="panel-action" onClick={() => void refreshWorldLibrary()} title={t("side.scan")} type="button">
               {t("side.scan")}
             </button>
-            <button className="panel-action" onClick={() => void loadTrashDialog()} type="button">
+            <button className="panel-action" onClick={() => void loadTrashDialog()} title={t("side.trash")} type="button">
               {t("side.trash")}
             </button>
             <button
               className="panel-action"
               onClick={() => setSettingsDialogOpen(true)}
               ref={settingsButtonRef}
+              title={t("app.settings")}
               type="button"
             >
-              {t("app.settings")}
+              {t("side.settings")}
             </button>
           </div>
         </div>
@@ -10983,6 +11047,7 @@ export function App() {
                 onMenuToggle={setFolderMenuPath}
                 onOpen={handleOpenEntry}
                 onToggle={handleToggleFolder}
+                t={t}
               />
             </ul>
           ) : (
@@ -10998,6 +11063,7 @@ export function App() {
             onToggleFavorite={handleWorldTreeToggleFavorite}
             onTrash={handleWorldTreeTrash}
             state={worldTreeContextMenu}
+            t={t}
           />
         </nav>
         <div className="side-bottom">

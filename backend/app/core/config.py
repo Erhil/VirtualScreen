@@ -22,6 +22,7 @@ class Settings(BaseSettings):
     access_token: str | None = None
     watch_world: bool = False
     language: str = "en"
+    language_dir: Path = Field(default=Path("lang"))
 
     @property
     def resolved_world_root(self) -> Path:
@@ -33,7 +34,17 @@ class Settings(BaseSettings):
 
     @property
     def ui_language(self) -> str:
-        return self.language if self.language in {"en", "ru"} else "en"
+        return self.language.strip() or "en"
+
+    @property
+    def resolved_language_dir(self) -> Path:
+        expanded = self.language_dir.expanduser()
+        if expanded.is_absolute():
+            return expanded.resolve()
+        cwd_path = expanded.resolve()
+        if cwd_path.exists():
+            return cwd_path
+        return (Path(__file__).resolve().parents[3] / expanded).resolve()
 
 
 @lru_cache

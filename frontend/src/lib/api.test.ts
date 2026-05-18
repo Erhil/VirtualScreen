@@ -9,6 +9,7 @@ import {
   closeDisplayPopup,
   clearDisplayPopups,
   fetchAppConfig,
+  fetchLanguageCatalog,
   fetchPrepHealth,
   fetchHpTracker,
   fetchAuthStatus,
@@ -184,6 +185,15 @@ describe("world API helpers", () => {
 
     await expect(fetchAppConfig()).resolves.toEqual(config);
     expect(fetchMock).toHaveBeenCalledWith("/api/app/config");
+  });
+
+  it("fetches an external language catalog", async () => {
+    const catalog = { "app.settings": "Settings" };
+    const fetchMock = vi.fn(() => mockJsonResponse(catalog));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchLanguageCatalog("zz")).resolves.toEqual(catalog);
+    expect(fetchMock).toHaveBeenCalledWith("/api/app/language/zz");
   });
 
   it("fetches today's quick captures and creates a capture", async () => {
