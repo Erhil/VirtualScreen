@@ -32,7 +32,7 @@ def test_display_background_serves_optional_world_internal_image(tmp_path: Path)
     client = make_client(world)
 
     missing_response = client.get("/api/display/background")
-    assert missing_response.status_code == 404
+    assert missing_response.status_code == 204
     assert missing_response.headers["cache-control"] == "no-store"
 
     background = world / ".virtualscreen" / "screen-background.jpg"

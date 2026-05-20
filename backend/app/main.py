@@ -15,12 +15,14 @@ from app.api.routes import (
     fast_slots,
     health,
     indexing,
+    llm,
     map,
     pages,
     prep_health,
     scenarios,
     scripts,
     search,
+    system_packs,
     table_snapshots,
     workspace,
     world,
@@ -69,12 +71,14 @@ def create_app() -> FastAPI:
     app.include_router(capture.router, prefix="/api", tags=["capture"])
     app.include_router(fast_slots.router, prefix="/api", tags=["fast-slots"])
     app.include_router(indexing.router, prefix="/api", tags=["index"])
+    app.include_router(llm.router, prefix="/api", tags=["llm"])
     app.include_router(map.router, tags=["map"])
     app.include_router(pages.router, prefix="/api", tags=["pages"])
     app.include_router(prep_health.router, prefix="/api", tags=["prep-health"])
     app.include_router(scenarios.router, prefix="/api", tags=["scenarios"])
     app.include_router(scripts.router, prefix="/api", tags=["scripts"])
     app.include_router(search.router, prefix="/api", tags=["search"])
+    app.include_router(system_packs.router, prefix="/api", tags=["system-packs"])
     app.include_router(table_snapshots.router, prefix="/api", tags=["table-snapshots"])
     app.include_router(world.router, prefix="/api/world", tags=["world"])
     app.include_router(worlds.router, prefix="/api", tags=["worlds"])

@@ -66,6 +66,10 @@ import {
   fetchScenarioRuns,
   fetchScripts,
   fetchDmsRun,
+  importSystemPack,
+  previewSystemPack,
+  fetchLlmConfig,
+  generateLlm,
   cancelDmsRun,
   runScenario,
   runDmsScript,
@@ -91,7 +95,11 @@ import {
   type TableSnapshotState,
   type WorldEntry,
   type WorkspaceLayout,
-  type WorkspaceState
+  type WorkspaceState,
+  type SystemPackImportRequest,
+  type LlmConfigResponse,
+  type LlmGenerateRequest,
+  type LlmGenerateResponse
 } from "./api";
 
 function mockJsonResponse(body: unknown, ok = true, status = 200) {
@@ -1219,6 +1227,112 @@ describe("world API helpers", () => {
     await expect(fetchPrepHealth()).resolves.toEqual(state);
 
     expect(fetchMock).toHaveBeenCalledWith("/api/prep-health");
+  });
+
+  it("fetches LLM config and posts prompt generation requests", async () => {
+    const config: LlmConfigResponse = {
+      enabled: true,
+      configured: true,
+      provider: "openai",
+      model: "gpt-4.1-mini"
+    };
+    const payload: LlmGenerateRequest = {
+      form_id: "summarize",
+      prompt: "Summarize the active note.",
+      context_preview: "Source: Active note\nThe bridge is unsafe.",
+      temperature: 0.2
+    };
+    const generated: LlmGenerateResponse = {
+      text: "The bridge is unsafe.",
+      provider: "openai",
+      model: "gpt-4.1-mini",
+      created_at: "2026-05-20T12:00:00Z",
+      usage: {
+        input_tokens: 12,
+        output_tokens: 5,
+        total_tokens: 17
+      }
+    };
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(mockJsonResponse(config))
+      .mockResolvedValueOnce(mockJsonResponse(generated));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchLlmConfig()).resolves.toEqual(config);
+    await expect(generateLlm(payload)).resolves.toEqual(generated);
+
+    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/llm/config");
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/llm/generate", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+  });
+
+  it("posts system pack preview requests as multipart form data", async () => {
+    const responseBody = {
+      rows: [
+        {
+          id: "ready:README.md",
+          source_path: "README.md",
+          target_path: "README.md",
+          status: "ready"
+        }
+      ],
+      counts: { ready: 1, conflict: 0, skipped: 0, invalid: 0 }
+    };
+    const file = new File(["pack"], "starter.zip", { type: "application/zip" });
+    const fetchMock = vi.fn(() => mockJsonResponse(responseBody));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(previewSystemPack(file)).resolves.toEqual(responseBody);
+
+    const [path, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(path).toBe("/api/system-packs/preview");
+    expect(init).toMatchObject({ method: "POST" });
+    expect(init.headers).toBeUndefined();
+    expect(init.body).toBeInstanceOf(FormData);
+    expect((init.body as FormData).get("pack")).toBe(file);
+  });
+
+  it("posts system pack import requests with conflict decisions as multipart form data", async () => {
+    const responseBody = {
+      imported: 1,
+      overwritten: 1,
+      renamed: 1,
+      skipped: 0,
+      failed: 0,
+      files: [
+        { source_path: "README.md", target_path: "README.md", status: "imported" },
+        { source_path: "NPCs/Ilyra.md", target_path: "NPCs/Ilyra Pack.md", status: "renamed" }
+      ]
+    };
+    const file = new File(["pack"], "starter.zip", { type: "application/zip" });
+    const payload: SystemPackImportRequest = {
+      file,
+      decisions: [
+        {
+          target_path: "NPCs/Ilyra.md",
+          decision: "rename",
+          rename_target_path: "NPCs/Ilyra Pack.md"
+        }
+      ]
+    };
+    const fetchMock = vi.fn(() => mockJsonResponse(responseBody));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(importSystemPack(payload)).resolves.toEqual(responseBody);
+
+    const [path, init] = fetchMock.mock.calls[0] as unknown as [string, RequestInit];
+    expect(path).toBe("/api/system-packs/import");
+    expect(init).toMatchObject({ method: "POST" });
+    expect(init.headers).toBeUndefined();
+    expect(init.body).toBeInstanceOf(FormData);
+    expect((init.body as FormData).get("pack")).toBe(file);
+    expect((init.body as FormData).get("decisions")).toBe(
+      JSON.stringify(payload.decisions)
+    );
   });
 
   it("rolls dice through the backend", async () => {

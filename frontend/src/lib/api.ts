@@ -98,6 +98,11 @@ export type WorldEntry = {
 
 import type { MapState } from "./map";
 import type { CardTemplateCatalog } from "./cards";
+import type { LlmPromptFormId } from "./llmForms";
+import type {
+  SystemPackConflictDecision,
+  SystemPackPreviewRow
+} from "./systemPacks";
 
 export type WorldMediaKind =
   | "markdown"
@@ -354,6 +359,68 @@ export type RebuildIndexResponse = {
   pages_indexed: number;
   links_indexed: number;
   rebuilt_at: string;
+};
+
+export type LlmConfigResponse = {
+  enabled: boolean;
+  configured: boolean;
+  provider: string | null;
+  model: string | null;
+  reason?: string | null;
+};
+
+export type LlmTokenUsage = {
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  total_tokens?: number | null;
+};
+
+export type LlmGenerateRequest = {
+  form_id: LlmPromptFormId;
+  prompt: string;
+  context_preview?: string;
+  temperature?: number;
+  max_tokens?: number;
+};
+
+export type LlmGenerateResponse = {
+  text: string;
+  provider?: string | null;
+  model?: string | null;
+  created_at?: string;
+  usage?: LlmTokenUsage | null;
+};
+
+export type SystemPackPreviewResponse = {
+  manifest: {
+    name: string;
+    version: string;
+    description: string;
+    file_count: number;
+  };
+  rows: SystemPackPreviewRow[];
+  counts: Record<"ready" | "conflict" | "skipped" | "invalid", number>;
+};
+
+export type SystemPackImportRequest = {
+  file: Blob;
+  decisions?: SystemPackConflictDecision[];
+};
+
+export type SystemPackImportFileResult = {
+  source_path: string;
+  target_path: string;
+  status: "imported" | "overwritten" | "renamed" | "skipped" | "failed";
+  message?: string | null;
+};
+
+export type SystemPackImportResponse = {
+  imported: number;
+  overwritten: number;
+  renamed: number;
+  skipped: number;
+  failed: number;
+  files: SystemPackImportFileResult[];
 };
 
 export type SearchResult = {
@@ -613,6 +680,19 @@ async function sendJson<T>(
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify(body)
         })
+  });
+
+  if (!response.ok) {
+    throw new Error(`Request failed with ${response.status}: ${path}`);
+  }
+
+  return response.json() as Promise<T>;
+}
+
+async function sendFormData<T>(path: string, body: FormData): Promise<T> {
+  const response = await fetch(path, {
+    method: "POST",
+    body
   });
 
   if (!response.ok) {
@@ -898,6 +978,33 @@ export function cancelDmsRun(runId: string): Promise<DmsRunState> {
 
 export function rebuildIndex(): Promise<RebuildIndexResponse> {
   return sendJson<RebuildIndexResponse>("/api/index/rebuild", "POST");
+}
+
+export function fetchLlmConfig(): Promise<LlmConfigResponse> {
+  return getJson<LlmConfigResponse>("/api/llm/config");
+}
+
+export function generateLlm(
+  payload: LlmGenerateRequest
+): Promise<LlmGenerateResponse> {
+  return sendJson<LlmGenerateResponse>("/api/llm/generate", "POST", payload);
+}
+
+export function previewSystemPack(file: Blob): Promise<SystemPackPreviewResponse> {
+  const body = new FormData();
+  body.append("pack", file);
+  return sendFormData<SystemPackPreviewResponse>("/api/system-packs/preview", body);
+}
+
+export function importSystemPack(
+  payload: SystemPackImportRequest
+): Promise<SystemPackImportResponse> {
+  const body = new FormData();
+  body.append("pack", payload.file);
+  if (payload.decisions) {
+    body.append("decisions", JSON.stringify(payload.decisions));
+  }
+  return sendFormData<SystemPackImportResponse>("/api/system-packs/import", body);
 }
 
 export function fetchDisplayState(): Promise<DisplayState> {

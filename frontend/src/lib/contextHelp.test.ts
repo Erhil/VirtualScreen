@@ -15,6 +15,7 @@ describe("context help helpers", () => {
     expect(isHelpContextId("world-tree")).toBe(true);
     expect(isHelpContextId("screen-map")).toBe(true);
     expect(isHelpContextId("dice")).toBe(true);
+    expect(isHelpContextId("assistant")).toBe(true);
     expect(isHelpContextId("missing")).toBe(false);
     expect(isHelpContextId(null)).toBe(false);
   });
@@ -26,6 +27,9 @@ describe("context help helpers", () => {
         focusedContext: "audio"
       })?.id
     ).toBe("audio");
+    expect(resolveContextHelpTopic({ focusedContext: "assistant" })?.id).toBe(
+      "assistant"
+    );
   });
 
   it("falls back to document media kind when focus has no context", () => {
@@ -60,6 +64,7 @@ describe("context help helpers", () => {
     );
     expect(CONTEXT_HELP_TOPICS["document-markdown"].bodyKeys).toHaveLength(3);
     expect(CONTEXT_HELP_TOPICS["document-markdown"].shortcutKeys).toHaveLength(1);
+    expect(contextHelpKeys()).toContain("help.assistant.title");
     expect(contextHelpKeys()).toContain("help.settings.shortcut1");
   });
 });

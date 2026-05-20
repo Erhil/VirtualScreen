@@ -253,6 +253,7 @@ function ScreenContent({ item }: { item: DisplayItem }) {
 export function PlayerScreen() {
   const [displayState, setDisplayState] = useState<DisplayState | null>(null);
   const [mapState, setMapState] = useState<MapState | null>(null);
+  const [blankBackgroundUrl, setBlankBackgroundUrl] = useState<string | null>(null);
 
   useEffect(() => {
     fetchScreenDisplayState()
@@ -275,10 +276,40 @@ export function PlayerScreen() {
 
   const fullscreen = displayState?.fullscreen ?? null;
   const presentedMap = isMapPresenting(mapState) ? mapState : null;
-  const blankBackgroundStyle = fullscreen || presentedMap
+  const blankBackgroundCacheKey = fullscreen || presentedMap || !displayState
+    ? null
+    : displayState.updated_at ?? "";
+
+  useEffect(() => {
+    if (blankBackgroundCacheKey === null) {
+      setBlankBackgroundUrl(null);
+      return;
+    }
+
+    const backgroundUrl = buildScreenDisplayBackgroundUrl(blankBackgroundCacheKey || null);
+    let cancelled = false;
+
+    fetch(backgroundUrl)
+      .then((response) => {
+        if (!cancelled) {
+          setBlankBackgroundUrl(response.status === 200 ? backgroundUrl : null);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setBlankBackgroundUrl(null);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [blankBackgroundCacheKey]);
+
+  const blankBackgroundStyle = fullscreen || presentedMap || !blankBackgroundUrl
     ? undefined
     : {
-        backgroundImage: `url("${buildScreenDisplayBackgroundUrl(displayState?.updated_at ?? null)}")`
+        backgroundImage: `url("${blankBackgroundUrl}")`
       };
 
   return (

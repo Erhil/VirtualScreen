@@ -23,6 +23,13 @@ class Settings(BaseSettings):
     watch_world: bool = False
     language: str = "en"
     language_dir: Path = Field(default=Path("lang"))
+    llm_base_url: str = ""
+    llm_model: str = ""
+    llm_api_key: str = ""
+    llm_timeout_seconds: float = Field(default=90, gt=0)
+    llm_max_input_chars: int = Field(default=12000, gt=0)
+    llm_max_output_tokens: int = Field(default=800, gt=0)
+    llm_temperature: float = Field(default=0.7, ge=0, le=2)
 
     @property
     def resolved_world_root(self) -> Path:
@@ -45,6 +52,10 @@ class Settings(BaseSettings):
         if cwd_path.exists():
             return cwd_path
         return (Path(__file__).resolve().parents[3] / expanded).resolve()
+
+    @property
+    def llm_enabled(self) -> bool:
+        return bool(self.llm_base_url.strip() and self.llm_model.strip())
 
 
 @lru_cache

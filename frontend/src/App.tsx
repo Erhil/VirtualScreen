@@ -3,6 +3,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type ChangeEvent,
   type CSSProperties,
   type DragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
@@ -78,6 +79,7 @@ import {
   fetchFastSlots,
   fetchHpTracker,
   fetchLanguageCatalog,
+  fetchLlmConfig,
   fetchPage,
   fetchPageBacklinks,
   fetchPageLinks,
@@ -91,10 +93,13 @@ import {
   fetchWorldFile,
   fetchWorldTree,
   fetchWorlds,
+  generateLlm,
+  importSystemPack,
   loginAuth,
   moveWorldPath,
   openWorld,
   openDisplayPopup,
+  previewSystemPack,
   recordRecent,
   renameWorkspace,
   restoreTableSnapshot,
@@ -123,6 +128,8 @@ import {
   type PrepHealthIssue,
   type PrepHealthReport,
   type SearchResult,
+  type SystemPackImportResponse,
+  type SystemPackPreviewResponse,
   type TableSnapshotSummary,
   type TranslationCatalog,
   type DisplayState,
@@ -140,6 +147,7 @@ import {
   type FastSlot,
   type FastSlotAction,
   type HpTrackerRow,
+  type LlmConfigResponse,
   type NamedWorkspaceSummary,
   type TrashEntry,
   type WorldEntry,
@@ -151,6 +159,12 @@ import {
   type WorkspaceState,
   type WorkspaceTab
 } from "./lib/api";
+import {
+  groupSystemPackPreviewRows,
+  mapSystemPackImportResultSummary,
+  validateSystemPackConflictDecisions,
+  type SystemPackConflictDecision
+} from "./lib/systemPacks";
 import {
   AVAILABLE_LANGUAGES,
   createTranslator,
@@ -395,6 +409,15 @@ import {
   type DmsFormValues
 } from "./lib/scripts";
 import {
+  buildLlmContextPreview,
+  buildLlmFormPrompt,
+  parseUntrustedDraftCardJson,
+  type LlmPromptContextSource,
+  type LlmPromptFormId,
+  type LlmPromptFormInput,
+  type LlmPromptOutputKind
+} from "./lib/llmForms";
+import {
   loadToolsPanelWidth,
   saveToolsPanelWidth
 } from "./lib/panelWidth";
@@ -492,6 +515,48 @@ type DiceStatus =
   | { status: "idle"; message: string | null }
   | { status: "rolling"; message: string | null }
   | { status: "ready"; message: string | null }
+  | { status: "error"; message: string };
+
+type AssistantProviderState = {
+  status: "unknown" | "checking" | "ready" | "unavailable" | "error";
+  provider: string | null;
+  model: string | null;
+  message: string | null;
+};
+type AssistantFieldValue = string | number | boolean;
+type AssistantFieldType = "text" | "textarea" | "number" | "boolean" | "select";
+type AssistantFormField = {
+  name: string;
+  label: string;
+  input_type: AssistantFieldType;
+  required: boolean;
+  default: AssistantFieldValue | null;
+  options: string[];
+  placeholder: string | null;
+};
+type AssistantForm = {
+  id: LlmPromptFormId;
+  title: string;
+  description: string | null;
+  outputKind: LlmPromptOutputKind;
+  fields: AssistantFormField[];
+};
+type AssistantFormValues = Record<string, AssistantFieldValue>;
+type AssistantSaveKind = "markdown" | "card";
+type AssistantResult = {
+  title: string | null;
+  content: string;
+  provider: string | null;
+  model: string | null;
+};
+type AssistantStatus =
+  | { status: "idle"; message: string | null }
+  | { status: "loading"; message: string | null }
+  | { status: "generating"; message: string | null }
+  | { status: "ready"; message: string | null }
+  | { status: "copy"; message: string }
+  | { status: "saving"; message: string | null }
+  | { status: "saved"; message: string }
   | { status: "error"; message: string };
 
 function helpContextFromTarget(target: EventTarget | null): string | null {
@@ -648,6 +713,15 @@ type TrashDialogState =
       confirmDeletePath: string | null;
       error: string | null;
     };
+type SystemPackImportStatus = "idle" | "previewing" | "ready" | "importing" | "done" | "error";
+type SystemPackImportState = {
+  file: File | null;
+  preview: SystemPackPreviewResponse | null;
+  decisions: SystemPackConflictDecision[];
+  summary: SystemPackImportResponse | null;
+  status: SystemPackImportStatus;
+  error: string | null;
+};
 type WorldCreateDialogState =
   | { open: false }
   | {
@@ -669,6 +743,468 @@ type MetadataEditState =
 
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
+}
+
+const DEFAULT_ASSISTANT_FORMS: AssistantForm[] = [
+  {
+    id: "summarize",
+    title: "Summarize current/selected material",
+    description: "Condense explicit notes or selected text for table use.",
+    outputKind: "markdown",
+    fields: [
+      {
+        name: "focus",
+        label: "Focus",
+        input_type: "textarea",
+        required: false,
+        default: "",
+        options: [],
+        placeholder: "What should the summary emphasize?"
+      },
+      {
+        name: "audience",
+        label: "Audience",
+        input_type: "text",
+        required: false,
+        default: "",
+        options: [],
+        placeholder: "DM, players, table recap"
+      },
+      {
+        name: "tone",
+        label: "Tone",
+        input_type: "select",
+        required: false,
+        default: "Concise",
+        options: ["Concise", "Atmospheric", "Rules-focused"],
+        placeholder: null
+      }
+    ]
+  },
+  {
+    id: "rumors",
+    title: "Rumors",
+    description: "Create table-ready rumors from supplied truths.",
+    outputKind: "markdown",
+    fields: [
+      {
+        name: "subject",
+        label: "Subject",
+        input_type: "text",
+        required: true,
+        default: "",
+        options: [],
+        placeholder: "Faction, place, NPC, mystery"
+      },
+      {
+        name: "truth",
+        label: "Known truth",
+        input_type: "textarea",
+        required: false,
+        default: "",
+        options: [],
+        placeholder: "Facts the rumors may distort"
+      },
+      {
+        name: "count",
+        label: "Count",
+        input_type: "number",
+        required: false,
+        default: 6,
+        options: [],
+        placeholder: null
+      }
+    ]
+  },
+  {
+    id: "handout-rewrite",
+    title: "Handout Rewrite",
+    description: "Rewrite supplied text for players.",
+    outputKind: "markdown",
+    fields: [
+      {
+        name: "sourceText",
+        label: "Source text",
+        input_type: "textarea",
+        required: false,
+        default: "",
+        options: [],
+        placeholder: "Paste player-facing source text or add context below"
+      },
+      {
+        name: "audience",
+        label: "Audience",
+        input_type: "text",
+        required: false,
+        default: "Players",
+        options: [],
+        placeholder: null
+      },
+      {
+        name: "tone",
+        label: "Tone",
+        input_type: "text",
+        required: false,
+        default: "",
+        options: [],
+        placeholder: "cryptic, formal, urgent"
+      }
+    ]
+  },
+  {
+    id: "consequences",
+    title: "Consequences",
+    description: "Explore fallout from an explicit event.",
+    outputKind: "markdown",
+    fields: [
+      {
+        name: "event",
+        label: "Event",
+        input_type: "textarea",
+        required: true,
+        default: "",
+        options: [],
+        placeholder: "What happened?"
+      },
+      {
+        name: "actors",
+        label: "Actors",
+        input_type: "text",
+        required: false,
+        default: "",
+        options: [],
+        placeholder: "Who cares?"
+      },
+      {
+        name: "timeframe",
+        label: "Timeframe",
+        input_type: "text",
+        required: false,
+        default: "",
+        options: [],
+        placeholder: "now, next session, downtime"
+      }
+    ]
+  },
+  {
+    id: "draft-card",
+    title: "Draft card from form inputs",
+    description: "Draft untrusted NPC, location, item, or card JSON.",
+    outputKind: "card-json",
+    fields: [
+      {
+        name: "cardKind",
+        label: "Card kind",
+        input_type: "select",
+        required: true,
+        default: "npc",
+        options: ["npc", "location", "item", "card"],
+        placeholder: null
+      },
+      {
+        name: "title",
+        label: "Name",
+        input_type: "text",
+        required: true,
+        default: "",
+        options: [],
+        placeholder: "Assistant Draft Contact"
+      },
+      {
+        name: "details",
+        label: "Details",
+        input_type: "textarea",
+        required: false,
+        default: "",
+        options: [],
+        placeholder: "Traits, hooks, secrets, stats, or constraints"
+      },
+      {
+        name: "tags",
+        label: "Tags",
+        input_type: "text",
+        required: false,
+        default: "",
+        options: [],
+        placeholder: "comma-separated"
+      }
+    ]
+  },
+  {
+    id: "recap",
+    title: "Recap",
+    description: "Turn explicit session notes into a recap.",
+    outputKind: "markdown",
+    fields: [
+      {
+        name: "sessionTitle",
+        label: "Session title",
+        input_type: "text",
+        required: false,
+        default: "",
+        options: [],
+        placeholder: null
+      },
+      {
+        name: "events",
+        label: "Events",
+        input_type: "textarea",
+        required: false,
+        default: "",
+        options: [],
+        placeholder: "Important table events"
+      },
+      {
+        name: "openThreads",
+        label: "Open threads",
+        input_type: "textarea",
+        required: false,
+        default: "",
+        options: [],
+        placeholder: "Unresolved hooks and questions"
+      }
+    ]
+  }
+];
+
+const DEFAULT_ASSISTANT_FORM_ID = DEFAULT_ASSISTANT_FORMS[0]?.id ?? "summarize";
+
+function normalizeAssistantProvider(config: LlmConfigResponse): AssistantProviderState {
+  const ready = config.enabled && config.configured;
+  return {
+    status: ready ? "ready" : "unavailable",
+    provider: config.provider,
+    model: config.model,
+    message: ready ? null : config.reason ?? "LLM assistant is not configured."
+  };
+}
+
+function assistantFormDefaults(fields: AssistantFormField[]): AssistantFormValues {
+  return Object.fromEntries(
+    fields.map((field) => {
+      if (field.default !== null) {
+        return [field.name, field.default];
+      }
+      if (field.input_type === "number") {
+        return [field.name, 0];
+      }
+      if (field.input_type === "boolean") {
+        return [field.name, false];
+      }
+      if (field.input_type === "select") {
+        return [field.name, field.options[0] ?? ""];
+      }
+      return [field.name, ""];
+    })
+  );
+}
+
+function fetchAssistantProvider(): Promise<AssistantProviderState> {
+  return fetchLlmConfig().then(normalizeAssistantProvider);
+}
+
+function assistantContextSources(
+  context: string,
+  contextPath: string | null
+): LlmPromptContextSource[] {
+  const text = context.trim();
+  return text ? [{ label: contextPath ?? "Explicit context", text }] : [];
+}
+
+function assistantValueText(values: AssistantFormValues, name: string): string {
+  const value = values[name];
+  return typeof value === "string" || typeof value === "number" || typeof value === "boolean"
+    ? String(value).trim()
+    : "";
+}
+
+function assistantValueNumber(values: AssistantFormValues, name: string): number | undefined {
+  const value = values[name];
+  const numberValue = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(numberValue) ? numberValue : undefined;
+}
+
+function assistantDraftCardKind(value: string): "npc" | "location" | "item" | "card" {
+  return value === "location" || value === "item" || value === "card" ? value : "npc";
+}
+
+function assistantPromptInput(
+  form: AssistantForm,
+  values: AssistantFormValues,
+  context: LlmPromptContextSource[]
+): LlmPromptFormInput {
+  const base = { context };
+  switch (form.id) {
+    case "summarize":
+      return {
+        ...base,
+        formId: "summarize",
+        sourceTitle: context[0]?.label,
+        audience: assistantValueText(values, "audience"),
+        focus: assistantValueText(values, "focus"),
+        tone: assistantValueText(values, "tone")
+      };
+    case "rumors":
+      return {
+        ...base,
+        formId: "rumors",
+        subject: assistantValueText(values, "subject"),
+        truth: assistantValueText(values, "truth"),
+        count: assistantValueNumber(values, "count"),
+        tone: assistantValueText(values, "tone")
+      };
+    case "handout-rewrite":
+      return {
+        ...base,
+        formId: "handout-rewrite",
+        sourceTitle: context[0]?.label,
+        sourceText: assistantValueText(values, "sourceText"),
+        audience: assistantValueText(values, "audience"),
+        tone: assistantValueText(values, "tone")
+      };
+    case "consequences":
+      return {
+        ...base,
+        formId: "consequences",
+        event: assistantValueText(values, "event"),
+        actors: assistantValueText(values, "actors"),
+        timeframe: assistantValueText(values, "timeframe"),
+        stakes: assistantValueText(values, "stakes"),
+        tone: assistantValueText(values, "tone")
+      };
+    case "draft-card":
+      return {
+        ...base,
+        formId: "draft-card",
+        cardKind: assistantDraftCardKind(assistantValueText(values, "cardKind")),
+        title: assistantValueText(values, "title"),
+        details: assistantValueText(values, "details"),
+        tags: assistantValueText(values, "tags"),
+        tone: assistantValueText(values, "tone")
+      };
+    case "recap":
+      return {
+        ...base,
+        formId: "recap",
+        sessionTitle: assistantValueText(values, "sessionTitle"),
+        events: assistantValueText(values, "events"),
+        openThreads: assistantValueText(values, "openThreads"),
+        tone: assistantValueText(values, "tone")
+      };
+  }
+}
+
+function assistantTitleFromGeneratedText(form: AssistantForm, content: string): string | null {
+  if (form.outputKind === "card-json") {
+    const parsed = parseUntrustedDraftCardJson(content);
+    return parsed.ok ? parsed.card.title : null;
+  }
+  const heading = content.match(/^#\s+(.+)$/m);
+  return heading?.[1]?.trim() || null;
+}
+
+function generateAssistantResult(payload: {
+  form: AssistantForm;
+  fields: AssistantFormValues;
+  context: string;
+  contextPath: string | null;
+}): Promise<AssistantResult> {
+  const context = assistantContextSources(payload.context, payload.contextPath);
+  const builtPrompt = buildLlmFormPrompt(
+    assistantPromptInput(payload.form, payload.fields, context)
+  );
+  return generateLlm({
+    form_id: builtPrompt.formId,
+    prompt: builtPrompt.prompt,
+    context_preview: builtPrompt.contextPreview.text
+  }).then((response) => ({
+    title: assistantTitleFromGeneratedText(payload.form, response.text),
+    content: response.text,
+    provider: response.provider ?? null,
+    model: response.model ?? null
+  }));
+}
+
+function assistantResultTitle(form: AssistantForm, result: AssistantResult | null): string {
+  return result?.title?.trim() || form.title || "Assistant Result";
+}
+
+function assistantFileName(title: string, extension: string): string {
+  const cleaned =
+    title
+      .replace(/[\\/:*?"<>|#]+/g, "-")
+      .replace(/\s+/g, " ")
+      .trim()
+      .slice(0, 80) || "Assistant Result";
+  return `${cleaned}.${extension}`;
+}
+
+function defaultAssistantSavePath(
+  form: AssistantForm,
+  result: AssistantResult | null,
+  kind: AssistantSaveKind
+): string {
+  const title = assistantResultTitle(form, result);
+  return kind === "card"
+    ? `Cards/${assistantFileName(title, "cs")}`
+    : `Notes/${assistantFileName(title, "md")}`;
+}
+
+function defaultAssistantSaveKind(form: AssistantForm): AssistantSaveKind {
+  return form.outputKind === "card-json" ? "card" : "markdown";
+}
+
+function assistantNoteContent(form: AssistantForm, result: AssistantResult): string {
+  const title = assistantResultTitle(form, result);
+  return `# ${title}\n\n${result.content.trim()}\n`;
+}
+
+function assistantCardContent(
+  form: AssistantForm,
+  values: AssistantFormValues,
+  result: AssistantResult,
+  contextSource: string | null
+): string {
+  const promptFields = form.fields
+    .filter((field) => field.input_type !== "boolean" || values[field.name] === true)
+    .map((field) => `${field.label}: ${String(values[field.name] ?? "")}`)
+    .filter((line) => line.trim().length > 0);
+  return serializeCard({
+    title: assistantResultTitle(form, result),
+    kind: "reference",
+    tags: ["assistant"],
+    sections: [
+      {
+        title: "Assistant",
+        fields: [
+          { label: "Form", value: form.title },
+          ...(contextSource ? [{ label: "Context source", value: contextSource }] : []),
+          { label: "Prompt", type: "long_text", value: promptFields.join("\n") },
+          { label: "Result", type: "long_text", value: result.content.trim() }
+        ]
+      }
+    ]
+  });
+}
+
+function assistantSavedCardContent(
+  form: AssistantForm,
+  values: AssistantFormValues,
+  result: AssistantResult,
+  contextSource: string | null
+): string {
+  if (form.outputKind === "card-json") {
+    const parsed = parseUntrustedDraftCardJson(result.content);
+    if (!parsed.ok) {
+      throw new Error(parsed.message);
+    }
+    return parsed.serialized;
+  }
+  return assistantCardContent(form, values, result, contextSource);
+}
+
+function systemPackErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : "System pack import failed.";
 }
 
 function isCardPath(path: string, extension?: string | null): boolean {
@@ -3021,6 +3557,7 @@ function SettingsDialog({
   availableLanguages,
   language,
   onClose,
+  onImportComplete,
   onLanguageChange,
   open,
   t
@@ -3028,10 +3565,27 @@ function SettingsDialog({
   availableLanguages: AppConfig["available_languages"];
   language: UiLanguage;
   onClose: () => void;
+  onImportComplete: () => Promise<void>;
   onLanguageChange: (language: UiLanguage) => void;
   open: boolean;
   t: Translator;
 }) {
+  const [packState, setPackState] = useState<SystemPackImportState>({
+    file: null,
+    preview: null,
+    decisions: [],
+    summary: null,
+    status: "idle",
+    error: null
+  });
+  const conflictValidation = packState.preview
+    ? validateSystemPackConflictDecisions(packState.preview.rows, packState.decisions)
+    : { valid: false, errors: {} };
+  const previewGroups = packState.preview
+    ? groupSystemPackPreviewRows(packState.preview.rows)
+    : null;
+  const packHasInvalidRows = (previewGroups?.invalid.length ?? 0) > 0;
+
   useEffect(() => {
     if (!open) {
       return;
@@ -3049,6 +3603,102 @@ function SettingsDialog({
     window.addEventListener("keydown", handleKeyDown, true);
     return () => window.removeEventListener("keydown", handleKeyDown, true);
   }, [onClose, open]);
+
+  useEffect(() => {
+    if (!open) {
+      setPackState({
+        file: null,
+        preview: null,
+        decisions: [],
+        summary: null,
+        status: "idle",
+        error: null
+      });
+    }
+  }, [open]);
+
+  async function handlePackFileChange(event: ChangeEvent<HTMLInputElement>) {
+    const file = event.target.files?.[0] ?? null;
+    if (!file) {
+      setPackState({
+        file: null,
+        preview: null,
+        decisions: [],
+        summary: null,
+        status: "idle",
+        error: null
+      });
+      return;
+    }
+    setPackState({
+      file,
+      preview: null,
+      decisions: [],
+      summary: null,
+      status: "previewing",
+      error: null
+    });
+    try {
+      const preview = await previewSystemPack(file);
+      setPackState({
+        file,
+        preview,
+        decisions: [],
+        summary: null,
+        status: "ready",
+        error: null
+      });
+    } catch (error) {
+      setPackState({
+        file,
+        preview: null,
+        decisions: [],
+        summary: null,
+        status: "error",
+        error: systemPackErrorMessage(error)
+      });
+    }
+  }
+
+  function updatePackDecision(nextDecision: SystemPackConflictDecision) {
+    setPackState((state) => ({
+      ...state,
+      decisions: state.decisions.some((decision) => decision.target_path === nextDecision.target_path)
+        ? state.decisions.map((decision) =>
+            decision.target_path === nextDecision.target_path ? nextDecision : decision
+          )
+        : [...state.decisions, nextDecision],
+      summary: null,
+      status: state.status === "done" ? "ready" : state.status,
+      error: null
+    }));
+  }
+
+  async function handleImportPack() {
+    if (!packState.file || !packState.preview || !conflictValidation.valid) {
+      return;
+    }
+    setPackState((state) => ({ ...state, status: "importing", error: null }));
+    try {
+      const summary = await importSystemPack({
+        file: packState.file,
+        decisions: packState.decisions
+      });
+      await onImportComplete();
+      setPackState((state) => ({
+        ...state,
+        summary,
+        status: "done",
+        error: null
+      }));
+    } catch (error) {
+      setPackState((state) => ({
+        ...state,
+        status: "error",
+        error: systemPackErrorMessage(error)
+      }));
+    }
+  }
 
   if (!open) {
     return null;
@@ -3087,6 +3737,129 @@ function SettingsDialog({
             ))}
           </select>
         </label>
+        <section className="settings-pack-import" aria-label={t("contentPack.importTitle")}>
+          <h3>{t("contentPack.importTitle")}</h3>
+          <label>
+            {t("contentPack.chooseZip")}
+            <input accept=".zip,application/zip" onChange={handlePackFileChange} type="file" />
+          </label>
+          <p>{t("contentPack.dmsSkipped")}</p>
+          {packState.status === "previewing" && <p>{t("contentPack.previewing")}</p>}
+          {packState.error && <p className="form-error">{packState.error}</p>}
+          {packState.preview && previewGroups && (
+            <div className="settings-pack-preview">
+              <h4>
+                {packState.preview.manifest.name} {packState.preview.manifest.version}
+              </h4>
+              <div className="settings-pack-counts" aria-label={t("contentPack.preview")}>
+                {(["ready", "conflict", "skipped", "invalid"] as const).map((status) => (
+                  <span key={status}>
+                    {t(`contentPack.status.${status}`)}: {packState.preview?.counts[status] ?? 0}
+                  </span>
+                ))}
+              </div>
+              {packState.preview.rows.length > 0 && (
+                <ul>
+                  {packState.preview.rows.map((row) => (
+                    <li key={row.id}>
+                      <span>
+                        <strong>{row.target_path}</strong>
+                        <small>{t(`contentPack.status.${row.status}`)}</small>
+                      </span>
+                      {row.status === "skipped" && row.target_path.toLowerCase().endsWith(".dms") && (
+                        <small>{t("contentPack.dmsSkipped")}</small>
+                      )}
+                      {row.message && <small>{row.message}</small>}
+                    </li>
+                  ))}
+                </ul>
+              )}
+              {previewGroups.conflict.length > 0 && (
+                <div className="settings-pack-conflicts">
+                  <h4>{t("contentPack.conflicts")}</h4>
+                  {previewGroups.conflict.map((row) => {
+                    const decision = packState.decisions.find(
+                      (item) => item.target_path === row.target_path
+                    );
+                    return (
+                      <div className="settings-pack-conflict" key={row.id}>
+                        <label>
+                          {row.target_path}
+                          <select
+                            onChange={(event) =>
+                              updatePackDecision({
+                                target_path: row.target_path,
+                                decision: event.target.value as SystemPackConflictDecision["decision"],
+                                rename_target_path:
+                                  event.target.value === "rename"
+                                    ? decision?.rename_target_path ?? row.target_path
+                                    : undefined
+                              })
+                            }
+                            value={decision?.decision ?? ""}
+                          >
+                            <option disabled value="">
+                              {t("contentPack.decision.choose")}
+                            </option>
+                            <option value="skip">{t("contentPack.decision.skip")}</option>
+                            <option value="overwrite">{t("contentPack.decision.replace")}</option>
+                            <option value="rename">{t("contentPack.decision.rename")}</option>
+                          </select>
+                        </label>
+                        {decision?.decision === "rename" && (
+                          <label>
+                            {t("contentPack.renameTarget")}
+                            <input
+                              onChange={(event) =>
+                                updatePackDecision({
+                                  ...decision,
+                                  rename_target_path: event.target.value
+                                })
+                              }
+                              value={decision.rename_target_path ?? ""}
+                            />
+                          </label>
+                        )}
+                        {conflictValidation.errors[row.target_path] && (
+                          <small className="form-error">
+                            {conflictValidation.errors[row.target_path]}
+                          </small>
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+              {!conflictValidation.valid && (
+                <p className="form-error">{t("contentPack.unresolvedConflicts")}</p>
+              )}
+              {packHasInvalidRows && <p className="form-error">{t("contentPack.invalidRows")}</p>}
+            </div>
+          )}
+          {packState.summary && (
+            <div className="settings-pack-summary">
+              <strong>{t("contentPack.summary")}</strong>
+              <p>
+                {t("contentPack.summaryCounts", mapSystemPackImportResultSummary(packState.summary))}
+              </p>
+              <p>{t("contentPack.refreshAfterImport")}</p>
+            </div>
+          )}
+          <button
+            disabled={
+              !packState.file ||
+              !packState.preview ||
+              packHasInvalidRows ||
+              !conflictValidation.valid ||
+              packState.status === "previewing" ||
+              packState.status === "importing"
+            }
+            onClick={() => void handleImportPack()}
+            type="button"
+          >
+            {packState.status === "importing" ? t("contentPack.importing") : t("contentPack.import")}
+          </button>
+        </section>
         <div className="dialog-actions">
           <button onClick={onClose} type="button">
             {t("app.close")}
@@ -5885,6 +6658,233 @@ function ActionsTool({
   );
 }
 
+function AssistantTool({
+  activeDocumentLabel,
+  canUseActiveDocument,
+  context,
+  contextSource,
+  form,
+  forms,
+  onCheckProvider,
+  onContextChange,
+  onCopy,
+  onFieldChange,
+  onFormChange,
+  onGenerate,
+  onSave,
+  onSaveKindChange,
+  onSavePathChange,
+  onUseActiveDocument,
+  provider,
+  result,
+  saveKind,
+  savePath,
+  status,
+  t,
+  values
+}: {
+  activeDocumentLabel: string;
+  canUseActiveDocument: boolean;
+  context: string;
+  contextSource: string | null;
+  form: AssistantForm;
+  forms: AssistantForm[];
+  onCheckProvider: () => void;
+  onContextChange: (context: string) => void;
+  onCopy: () => void;
+  onFieldChange: (name: string, value: AssistantFieldValue) => void;
+  onFormChange: (formId: string) => void;
+  onGenerate: () => void;
+  onSave: () => void;
+  onSaveKindChange: (kind: AssistantSaveKind) => void;
+  onSavePathChange: (path: string) => void;
+  onUseActiveDocument: () => void;
+  provider: AssistantProviderState;
+  result: AssistantResult | null;
+  saveKind: AssistantSaveKind;
+  savePath: string;
+  status: AssistantStatus;
+  t: Translator;
+  values: AssistantFormValues;
+}) {
+  const busy =
+    provider.status === "checking" ||
+    status.status === "loading" ||
+    status.status === "generating" ||
+    status.status === "saving";
+  const fullContextPreview = buildLlmContextPreview(
+    assistantContextSources(context, contextSource)
+  );
+  const contextPreview = fullContextPreview.text
+    ? fullContextPreview.text.slice(0, 420)
+    : t("llm.contextEmpty");
+  const providerLabel =
+    provider.status === "ready"
+      ? [provider.provider, provider.model].filter(Boolean).join(" / ") || "ready"
+      : provider.status;
+
+  return (
+    <section aria-label={t("llm.title")} className="assistant-tool" data-help-context="assistant">
+      <div className={`assistant-provider assistant-provider-${provider.status}`}>
+        <div>
+          <span>Provider</span>
+          <strong>{providerLabel}</strong>
+          {provider.message && <small>{provider.message}</small>}
+        </div>
+        <button disabled={busy} onClick={onCheckProvider} type="button">
+          Check
+        </button>
+      </div>
+      <label>
+        {t("llm.form")}
+        <select
+          disabled={busy}
+          onChange={(event) => onFormChange(event.target.value)}
+          value={form.id}
+        >
+          {forms.map((item) => (
+            <option key={item.id} value={item.id}>
+              {item.title}
+            </option>
+          ))}
+        </select>
+      </label>
+      {form.description && <p className="tool-note">{form.description}</p>}
+      <div className="assistant-fields">
+        {form.fields.map((field) => {
+          const value = values[field.name] ?? field.default ?? "";
+          return (
+            <label key={field.name}>
+              {field.label}
+              {field.input_type === "boolean" ? (
+                <input
+                  checked={Boolean(value)}
+                  disabled={busy}
+                  onChange={(event) => onFieldChange(field.name, event.target.checked)}
+                  type="checkbox"
+                />
+              ) : field.input_type === "select" ? (
+                <select
+                  disabled={busy}
+                  onChange={(event) => onFieldChange(field.name, event.target.value)}
+                  value={String(value)}
+                >
+                  {field.options.map((option) => (
+                    <option key={option} value={option}>
+                      {option}
+                    </option>
+                  ))}
+                </select>
+              ) : field.input_type === "textarea" ? (
+                <textarea
+                  disabled={busy}
+                  onChange={(event) => onFieldChange(field.name, event.target.value)}
+                  placeholder={field.placeholder ?? undefined}
+                  rows={2}
+                  value={String(value)}
+                />
+              ) : (
+                <input
+                  disabled={busy}
+                  onChange={(event) =>
+                    onFieldChange(
+                      field.name,
+                      field.input_type === "number"
+                        ? Number(event.target.value)
+                        : event.target.value
+                    )
+                  }
+                  placeholder={field.placeholder ?? undefined}
+                  type={field.input_type === "number" ? "number" : "text"}
+                  value={String(value)}
+                />
+              )}
+            </label>
+          );
+        })}
+      </div>
+      <label>
+        {t("llm.explicitContext")}
+        <textarea
+          disabled={busy}
+          onChange={(event) => onContextChange(event.target.value)}
+          placeholder={t("llm.contextPlaceholder")}
+          rows={2}
+          value={context}
+        />
+      </label>
+      <div className="assistant-context-row">
+        <button disabled={busy || !canUseActiveDocument} onClick={onUseActiveDocument} type="button">
+          {t("llm.useActiveDocument")}
+        </button>
+        <small>{contextSource ?? activeDocumentLabel}</small>
+      </div>
+      <section className="assistant-preview" aria-label={t("llm.contextPreview")}>
+        <strong>{t("llm.contextPreview")}</strong>
+        <p>{contextPreview}</p>
+        {fullContextPreview.trimmed && (
+          <small>{t("llm.contextTrimmed", { count: fullContextPreview.includedCharacters })}</small>
+        )}
+      </section>
+      <button
+        className="assistant-generate"
+        disabled={busy || provider.status !== "ready"}
+        onClick={onGenerate}
+        type="button"
+      >
+        {status.status === "generating" ? t("llm.generating") : t("llm.generate")}
+      </button>
+      {result && (
+        <section className="assistant-result" aria-label={t("llm.temporaryResult")}>
+          <div>
+            <strong>{t("llm.temporaryResult")}</strong>
+            {(result.provider || result.model) && (
+              <small>{[result.provider, result.model].filter(Boolean).join(" / ")}</small>
+            )}
+          </div>
+          <pre>{result.content}</pre>
+          <div className="assistant-save-grid">
+            <label>
+              {t("llm.saveAs")}
+              <select
+                disabled={status.status === "saving"}
+                onChange={(event) => onSaveKindChange(event.target.value as AssistantSaveKind)}
+                value={saveKind}
+              >
+                <option value="markdown">{t("llm.saveAsNote")}</option>
+                <option value="card">{t("llm.saveAsCard")}</option>
+              </select>
+            </label>
+            <label>
+              {t("llm.savePath")}
+              <input
+                disabled={status.status === "saving"}
+                onChange={(event) => onSavePathChange(event.target.value)}
+                value={savePath}
+              />
+            </label>
+          </div>
+          <div className="assistant-actions">
+            <button disabled={status.status === "saving"} onClick={onCopy} type="button">
+              {t("app.copy")}
+            </button>
+            <button disabled={status.status === "saving"} onClick={onSave} type="button">
+              {status.status === "saving"
+                ? t("app.saving")
+                : saveKind === "card"
+                  ? t("llm.saveCard")
+                  : t("llm.saveNote")}
+            </button>
+          </div>
+        </section>
+      )}
+      {status.message && (
+        <p className={`assistant-status assistant-status-${status.status}`}>{status.message}</p>
+      )}
+    </section>
+  );
+}
+
 function ScriptsTool({
   onCancel,
   onRun,
@@ -6664,6 +7664,35 @@ function scriptsSummary(state: ScriptLoadState, runState: ScriptRunState): strin
   return "Ready";
 }
 
+function assistantSummary(
+  provider: AssistantProviderState,
+  result: AssistantResult | null,
+  status: AssistantStatus
+): string {
+  if (status.status === "generating") {
+    return "Generating";
+  }
+  if (status.status === "saving") {
+    return "Saving";
+  }
+  if (status.status === "error") {
+    return "Error";
+  }
+  if (result) {
+    return "Temporary result";
+  }
+  if (provider.status === "checking") {
+    return "Checking provider";
+  }
+  if (provider.status === "ready") {
+    return [provider.provider, provider.model].filter(Boolean).join(" / ") || "Provider ready";
+  }
+  if (provider.status === "unavailable" || provider.status === "error") {
+    return "Provider unavailable";
+  }
+  return "DM only";
+}
+
 function hpSummary(rows: HpTrackerRow[], status: HpToolStatus): string {
   if (status.status === "loading") {
     return "Loading";
@@ -6760,6 +7789,18 @@ function layoutWithMode(
 
 function ToolsPanel({
   activeTab,
+  assistantActiveDocumentLabel,
+  assistantCanUseActiveDocument,
+  assistantContext,
+  assistantContextSource,
+  assistantForm,
+  assistantForms,
+  assistantProvider,
+  assistantResult,
+  assistantSaveKind,
+  assistantSavePath,
+  assistantStatus,
+  assistantValues,
   actionBindings,
   actionBindingMessage,
   audioExpansionState,
@@ -6789,6 +7830,16 @@ function ToolsPanel({
   midiLearning,
   midiStatus,
   onBlankDisplay,
+  onAssistantCheckProvider,
+  onAssistantContextChange,
+  onAssistantCopy,
+  onAssistantFieldChange,
+  onAssistantFormChange,
+  onAssistantGenerate,
+  onAssistantSave,
+  onAssistantSaveKindChange,
+  onAssistantSavePathChange,
+  onAssistantUseActiveDocument,
   onActionBindingDelete,
   onActionBindingRun,
   onActionBindingSave,
@@ -6887,6 +7938,18 @@ function ToolsPanel({
   t
 }: {
   activeTab: OpenTab | null;
+  assistantActiveDocumentLabel: string;
+  assistantCanUseActiveDocument: boolean;
+  assistantContext: string;
+  assistantContextSource: string | null;
+  assistantForm: AssistantForm;
+  assistantForms: AssistantForm[];
+  assistantProvider: AssistantProviderState;
+  assistantResult: AssistantResult | null;
+  assistantSaveKind: AssistantSaveKind;
+  assistantSavePath: string;
+  assistantStatus: AssistantStatus;
+  assistantValues: AssistantFormValues;
   actionBindings: ActionBinding[];
   actionBindingMessage: string | null;
   audioExpansionState: PlaylistExpansionState;
@@ -6916,6 +7979,16 @@ function ToolsPanel({
   midiLearning: boolean;
   midiStatus: MidiStatus;
   onBlankDisplay: () => void;
+  onAssistantCheckProvider: () => void;
+  onAssistantContextChange: (context: string) => void;
+  onAssistantCopy: () => void;
+  onAssistantFieldChange: (name: string, value: AssistantFieldValue) => void;
+  onAssistantFormChange: (formId: string) => void;
+  onAssistantGenerate: () => void;
+  onAssistantSave: () => void;
+  onAssistantSaveKindChange: (kind: AssistantSaveKind) => void;
+  onAssistantSavePathChange: (path: string) => void;
+  onAssistantUseActiveDocument: () => void;
   onActionBindingDelete: (bindingId: string) => void;
   onActionBindingRun: (binding: ActionBinding) => void;
   onActionBindingSave: (binding: ActionBinding) => void;
@@ -7048,6 +8121,42 @@ function ToolsPanel({
           pages={pages}
           t={t}
           tab={activeTab}
+        />
+      </ToolSection>
+      <ToolSection
+        onTogglePin={onToolPin}
+        onToggle={onToolToggle}
+        open={isToolOpen(openTools, "assistant")}
+        pinned={isToolPinned(openTools, "assistant")}
+        summary={assistantSummary(assistantProvider, assistantResult, assistantStatus)}
+        t={t}
+        title={t("tools.assistant")}
+        tool="assistant"
+      >
+        <AssistantTool
+          activeDocumentLabel={assistantActiveDocumentLabel}
+          canUseActiveDocument={assistantCanUseActiveDocument}
+          context={assistantContext}
+          contextSource={assistantContextSource}
+          form={assistantForm}
+          forms={assistantForms}
+          onCheckProvider={onAssistantCheckProvider}
+          onContextChange={onAssistantContextChange}
+          onCopy={onAssistantCopy}
+          onFieldChange={onAssistantFieldChange}
+          onFormChange={onAssistantFormChange}
+          onGenerate={onAssistantGenerate}
+          onSave={onAssistantSave}
+          onSaveKindChange={onAssistantSaveKindChange}
+          onSavePathChange={onAssistantSavePathChange}
+          onUseActiveDocument={onAssistantUseActiveDocument}
+          provider={assistantProvider}
+          result={assistantResult}
+          saveKind={assistantSaveKind}
+          savePath={assistantSavePath}
+          status={assistantStatus}
+          t={t}
+          values={assistantValues}
         />
       </ToolSection>
       <ToolSection
@@ -7596,7 +8705,7 @@ export function App() {
   const [editorDrafts, setEditorDrafts] = useState<Record<string, EditorDraft>>({});
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const [toolPanelState, setToolPanelState] = useState<ToolPanelState>(() =>
-    createToolPanelState()
+    createToolPanelState(["assistant"])
   );
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [captureDialogOpen, setCaptureDialogOpen] = useState(false);
@@ -7662,6 +8771,29 @@ export function App() {
   });
   const [scriptState, setScriptState] = useState<ScriptLoadState>({ status: "idle" });
   const [scriptRunState, setScriptRunState] = useState<ScriptRunState>({ status: "idle" });
+  const [assistantProvider, setAssistantProvider] = useState<AssistantProviderState>({
+    status: "unknown",
+    provider: null,
+    model: null,
+    message: null
+  });
+  const assistantForms = DEFAULT_ASSISTANT_FORMS;
+  const [assistantFormId, setAssistantFormId] = useState(DEFAULT_ASSISTANT_FORM_ID);
+  const [assistantValues, setAssistantValues] = useState<AssistantFormValues>(() =>
+    assistantFormDefaults(DEFAULT_ASSISTANT_FORMS[0]?.fields ?? [])
+  );
+  const [assistantContext, setAssistantContext] = useState("");
+  const [assistantContextSource, setAssistantContextSource] = useState<string | null>(null);
+  const [assistantResult, setAssistantResult] = useState<AssistantResult | null>(null);
+  const [assistantSaveKind, setAssistantSaveKind] =
+    useState<AssistantSaveKind>("markdown");
+  const [assistantSavePath, setAssistantSavePath] = useState(
+    defaultAssistantSavePath(DEFAULT_ASSISTANT_FORMS[0], null, "markdown")
+  );
+  const [assistantStatus, setAssistantStatus] = useState<AssistantStatus>({
+    status: "idle",
+    message: null
+  });
   const cancelledDmsRuns = useRef<Set<string>>(new Set());
   const [linkContextMenu, setLinkContextMenu] = useState<LinkContextMenuState>({ open: false });
   const [peekState, setPeekState] = useState<PeekState>({ open: false });
@@ -7718,6 +8850,15 @@ export function App() {
     audioState.status === "ready" ? audioState.tracks : audioAutocompleteTracks
   );
   const t = useMemo(() => createTranslator(uiCatalog ?? undefined), [uiCatalog]);
+  const localizedAssistantForms = useMemo(
+    () =>
+      assistantForms.map((form) => ({
+        ...form,
+        title: t(`llm.forms.${form.id}.title`),
+        description: t(`llm.forms.${form.id}.description`)
+      })),
+    [assistantForms, t]
+  );
   const availableLanguageOptions = appConfig?.available_languages ?? AVAILABLE_LANGUAGES;
 
   function adoptMapState(nextMapState: MapState) {
@@ -8269,6 +9410,38 @@ export function App() {
   }, [scriptsToolOpen, worldLibrary?.current?.id]);
 
   useEffect(() => {
+    if (!workspaceReady) {
+      return;
+    }
+
+    let cancelled = false;
+    setAssistantProvider((provider) => ({ ...provider, status: "checking" }));
+    fetchAssistantProvider()
+      .then((provider) => {
+        if (!cancelled) {
+          setAssistantProvider(provider);
+        }
+      })
+      .catch((error: unknown) => {
+        if (!cancelled) {
+          setAssistantProvider({
+            status: "unavailable",
+            provider: null,
+            model: null,
+            message:
+              error instanceof Error
+                ? error.message
+                : "Assistant provider status is not available."
+          });
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceReady, worldLibrary?.current?.id]);
+
+  useEffect(() => {
     if (!screenToolOpen && !actionsToolOpen) {
       return;
     }
@@ -8325,6 +9498,15 @@ export function App() {
     ? metadataEdits[activeTab.path] ?? { mode: "view" }
     : { mode: "view" };
   const activeContentDirty = activeDraft ? isDraftDirty(activeDraft) : false;
+  const selectedAssistantForm =
+    localizedAssistantForms.find((form) => form.id === assistantFormId) ??
+    localizedAssistantForms[0] ??
+    DEFAULT_ASSISTANT_FORMS[0];
+  const assistantCanUseActiveDocument =
+    activeFileState.status === "ready" && isEditableFile(activeFileState.file);
+  const assistantActiveDocumentLabel = activeTab
+    ? activeTab.title ?? activeTab.name
+    : "No active document";
   const visiblePanePathKey = visiblePaneTabs.map((tab) => tab.path).join("\u0000");
 
   function openContextHelp(context: string | null = null, restoreFocusTo?: HTMLElement | null) {
@@ -9712,6 +10894,173 @@ export function App() {
     setDmsOutputSaveDialog((state) =>
       state.open ? { ...state, path, error: null } : state
     );
+  }
+
+  async function handleAssistantCheckProvider() {
+    setAssistantProvider((provider) => ({ ...provider, status: "checking" }));
+    try {
+      setAssistantProvider(await fetchAssistantProvider());
+    } catch (error: unknown) {
+      setAssistantProvider({
+        status: "unavailable",
+        provider: null,
+        model: null,
+        message: error instanceof Error ? error.message : "Assistant provider status is not available."
+      });
+    }
+  }
+
+  function handleAssistantFormChange(formId: string) {
+    const form =
+      localizedAssistantForms.find((item) => item.id === formId) ??
+      localizedAssistantForms[0] ??
+      DEFAULT_ASSISTANT_FORMS[0];
+    setAssistantFormId(form.id);
+    setAssistantValues(assistantFormDefaults(form.fields));
+    setAssistantResult(null);
+    setAssistantStatus({ status: "idle", message: null });
+    const nextSaveKind = defaultAssistantSaveKind(form);
+    setAssistantSaveKind(nextSaveKind);
+    setAssistantSavePath(defaultAssistantSavePath(form, null, nextSaveKind));
+  }
+
+  function handleAssistantFieldChange(name: string, value: AssistantFieldValue) {
+    setAssistantValues((values) => ({ ...values, [name]: value }));
+    setAssistantStatus({ status: "idle", message: null });
+  }
+
+  function handleAssistantContextChange(context: string) {
+    setAssistantContext(context);
+    setAssistantContextSource(null);
+    setAssistantStatus({ status: "idle", message: null });
+  }
+
+  function handleAssistantUseActiveDocument() {
+    if (!activeTab || activeFileState.status !== "ready" || !assistantCanUseActiveDocument) {
+      setAssistantStatus({ status: "error", message: "Open a loaded text document first." });
+      return;
+    }
+    const content = activeDraft?.content ?? activeFileState.file.content;
+    setAssistantContext(content);
+    setAssistantContextSource(activeTab.path);
+    setAssistantStatus({ status: "idle", message: `Context set from ${activeTab.path}.` });
+  }
+
+  async function handleAssistantGenerate() {
+    const missing = selectedAssistantForm.fields.find((field) => {
+      if (!field.required) {
+        return false;
+      }
+      const value = assistantValues[field.name] ?? field.default ?? "";
+      return typeof value === "string" ? value.trim().length === 0 : value === null;
+    });
+    if (missing) {
+      setAssistantStatus({ status: "error", message: `Fill in ${missing.label}.` });
+      return;
+    }
+    setAssistantStatus({ status: "generating", message: null });
+    setAssistantResult(null);
+    try {
+      const result = await generateAssistantResult({
+        form: selectedAssistantForm,
+        fields: assistantValues,
+        context: assistantContext.trim(),
+        contextPath: assistantContextSource
+      });
+      setAssistantResult(result);
+      setAssistantSavePath(defaultAssistantSavePath(selectedAssistantForm, result, assistantSaveKind));
+      if (result.provider || result.model) {
+        setAssistantProvider((provider) => ({
+          ...provider,
+          status: "ready",
+          provider: result.provider ?? provider.provider,
+          model: result.model ?? provider.model
+        }));
+      }
+      setAssistantStatus({ status: "ready", message: "Temporary result is ready." });
+    } catch (error: unknown) {
+      setAssistantStatus({
+        status: "error",
+        message: error instanceof Error ? error.message : "Assistant generation failed."
+      });
+    }
+  }
+
+  async function handleAssistantCopy() {
+    if (!assistantResult) {
+      return;
+    }
+    if (!navigator.clipboard) {
+      setAssistantStatus({ status: "error", message: "Clipboard is not available." });
+      return;
+    }
+    try {
+      await navigator.clipboard.writeText(assistantResult.content);
+      setAssistantStatus({ status: "copy", message: "Copied." });
+    } catch (error: unknown) {
+      setAssistantStatus({
+        status: "error",
+        message: error instanceof Error ? error.message : "Copy failed."
+      });
+    }
+  }
+
+  function handleAssistantSaveKindChange(kind: AssistantSaveKind) {
+    setAssistantSaveKind(kind);
+    setAssistantSavePath(defaultAssistantSavePath(selectedAssistantForm, assistantResult, kind));
+    setAssistantStatus({ status: "idle", message: null });
+  }
+
+  async function handleAssistantSave() {
+    if (!assistantResult) {
+      return;
+    }
+    const path = normalizeDialogPath(assistantSavePath);
+    const fileType = assistantSaveKind === "card" ? "card" : "markdown";
+    const validation = validateManagedFilePath(path, fileType);
+    if (validation) {
+      setAssistantSavePath(path);
+      setAssistantStatus({ status: "error", message: validation });
+      return;
+    }
+
+    setAssistantStatus({ status: "saving", message: null });
+    markLocalWrite([path]);
+    try {
+      const content =
+        assistantSaveKind === "card"
+          ? assistantSavedCardContent(
+              selectedAssistantForm,
+              assistantValues,
+              assistantResult,
+              assistantContextSource
+            )
+          : assistantNoteContent(selectedAssistantForm, assistantResult);
+      const createdFile = await createWorldFile({
+        path,
+        file_type: fileType,
+        content
+      });
+      const nextPages = await refreshWorldStructure([createdFile.path]);
+      const tab = tabFromFileWithPages(createdFile, nextPages);
+      setFileStates((states) => ({
+        ...states,
+        [createdFile.path]: { status: "ready", file: createdFile }
+      }));
+      setEditorDrafts((drafts) => ({
+        ...drafts,
+        [createdFile.path]: createEditorDraft(createdFile)
+      }));
+      openWorkspaceTab(tab);
+      setAssistantSavePath(createdFile.path);
+      setAssistantStatus({ status: "saved", message: `Saved ${createdFile.path}.` });
+    } catch (error: unknown) {
+      unmarkLocalWrite([path]);
+      setAssistantStatus({
+        status: "error",
+        message: managementErrorMessage(error)
+      });
+    }
   }
 
   async function handleSaveDmsOutput() {
@@ -12123,6 +13472,18 @@ export function App() {
             />
             <ToolsPanel
               activeTab={activeTab}
+              assistantActiveDocumentLabel={assistantActiveDocumentLabel}
+              assistantCanUseActiveDocument={assistantCanUseActiveDocument}
+              assistantContext={assistantContext}
+              assistantContextSource={assistantContextSource}
+              assistantForm={selectedAssistantForm}
+              assistantForms={localizedAssistantForms}
+              assistantProvider={assistantProvider}
+              assistantResult={assistantResult}
+              assistantSaveKind={assistantSaveKind}
+              assistantSavePath={assistantSavePath}
+              assistantStatus={assistantStatus}
+              assistantValues={assistantValues}
               actionBindings={actionBindings}
               actionBindingMessage={actionBindingMessage}
               audioExpansionState={audioPlaylistExpansion}
@@ -12155,6 +13516,16 @@ export function App() {
               midiLearning={midiLearning}
               midiStatus={midiStatus}
               onBlankDisplay={() => void handleBlankDisplay()}
+              onAssistantCheckProvider={() => void handleAssistantCheckProvider()}
+              onAssistantContextChange={handleAssistantContextChange}
+              onAssistantCopy={() => void handleAssistantCopy()}
+              onAssistantFieldChange={handleAssistantFieldChange}
+              onAssistantFormChange={handleAssistantFormChange}
+              onAssistantGenerate={() => void handleAssistantGenerate()}
+              onAssistantSave={() => void handleAssistantSave()}
+              onAssistantSaveKindChange={handleAssistantSaveKindChange}
+              onAssistantSavePathChange={setAssistantSavePath}
+              onAssistantUseActiveDocument={handleAssistantUseActiveDocument}
               onActionBindingDelete={handleDeleteActionBinding}
               onActionBindingRun={(binding) => void handleActionBindingTrigger(binding)}
               onActionBindingSave={handleSaveActionBinding}
@@ -12321,6 +13692,10 @@ export function App() {
         availableLanguages={availableLanguageOptions}
         language={uiLanguage}
         onClose={closeSettingsDialog}
+        onImportComplete={async () => {
+          await refreshWorldStructure([]);
+          setSearchRevision((revision) => revision + 1);
+        }}
         onLanguageChange={handleLanguageChange}
         open={settingsDialogOpen}
         t={t}

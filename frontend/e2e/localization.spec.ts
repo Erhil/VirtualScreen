@@ -1,4 +1,5 @@
 import { expect, test } from "@playwright/test";
+import type { Page } from "@playwright/test";
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -30,15 +31,22 @@ test.beforeEach(async ({ request }) => {
   await request.post("/api/index/rebuild");
 });
 
+async function switchToRussian(page: Page) {
+  await page.getByRole("button", { name: "Settings" }).click();
+  await page.getByLabel("Language").selectOption("ru");
+  await expect(page.getByRole("dialog", { name: "Настройки" })).toBeVisible();
+}
+
+async function closeRussianSettings(page: Page) {
+  await page.getByRole("button", { name: "Закрыть", exact: true }).click();
+}
+
 test("Settings switches the UI language and persists it after reload @smoke", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("navigation", { name: "World files" })).toBeVisible();
 
-  await page.getByRole("button", { name: "Settings" }).click();
-  await expect(page.getByRole("dialog", { name: "Settings" })).toBeVisible();
-  await page.getByLabel("Language").selectOption("ru");
+  await switchToRussian(page);
 
-  await expect(page.getByRole("dialog", { name: "Настройки" })).toBeVisible();
   await expect(page.getByRole("navigation", { name: "Файлы мира" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Поиск" })).toBeVisible();
   await expect(page.getByRole("complementary", { name: "Инструменты ведущего" })).toBeVisible();
@@ -60,9 +68,8 @@ test("Settings switches the UI language and persists it after reload @smoke", as
 
 test("Russian shell labels fit supported desktop layouts", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Settings" }).click();
-  await page.getByLabel("Language").selectOption("ru");
-  await page.getByRole("button", { name: "Закрыть", exact: true }).click();
+  await switchToRussian(page);
+  await closeRussianSettings(page);
 
   for (const viewport of [
     { width: 1366, height: 768 },
@@ -85,14 +92,19 @@ test("Russian shell labels fit supported desktop layouts", async ({ page }) => {
       expect(Math.abs(box.top - actionBoxes[0].top)).toBeLessThan(2);
       expect(Math.abs(box.bottom - actionBoxes[0].bottom)).toBeLessThan(2);
     }
+    const overflowingActions = await page.locator(".panel-actions-row .panel-action").evaluateAll((buttons) =>
+      buttons
+        .filter((button) => button.scrollWidth > button.clientWidth)
+        .map((button) => button.textContent?.trim() ?? "")
+    );
+    expect(overflowingActions).toEqual([]);
   }
 });
 
 test("Russian labels cover core tools and document state", async ({ page }) => {
   await page.goto("/");
-  await page.getByRole("button", { name: "Settings" }).click();
-  await page.getByLabel("Language").selectOption("ru");
-  await page.getByRole("button", { name: "Закрыть", exact: true }).click();
+  await switchToRussian(page);
+  await closeRussianSettings(page);
 
   await page.getByRole("button", { name: "README.md" }).click();
   await expect(page.locator(".document-state")).toContainText("Просмотр");

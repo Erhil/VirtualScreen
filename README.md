@@ -2,7 +2,7 @@
 
 VirtualScreen is a local-first DM console for running offline tabletop games from a browser. It keeps your campaign material as ordinary files in a **world** folder and adds a safe local interface for notes, cards, tables, media, maps, audio, scripts, and player-screen control.
 
-The app runs on the DM computer, can be opened from the local network, and exposes a public read-only `/screen` view for the table. It is not a cloud campaign manager, rules engine, hosted service, or LLM product.
+The app runs on the DM computer, can be opened from the local network, and exposes a public read-only `/screen` view for the table. It is not a cloud campaign manager, rules engine, hosted service, or autonomous LLM product.
 
 # Installation
 
@@ -32,6 +32,20 @@ Useful settings:
 - `VIRTUALSCREEN_LANGUAGE_DIR`: localization table folder, default `lang`.
 
 UI localization tables are ordinary JSON files in `lang/`. To add a language without changing code, copy `lang/en.json` to `lang/<code>.json`, translate the values, add the language to `lang/languages.json`, then restart or reload VirtualScreen. New UI features still require new translation keys.
+
+Optional V2.8 prompt-form assistant settings:
+
+- The assistant is disabled until a provider base URL and model are configured.
+- The MVP is prompt-form only: no RAG, no DMS access, no autonomous tool use, no hidden world reads, and no silent file writes.
+- The DM must see and approve the exact context sent to the provider. Generated output stays temporary until the DM explicitly saves it as a note or card.
+
+Example for local Ollama through its OpenAI-compatible endpoint:
+
+```env
+VIRTUALSCREEN_LLM_BASE_URL=http://127.0.0.1:11434/v1
+VIRTUALSCREEN_LLM_MODEL=huihui_ai/qwen3.5-abliterated:4b
+VIRTUALSCREEN_LLM_API_KEY=
+```
 
 # Start app
 
@@ -132,6 +146,7 @@ it is local machine state.
 - **Maps:** image-backed maps with fog reveal, square grid, player/DM pins, local measure mode, and presets.
 - **Audio:** ambient, music, and effect buses with playlist queues, next/previous, loop, and fade controls.
 - **Live tools:** Quick Capture, HP Scratchpad, Prep Check, Table State Snapshots, fast slots, keyboard bindings, and MIDI bindings.
+- **Prompt-form assistant:** optional configured-provider forms for temporary prep drafts, with explicit visible context and explicit save-as-note/card confirmation.
 - **Release checks:** `scripts/release-hygiene.ps1` blocks runtime clutter, oversized sample assets, build output, caches, and agent-only files from the release folder.
 
 VirtualScreen V1 is licensed under GPLv3. See `LICENSE`.

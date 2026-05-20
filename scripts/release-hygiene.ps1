@@ -156,7 +156,7 @@ foreach ($relativePath in $terminologyScanPaths) {
           $_.FullName -notlike "*\test-results\*" -and
           $_.FullName -notlike "*\playwright-report\*" -and
           $_.FullName -notlike "*\__pycache__\*" -and
-          $_.Extension -notin @(".pyc", ".pyo", ".png", ".jpg", ".jpeg", ".gif", ".mp4", ".wav", ".pdf", ".bin")
+          $_.Extension -notin @(".pyc", ".pyo", ".png", ".jpg", ".jpeg", ".gif", ".mp4", ".wav", ".pdf", ".bin", ".zip")
         }
     )
   }

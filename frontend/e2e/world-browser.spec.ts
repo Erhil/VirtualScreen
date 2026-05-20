@@ -2676,6 +2676,37 @@ test("blank player screen uses optional world background image", async ({ contex
   await expect(blankSurface).toHaveCSS("background-image", /api\/screen\/display\/background/);
 });
 
+test("blank player screen skips missing optional background without console errors", async ({
+  context,
+  page
+}) => {
+  const screen = await context.newPage();
+  const consoleErrors: string[] = [];
+  screen.on("console", (message) => {
+    if (message.type() === "error") {
+      consoleErrors.push(message.text());
+    }
+  });
+
+  const missingBackground = screen.waitForResponse(
+    (response) =>
+      response.url().includes("/api/screen/display/background") && response.status() === 204
+  );
+  await screen.goto("/screen");
+
+  await page.goto("/");
+  const controls = await screenTool(page);
+  await controls.getByRole("button", { name: "Blank Screen" }).click();
+  await missingBackground;
+
+  const blankSurface = screen.locator(".screen-fullscreen-blank");
+  await expect(blankSurface).toBeVisible();
+  await expect(blankSurface).toHaveCSS("background-image", "none");
+  expect(
+    consoleErrors.filter((message) => message.includes("/api/screen/display/background"))
+  ).toEqual([]);
+});
+
 test("player screen has no DM-only controls", async ({ page }) => {
   await page.goto("/screen");
 

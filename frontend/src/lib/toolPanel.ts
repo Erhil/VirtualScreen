@@ -7,6 +7,7 @@ export type ToolId =
   | "screen"
   | "audio"
   | "dice"
+  | "assistant"
   | "actions"
   | "scripts"
   | "hp";

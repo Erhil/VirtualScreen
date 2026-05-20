@@ -9,7 +9,7 @@ from fastapi import (
     WebSocket,
     WebSocketDisconnect,
 )
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, Response
 from pydantic import BaseModel
 
 from app.api.routes.pages import PageLinkResponse, page_links
@@ -131,20 +131,16 @@ def _require_screen_path(path: str, allowed_paths: set[str]) -> str:
 
 
 @router.get("/api/display/background")
-def display_background(settings: SettingsDep) -> FileResponse:
+def display_background(settings: SettingsDep) -> Response:
     path = display_background_path(settings.resolved_world_root)
     if path is None:
-        raise HTTPException(
-            status_code=404,
-            detail="Display background was not found.",
-            headers={"Cache-Control": "no-store"},
-        )
+        return Response(status_code=204, headers={"Cache-Control": "no-store"})
     content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
     return FileResponse(path, media_type=content_type, headers={"Cache-Control": "no-store"})
 
 
 @router.get("/api/screen/display/background")
-def screen_display_background(settings: SettingsDep) -> FileResponse:
+def screen_display_background(settings: SettingsDep) -> Response:
     return display_background(settings)
 
 

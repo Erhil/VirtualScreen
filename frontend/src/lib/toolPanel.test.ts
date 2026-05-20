@@ -224,6 +224,18 @@ describe("tool panel helpers", () => {
     expect(autoState.openTools).toEqual([]);
   });
 
+  it("supports assistant tool sections without auto-opening them", () => {
+    const state = openToolSection(createToolPanelState(), "assistant");
+    const autoState = applyToolAutoOpenRules(createToolPanelState(), {
+      activePath: null,
+      displayState: blankDisplay,
+      metadataEditing: false
+    });
+
+    expect(isToolOpen(state, "assistant")).toBe(true);
+    expect(autoState.openTools).toEqual([]);
+  });
+
   it("supports dice as a live tool section", () => {
     const state = openToolSection(openToolSection(createToolPanelState(["audio"]), "dice"), "screen");
 

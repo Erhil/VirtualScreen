@@ -34,4 +34,23 @@ Welcome to the native VirtualScreen guide. This world is small on purpose: every
 - Map image: [[Media/sample-map.svg]]
 - Screen/audio DMS demo: [[Scripts/screen_audio_demo.dms]]
 
+## System packs
+
+V2.7 system packs are content-only zip archives for reusable notes, cards, tables, media,
+music, and card templates. They intentionally skip `.dms` scripts because scripts are
+trusted executable world content and should be reviewed or written directly by the DM.
+
+Try the included pack at `System Packs/Harbor Starter Pack.zip`:
+
+1. Open Settings.
+2. Use Import Pack and choose `System Packs/Harbor Starter Pack.zip`.
+3. Preview the note, card, table, map, audio, and card template rows.
+4. Import the pack.
+5. Look for `Imported Harbor Rumors`, `Imported Dockside Contact`,
+   `imported-harbor-events.csv`, `imported-pack-map.svg`, and the
+   `Imported Contact` card template.
+
+The preview also shows `Scripts/skipped_pack_script.dms` as skipped. That is expected:
+content packs do not import executable scripts in V2.
+
 ![Sample Map](Media/sample-map.svg)
