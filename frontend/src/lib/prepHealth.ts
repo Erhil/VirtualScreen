@@ -1,43 +1,72 @@
 import type { PrepHealthIssue, PrepHealthReport, PrepHealthStatus, WorkspaceTab } from "./api";
+import type { Translator } from "../lang";
 
 export type PrepHealthFilter = "all" | "errors" | "warnings" | "links" | "dms";
 export type PrepHealthCheckStatus = {
   status: "idle" | "loading" | "ready" | "error";
 };
 
-export function prepHealthStatusLabel(status: PrepHealthStatus): string {
+function prepCountLabel(
+  count: number,
+  singularKey: string,
+  pluralKey: string,
+  singularFallback: string,
+  pluralFallback: string,
+  t?: Translator
+): string {
+  if (typeof t === "function") {
+    return t(count === 1 ? singularKey : pluralKey, { count });
+  }
+  return `${count} ${count === 1 ? singularFallback : pluralFallback}`;
+}
+
+export function prepHealthStatusLabel(status: PrepHealthStatus, t?: Translator | number): string {
+  const translate = typeof t === "function" ? t : undefined;
   if (status === "error") {
-    return "Errors";
+    return translate ? translate("prep.status.errors") : "Errors";
   }
   if (status === "warning") {
-    return "Warnings";
+    return translate ? translate("prep.status.warnings") : "Warnings";
   }
-  return "Ready";
+  return translate ? translate("prep.status.ready") : "Ready";
 }
 
 export function prepHealthCompactStatusLabel(
   report: PrepHealthReport | null,
-  status: PrepHealthCheckStatus
+  status: PrepHealthCheckStatus,
+  t?: Translator
 ): string {
+  const translate = typeof t === "function" ? t : undefined;
   if (status.status === "loading") {
-    return "Checking";
+    return translate ? translate("prep.status.checking") : "Checking";
   }
   if (status.status === "error" && !report) {
-    return "Check failed";
+    return translate ? translate("prep.status.checkFailed") : "Check failed";
   }
   if (!report) {
-    return "Not checked";
+    return translate ? translate("prep.status.notChecked") : "Not checked";
   }
   if (report.errors === 0 && report.warnings === 0) {
-    return "Ready";
+    return translate ? translate("prep.status.ready") : "Ready";
   }
 
   const parts: string[] = [];
   if (report.errors > 0) {
-    parts.push(`${report.errors} error${report.errors === 1 ? "" : "s"}`);
+    parts.push(
+      prepCountLabel(report.errors, "prep.count.error", "prep.count.errors", "error", "errors", translate)
+    );
   }
   if (report.warnings > 0) {
-    parts.push(`${report.warnings} warning${report.warnings === 1 ? "" : "s"}`);
+    parts.push(
+      prepCountLabel(
+        report.warnings,
+        "prep.count.warning",
+        "prep.count.warnings",
+        "warning",
+        "warnings",
+        translate
+      )
+    );
   }
   return parts.join(" / ");
 }

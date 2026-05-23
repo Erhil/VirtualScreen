@@ -11,7 +11,12 @@ from uuid import uuid4
 from fastapi import BackgroundTasks, WebSocket
 
 from app.core.database import initialize_database
-from app.core.paths import WorldPathError, normalize_relative_path, resolve_under_root
+from app.core.paths import (
+    WorldPathError,
+    ensure_no_reserved_path_parts,
+    normalize_relative_path,
+    resolve_under_root,
+)
 
 MAP_IMAGE_EXTENSIONS = {"gif", "jpeg", "jpg", "png", "svg", "webp"}
 MAP_REVEAL_ACTIONS = {"reveal", "hide"}
@@ -506,6 +511,7 @@ def _reject_map_internal_path(relative_path: str) -> None:
         or ".music" in parts
     ):
         raise WorldPathError("Map source path is not allowed.")
+    ensure_no_reserved_path_parts(relative_path, message="Map source path is not allowed.")
 
 
 def map_image_path(root: Path, requested_path: str) -> tuple[str, Path]:

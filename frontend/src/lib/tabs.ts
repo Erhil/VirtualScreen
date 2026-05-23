@@ -48,3 +48,14 @@ export function closeTab(state: TabState, path: string): TabState {
     activePath: fallbackTab?.path ?? null
   };
 }
+
+export function shouldConfirmDirtyTabClose(
+  path: string,
+  dirtyPaths: ReadonlySet<string>
+): boolean {
+  return dirtyPaths.has(path);
+}
+
+export function dirtyTabCloseMessage(tab: Pick<OpenTab, "name" | "title">): string {
+  return `Close ${tab.title ?? tab.name} without saving changes?`;
+}

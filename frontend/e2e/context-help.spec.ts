@@ -27,6 +27,11 @@ function resetE2eWorld() {
   writeFileSync(resolve(e2eWorld, "Tables", "context-help.csv"), "Name,Note\nIlyra,Signal\n", "utf-8");
   writeFileSync(resolve(e2eWorld, "Scripts", "context-help.dms"), "render_md('# Help')\n", "utf-8");
   writeFileSync(
+    resolve(e2eWorld, "Scripts", "context-form.dms"),
+    "target = choose_file('Pick a page')\nrender_md(f'# Selected\\n{target}')\n",
+    "utf-8"
+  );
+  writeFileSync(
     resolve(e2eWorld, "Cards", "Context Card.cs"),
     JSON.stringify(
       {
@@ -105,6 +110,19 @@ test("F1 opens document-specific and tool-specific context help @smoke", async (
   await page.keyboard.press("F1");
   await expectHelpTitle(page, "DMS Script Help");
   await closeHelp(page);
+
+  await treeFile(page, "context-form.dms").click();
+  await page.getByRole("button", { name: "Run Active Script" }).click();
+  const trust = page.getByRole("dialog", { name: "Trust DMS Script" });
+  await expect(trust).toBeVisible();
+  await trust.getByRole("button", { name: "Run Trusted Script" }).click();
+  const form = page.getByRole("dialog", { name: "DMS Script Form" });
+  await expect(form).toBeVisible();
+  await form.getByLabel("Pick a page").focus();
+  await page.keyboard.press("F1");
+  await expectHelpTitle(page, "DMS Script Help");
+  await closeHelp(page);
+  await page.getByRole("button", { name: "Close DMS Script Form" }).click();
 
   await openTool(page, "Audio");
   await page.getByLabel("Music Search").focus();

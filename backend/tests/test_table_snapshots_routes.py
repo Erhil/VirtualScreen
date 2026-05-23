@@ -114,9 +114,10 @@ def test_table_snapshot_create_list_and_detail(tmp_path: Path) -> None:
     assert snapshot["name"] == "Opening Table"
     assert state["workspace"]["activePath"] == "Handout.md"
     assert state["workspace"]["layout"] == split_layout()
-    assert state["display"]["fullscreen"]["path"] == "README.md"
+    assert state["display"]["fullscreen"] is None
     assert state["display"]["popups"][0]["path"] == "Handout.md"
     assert state["map"]["image_path"] == "Media/map.svg"
+    assert state["map"]["presenting"] is True
     assert state["audio"]["effect"]["track"]["path"] == ".music/effects/bell.mp3"
     assert state["audio"]["effect"]["playing"] is True
     assert snapshot["updated_at"]
@@ -219,11 +220,12 @@ def test_table_snapshot_restore_replaces_backend_state_and_publishes_events(tmp_
     assert body["snapshot"]["id"] == snapshot["id"]
     assert body["workspace"]["activePath"] == "Handout.md"
     assert body["workspace"]["layout"] == split_layout()
-    assert body["display"]["fullscreen"]["path"] == "README.md"
+    assert body["display"]["fullscreen"] is None
     assert body["map"]["image_path"] == "Media/map.svg"
     assert body["map"]["presenting"] is True
-    assert display_event["fullscreen"]["path"] == "README.md"
+    assert display_event["fullscreen"] is None
     assert map_event["image_path"] == "Media/map.svg"
+    assert map_event["presenting"] is True
     assert client.get("/api/workspace").json()["tabs"] == snapshot["state"]["workspace"]["tabs"]
 
 

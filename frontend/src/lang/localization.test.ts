@@ -50,6 +50,75 @@ describe("localization catalogs", () => {
       expect(topic.shortcutKeys).toHaveLength(1);
     }
   });
+
+  it("uses explicit player-visible and search action labels", () => {
+    const en = readCatalog("en");
+
+    expect(en["screen.visible"]).toBe("Shown to Players");
+    expect(en["screen.staged"]).toBe("Staged (Hidden)");
+    expect(en["screen.showPopupToPlayers"]).toBe("Show to Players");
+    expect(en["screen.hidePopupFromPlayers"]).toBe("Hide from Players");
+    expect(en["search.otherPane"]).toBe("Open in Other Pane");
+    expect(en["search.stage"]).toBe("Stage on Screen");
+    expect(en["search.showOnScreen"]).toBe("Show on Screen");
+  });
+
+  it("covers the dense pre-release polish labels in both catalogs", () => {
+    const en = readCatalog("en");
+    const ru = readCatalog("ru");
+    const keys = [
+      "card.noRows",
+      "contextMenu.copyPath",
+      "contextMenu.openOtherPane",
+      "contextMenu.showOnScreen",
+      "contextMenu.stageOnScreen",
+      "actions.summary.keys",
+      "actions.summary.midi",
+      "actions.summary.slots",
+      "audio.summary.loaded",
+      "audio.summary.playing",
+      "audio.summary.quiet",
+      "dice.ready",
+      "hp.summary.noRows",
+      "hp.summary.rows",
+      "live.map.noMap",
+      "live.output.clear",
+      "live.pane.empty",
+      "live.prep",
+      "llm.field.audience",
+      "llm.field.focus",
+      "llm.field.tone",
+      "llm.providerStatus.checking",
+      "llm.providerStatus.error",
+      "llm.providerStatus.ready",
+      "llm.providerStatus.unavailable",
+      "llm.summary.checkingProvider",
+      "llm.summary.dmOnly",
+      "llm.summary.providerReady",
+      "prep.count.errors",
+      "prep.count.warnings",
+      "prep.filters.label",
+      "prep.kind.brokenLink",
+      "prep.status.checkFailed",
+      "prep.status.notChecked",
+      "prep.status.ready",
+      "search.resultsGroup",
+      "scripts.summary.found",
+      "scripts.summary.ready",
+      "tools.sectionLabel",
+      "workspace.openFileCount",
+      "workspace.viewerPane"
+    ];
+
+    for (const key of keys) {
+      expect(en[key], `en ${key}`).toBeTruthy();
+      expect(ru[key], `ru ${key}`).toBeTruthy();
+    }
+
+    for (const key of keys.filter((item) => !["search.resultsGroup", "tools.sectionLabel"].includes(item))) {
+      expect(ru[key], key).not.toBe(en[key]);
+    }
+  });
 });
 
 describe("createTranslator", () => {

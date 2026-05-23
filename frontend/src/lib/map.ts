@@ -1,4 +1,5 @@
 import type { WorldMediaKind } from "./api";
+import type { Translator } from "../lang";
 
 export type MapViewport = {
   center_x: number;
@@ -565,13 +566,19 @@ export function isImageMapCandidate(mediaKind: WorldMediaKind): boolean {
   return mediaKind === "image";
 }
 
-export function mapSummary(state: MapState): string {
+export function mapSummary(state: MapState, t?: Translator): string {
   if (!state.image_path) {
-    return "No map";
+    return t ? t("map.summary.noMap") : "No map";
   }
 
   const label = state.title || fileNameFromPath(state.image_path);
-  return state.presenting ? `Presenting: ${label}` : `Ready: ${label}`;
+  return state.presenting
+    ? t
+      ? t("map.summary.presenting", { map: label })
+      : `Presenting: ${label}`
+    : t
+      ? t("map.summary.ready", { map: label })
+      : `Ready: ${label}`;
 }
 
 export function nextMapState(_current: MapState, event: MapState): MapState {

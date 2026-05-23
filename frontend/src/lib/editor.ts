@@ -11,6 +11,7 @@ type EditorHotkeyEventLike = {
 };
 
 type EditorShortcutEventLike = {
+  code?: string;
   ctrlKey?: boolean;
   key: string;
   metaKey?: boolean;
@@ -111,7 +112,7 @@ export function editorShortcutIntent(
 ): EditorShortcutIntent | null {
   const shortcut = Boolean(event.ctrlKey || event.metaKey);
   const key = event.key.toLowerCase();
-  if (shortcut && key === "s") {
+  if (shortcut && (key === "s" || event.code === "KeyS")) {
     return "save";
   }
   if (shortcut && event.key === "\\" && options.supportsSplit) {

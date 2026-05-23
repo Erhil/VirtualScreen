@@ -13,6 +13,9 @@ import {
   isDisplayPopupVisible,
   isDisplayableMediaKind,
   nextDisplayState,
+  screenPrimaryMode,
+  screenPrimaryTitle,
+  visibleScreenPopupCount,
   visibleDisplayPopups,
   type DisplayState
 } from "./display";
@@ -143,7 +146,7 @@ describe("display helpers", () => {
     expect(visibleDisplayPopups([stagedPopup, visiblePopup])).toEqual([visiblePopup]);
   });
 
-  it("labels popup visibility for table controls", () => {
+  it("labels popup visibility by player-visible state", () => {
     const popup = {
       id: "popup",
       path: "A.md",
@@ -154,9 +157,9 @@ describe("display helpers", () => {
     };
 
     expect(displayPopupVisibilityStatus(popup)).toBe("visible");
-    expect(displayPopupVisibilityLabel(popup)).toBe("visible");
+    expect(displayPopupVisibilityLabel(popup)).toBe("Shown to players");
     expect(displayPopupVisibilityStatus({ ...popup, visible: false })).toBe("staged");
-    expect(displayPopupVisibilityLabel({ ...popup, visible: false })).toBe("staged");
+    expect(displayPopupVisibilityLabel({ ...popup, visible: false })).toBe("Staged (hidden)");
   });
 
   it("detects stale blank responses that still contain popups", () => {
@@ -192,5 +195,57 @@ describe("display helpers", () => {
       title: "Animated Map",
       mediaKind: "video"
     });
+  });
+
+  it("reports exactly one primary player-screen mode with popup overlays", () => {
+    const fullscreenState: DisplayState = {
+      ...state,
+      fullscreen: {
+        path: "README.md",
+        title: "Home",
+        name: "README.md",
+        media_kind: "markdown"
+      },
+      popups: [
+        {
+          id: "visible",
+          path: "A.md",
+          title: "A",
+          name: "A.md",
+          media_kind: "markdown",
+          created_at: "2026-05-08T12:00:00Z",
+          preset: "plain",
+          visible: true
+        },
+        {
+          id: "staged",
+          path: "B.md",
+          title: "B",
+          name: "B.md",
+          media_kind: "markdown",
+          created_at: "2026-05-08T12:01:00Z",
+          preset: "plain",
+          visible: false
+        }
+      ]
+    };
+    const mapState = {
+      image_path: "Media/map.svg",
+      title: "Encounter",
+      viewport: { center_x: 0.5, center_y: 0.5, zoom: 1 },
+      fog_enabled: false,
+      grid: { enabled: false, columns: 10, rows: 10, visible_to_players: true },
+      reveals: [],
+      pins: [],
+      presenting: true,
+      updated_at: "2026-05-08T12:02:00Z"
+    };
+
+    expect(screenPrimaryMode(null, null)).toBe("blank");
+    expect(screenPrimaryMode(fullscreenState, null)).toBe("fullscreen");
+    expect(screenPrimaryMode(fullscreenState, mapState)).toBe("map");
+    expect(screenPrimaryTitle(fullscreenState, null)).toBe("Home");
+    expect(screenPrimaryTitle(fullscreenState, mapState)).toBe("Encounter");
+    expect(visibleScreenPopupCount(fullscreenState)).toBe(1);
   });
 });

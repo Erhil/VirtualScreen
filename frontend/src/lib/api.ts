@@ -950,6 +950,10 @@ export function fetchScripts(): Promise<DmsScriptSummary[]> {
   return getJson<DmsScriptSummary[]>("/api/scripts");
 }
 
+export function acknowledgeDmsTrust(): Promise<{ trusted: boolean }> {
+  return sendJson<{ trusted: boolean }>("/api/scripts/trust", "POST");
+}
+
 export function runDmsScript(path: string): Promise<DmsRunState> {
   return sendJson<DmsRunState>("/api/scripts/run", "POST", { path });
 }

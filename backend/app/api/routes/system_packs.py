@@ -9,6 +9,7 @@ from app.core.config import Settings, get_settings
 from app.core.events import queue_world_event
 from app.core.index import rebuild_index
 from app.core.system_packs import (
+    MAX_ZIP_BYTES,
     SystemPackError,
     import_response,
     import_system_pack,
@@ -27,6 +28,17 @@ async def _read_multipart_upload(request: Request) -> tuple[bytes, dict[str, str
             status_code=415,
             detail="System pack upload must be multipart form data.",
         )
+    content_length = request.headers.get("content-length")
+    if content_length is None:
+        raise HTTPException(status_code=411, detail="System pack upload requires Content-Length.")
+    try:
+        content_length_value = int(content_length)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="Content-Length must be an integer.") from exc
+    if content_length_value <= 0:
+        raise HTTPException(status_code=400, detail="Content-Length must be positive.")
+    if content_length_value > MAX_ZIP_BYTES + 1024 * 1024:
+        raise HTTPException(status_code=413, detail="System pack upload is too large.")
     raw_body = await request.body()
     message = BytesParser(policy=default).parsebytes(
         f"Content-Type: {content_type}\r\nMIME-Version: 1.0\r\n\r\n".encode()

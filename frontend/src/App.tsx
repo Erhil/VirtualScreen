@@ -53,6 +53,7 @@ import {
   type StructuredCard
 } from "./lib/cards";
 import {
+  acknowledgeDmsTrust,
   activateWorkspace,
   buildMediaUrl,
   blankDisplay,
@@ -151,6 +152,7 @@ import {
   type NamedWorkspaceSummary,
   type TrashEntry,
   type WorldEntry,
+  type WorldLibraryEntry,
   type WorldFile,
   type WorldLibraryState,
   type WorldMediaKind,
@@ -177,6 +179,7 @@ import {
 } from "./lang";
 import {
   filterPrepHealthIssues,
+  prepHealthCompactStatusLabel,
   prepHealthIssueToOpenTab,
   prepHealthStatusLabel,
   sortPrepHealthIssues,
@@ -299,6 +302,8 @@ import {
 } from "./lib/editor";
 import { buildEditorCompletionItems } from "./lib/editorAutocomplete";
 import {
+  contextualManagedFilePath,
+  defaultManagedFileName,
   managementErrorMessage,
   defaultManagedFilePath,
   defaultManagedFolderPath,
@@ -312,6 +317,8 @@ import {
   removeDescendantWorkspacePaths,
   removeWorkspacePath,
   replaceWorkspacePath,
+  revealWorldTreePaths,
+  validateContextualFileName,
   validateManagedFolderPath,
   validateManagedFilePath,
   workspaceTabFromWorldFile,
@@ -323,7 +330,13 @@ import {
   planWorldEventUpdate,
   type WorldEvent
 } from "./lib/liveSync";
-import { createDisplayEventClient, hasResidualPopupsAfterBlank } from "./lib/display";
+import {
+  createDisplayEventClient,
+  hasResidualPopupsAfterBlank,
+  screenPrimaryMode,
+  screenPrimaryTitle,
+  visibleScreenPopupCount
+} from "./lib/display";
 import {
   addMapPin,
   addMapReveal,
@@ -377,7 +390,15 @@ import {
   validateMetadataForm,
   type MetadataFormState
 } from "./lib/metadataEditor";
-import { activateTab, closeTab, openTab, type OpenTab, type TabState } from "./lib/tabs";
+import {
+  activateTab,
+  closeTab,
+  dirtyTabCloseMessage,
+  openTab,
+  shouldConfirmDirtyTabClose,
+  type OpenTab,
+  type TabState
+} from "./lib/tabs";
 import {
   chooseSecondaryPaneActiveTab,
   clampWorkspaceSplitRatio,
@@ -655,6 +676,12 @@ type DmsFormDialogState =
       fields: DmsFormField[];
       values: DmsFormValues;
     };
+type DmsTrustDialogState =
+  | { open: false }
+  | {
+      open: true;
+      path: string;
+    };
 type DmsOutputSaveDialogState =
   | { open: false }
   | {
@@ -669,6 +696,9 @@ type FileDialogState =
   | {
       kind: "create";
       fileType: ManagedFileType;
+      folderPath: string;
+      contextual: boolean;
+      name: string;
       path: string;
       cardTemplateId: string;
       cardTitle: string;
@@ -1295,16 +1325,23 @@ function cardTitleFromPath(path: string): string {
 
 function createFileDialogState(
   fileType: ManagedFileType,
-  folderPath: string
+  folderPath: string,
+  contextual = false
 ): Extract<FileDialogState, { kind: "create" }> {
   const cardTitle = DEFAULT_CARD_TITLE;
+  const name = defaultManagedFileName(fileType);
   return {
     kind: "create",
     fileType,
+    folderPath,
+    contextual,
+    name,
     path:
       fileType === "card"
         ? defaultCardPath(folderPath, cardTitle)
-        : defaultManagedFilePath(folderPath, fileType),
+        : contextual
+          ? contextualManagedFilePath(folderPath, name, fileType)
+          : defaultManagedFilePath(folderPath, fileType),
     cardTemplateId: DEFAULT_CARD_TEMPLATE_ID,
     cardTitle,
     cardTemplateCatalog: DEFAULT_CARD_TEMPLATE_CATALOG,
@@ -2587,10 +2624,10 @@ function DocumentChrome({
           className={`editor-status ${
             changedOnDisk ? "editor-status-external" : `editor-status-${draft.status}`
           }`}
+          title={shortcutText}
         >
           {statusText}
         </span>
-        <small className="document-shortcuts">{shortcutText}</small>
       </div>
       <div className="document-actions">
       {file.media_kind === "script" && (
@@ -3462,6 +3499,7 @@ function WorkspaceControls({
   onNew,
   onPrepCheck,
   onSearch,
+  searchButtonRef,
   onRename,
   onModeChange,
   t
@@ -3479,6 +3517,7 @@ function WorkspaceControls({
   onNew: () => void;
   onPrepCheck: () => void;
   onSearch: () => void;
+  searchButtonRef: RefObject<HTMLButtonElement | null>;
   onRename: () => void;
   onModeChange: (mode: WorkspaceLayout["mode"]) => void;
   t: Translator;
@@ -3512,7 +3551,7 @@ function WorkspaceControls({
       <button disabled={currentId === "default"} onClick={onDelete} type="button">
         {t("workspace.delete")}
       </button>
-      <button onClick={onSearch} type="button">
+      <button onClick={onSearch} ref={searchButtonRef} type="button">
         {t("workspace.search")}
       </button>
       <button onClick={onCapture} type="button">
@@ -3852,7 +3891,8 @@ function SettingsDialog({
               packHasInvalidRows ||
               !conflictValidation.valid ||
               packState.status === "previewing" ||
-              packState.status === "importing"
+              packState.status === "importing" ||
+              packState.status === "done"
             }
             onClick={() => void handleImportPack()}
             type="button"
@@ -3949,6 +3989,11 @@ function localizedWorldPathPickerFilterLabel(t: Translator, filter: WorldPathPic
   return t("pathPicker.kindPaths", { kind: filter });
 }
 
+function worldSelectorLabel(world: WorldLibraryEntry, worlds: WorldLibraryEntry[]): string {
+  const duplicateName = worlds.some((item) => item.id !== world.id && item.name === world.name);
+  return duplicateName ? `${world.name} - ${world.path}` : world.name;
+}
+
 function WorldSelector({
   state,
   onOpenWorld,
@@ -3959,6 +4004,8 @@ function WorldSelector({
   t: Translator;
 }) {
   const currentId = state?.worlds.find((world) => world.path === state.current?.path)?.id ?? "";
+  const recentIds = new Set(state?.recent.map((world) => world.id) ?? []);
+  const libraryWorlds = state?.worlds.filter((world) => !recentIds.has(world.id)) ?? [];
 
   return (
     <div className="world-selector">
@@ -3977,18 +4024,20 @@ function WorldSelector({
           <optgroup label={t("world.recent")}>
             {state.recent.map((world) => (
               <option key={`recent-${world.id}`} value={world.id}>
-                {world.name}
+                {worldSelectorLabel(world, state.worlds)}
               </option>
             ))}
           </optgroup>
         ) : null}
-        <optgroup label={t("world.library")}>
-          {state?.worlds.map((world) => (
-            <option key={world.id} value={world.id}>
-              {world.name}
-            </option>
-          ))}
-        </optgroup>
+        {libraryWorlds.length ? (
+          <optgroup label={t("world.library")}>
+            {libraryWorlds.map((world) => (
+              <option key={world.id} value={world.id}>
+                {worldSelectorLabel(world, state?.worlds ?? [])}
+              </option>
+            ))}
+          </optgroup>
+        ) : null}
       </select>
     </div>
   );
@@ -4326,6 +4375,14 @@ function ScreenTool({
   const canUseTarget = Boolean(targetPath) || displayable;
   const visiblePopups = displayState?.popups.filter((popup) => popup.visible !== false) ?? [];
   const stagedPopups = displayState?.popups.filter((popup) => popup.visible === false) ?? [];
+  const primaryMode = screenPrimaryMode(displayState, mapState);
+  const primaryTitle = screenPrimaryTitle(displayState, mapState);
+  const primaryStatus =
+    primaryMode === "map"
+      ? t("screen.playersSeeMap", { target: primaryTitle ?? t("map.noMapLoaded") })
+      : primaryMode === "fullscreen"
+        ? t("screen.playersSeeFullscreen", { target: primaryTitle ?? t("screen.fullscreen") })
+        : t("screen.playersSeeBlank");
 
   function renderPopupList(popups: DisplayState["popups"], empty: string) {
     if (popups.length === 0) {
@@ -4339,11 +4396,11 @@ function ScreenTool({
             <small>{popup.preset ?? t("screen.popupPresetPlain")}</small>
             {popup.visible === false ? (
               <button onClick={() => onPopupVisibleChange(popup.id, true)} type="button">
-                {t("app.show")}
+                {t("screen.showPopupToPlayers")}
               </button>
             ) : (
               <button onClick={() => onPopupVisibleChange(popup.id, false)} type="button">
-                {t("app.hide")}
+                {t("screen.hidePopupFromPlayers")}
               </button>
             )}
             <button className="button-danger-subtle" onClick={() => onClosePopup(popup.id)} type="button">
@@ -4453,8 +4510,11 @@ function ScreenTool({
       </label>
       {!canUseTarget && <p>{t("screen.selectTarget")}</p>}
       <section className="screen-state" aria-label={t("screen.current")}>
-        <h3>{t("screen.fullscreen")}</h3>
-        <p>{displayState?.fullscreen?.title ?? displayState?.fullscreen?.name ?? t("screen.blank")}</p>
+        <h3>{t("screen.current")}</h3>
+        <p>{primaryStatus}</p>
+        {visiblePopups.length > 0 ? (
+          <small>{t("screen.playersVisiblePopups", { count: visiblePopups.length })}</small>
+        ) : null}
       </section>
       <section className="screen-state" aria-label={t("screen.popups")}>
         <h3>{t("screen.popups")}</h3>
@@ -4537,6 +4597,7 @@ function MapTool({
   const [pinVisibility, setPinVisibility] = useState<MapPinVisibility>("player");
   const activeImage = Boolean(activeTab && isImageMapCandidate(activeTab.mediaKind));
   const shownMap = draftMap;
+  const hasMap = Boolean(shownMap.image_path);
 
   useEffect(() => {
     setSourcePath(currentMap.image_path ?? "");
@@ -4618,29 +4679,31 @@ function MapTool({
           <input
             aria-label={t("map.fog")}
             checked={shownMap.fog_enabled}
+            disabled={!hasMap}
             onChange={(event) => handleFogChange(event.target.checked)}
             type="checkbox"
           />
         </label>
-        <button disabled={shownMap.reveals.length === 0} onClick={onClearReveals} type="button">
+        <button disabled={!hasMap || shownMap.reveals.length === 0} onClick={onClearReveals} type="button">
           {t("map.clearReveals")}
         </button>
-        <button disabled={shownMap.reveals.length === 0} onClick={onUndoReveal} type="button">
+        <button disabled={!hasMap || shownMap.reveals.length === 0} onClick={onUndoReveal} type="button">
           {t("map.undoReveal")}
         </button>
       </div>
       <div className="map-tool-modes" role="group" aria-label={t("map.mode")}>
-        <button aria-pressed={tool === "pan"} onClick={() => selectTool("pan")} type="button">
+        <button aria-pressed={tool === "pan"} disabled={!hasMap} onClick={() => selectTool("pan")} type="button">
           {t("map.pan")}
         </button>
-        <button aria-pressed={tool === "reveal"} onClick={() => selectTool("reveal")} type="button">
+        <button aria-pressed={tool === "reveal"} disabled={!hasMap} onClick={() => selectTool("reveal")} type="button">
           {t("map.revealBox")}
         </button>
-        <button aria-pressed={tool === "hide"} onClick={() => selectTool("hide")} type="button">
+        <button aria-pressed={tool === "hide"} disabled={!hasMap} onClick={() => selectTool("hide")} type="button">
           {t("map.hideBox")}
         </button>
         <button
           aria-pressed={tool === "reveal-polygon"}
+          disabled={!hasMap}
           onClick={() => selectTool("reveal-polygon")}
           type="button"
         >
@@ -4648,15 +4711,16 @@ function MapTool({
         </button>
         <button
           aria-pressed={tool === "hide-polygon"}
+          disabled={!hasMap}
           onClick={() => selectTool("hide-polygon")}
           type="button"
         >
           {t("map.hidePolygon")}
         </button>
-        <button aria-pressed={tool === "pin"} onClick={() => selectTool("pin")} type="button">
+        <button aria-pressed={tool === "pin"} disabled={!hasMap} onClick={() => selectTool("pin")} type="button">
           {t("map.pin")}
         </button>
-        <button aria-pressed={tool === "measure"} onClick={() => selectTool("measure")} type="button">
+        <button aria-pressed={tool === "measure"} disabled={!hasMap} onClick={() => selectTool("measure")} type="button">
           {t("map.measure")}
         </button>
       </div>
@@ -4918,6 +4982,7 @@ function SearchTool({
               const resultIndex = results.findIndex((item) => item.path === result.path);
               return (
               <article
+                aria-label={`${result.title} ${result.path}`}
                 aria-selected={selectedIndex === resultIndex}
                 className="search-result"
                 key={result.path}
@@ -4946,7 +5011,7 @@ function SearchTool({
                     {t("search.stage")}
                   </button>
                   <button onClick={() => onShowResult(result)} type="button">
-                    {t("app.show")}
+                    {t("search.showOnScreen")}
                   </button>
                 </div>
               </article>
@@ -5371,12 +5436,16 @@ function AudioTool({
           return (
             <section className="audio-bus" aria-label={t("audio.bus", { bus: busName })} key={bus}>
               <div className="audio-bus-heading">
-                <h3>{busName}</h3>
-                <span>{busState.track ? displayAudioTrackTitle(busState.track) : t("audio.empty")}</span>
+                <h3>{t("audio.currentBus", { bus: busName })}</h3>
+                <span>
+                  {t("audio.currentTrack", {
+                    track: busState.track ? displayAudioTrackTitle(busState.track) : t("audio.empty")
+                  })}
+                </span>
               </div>
               {busState.track && (
                 <div className="audio-queue-line">
-                  <span>{audioQueueLabel(busState)}</span>
+                  <span>{t("audio.queueState", { queue: audioQueueLabel(busState) })}</span>
                   {busState.fadeStatus !== "idle" && (
                     <small>{busState.fadeStatus === "fading_in" ? t("audio.fadingIn") : t("audio.fadingOut")}</small>
                   )}
@@ -5473,7 +5542,7 @@ function AudioTool({
                           onClick={() => onLoadPlaylist(bus, group.playlist, group.tracks)}
                           type="button"
                         >
-                          {t("audio.queue")}
+                          {t("audio.loadQueue")}
                         </button>
                       </div>
                       {expanded && (
@@ -5508,20 +5577,27 @@ function AudioTool({
 
 function FastSlotBar({
   slots,
+  t,
   onTrigger
 }: {
   slots: FastSlot[];
+  t: Translator;
   onTrigger: (slot: FastSlot) => void;
 }) {
   const slotByPosition = new Map(slots.map((slot) => [slot.position, slot]));
 
   return (
-    <nav className="fast-slot-bar" aria-label="Fast Access Slots">
+    <nav className="fast-slot-bar" aria-label={t("fastSlots.title")}>
       {Array.from({ length: 10 }, (_, index) => index + 1).map((position) => {
         const slot = slotByPosition.get(position);
+        const keyLabel = position === 10 ? "0" : String(position);
         return (
           <button
-            aria-label={slot ? `Fast slot ${position}: ${slot.label}` : `Fast slot ${position} empty`}
+            aria-label={
+              slot
+                ? t("fastSlots.slot", { position: keyLabel, label: slot.label })
+                : t("fastSlots.slotEmpty", { position: keyLabel })
+            }
             className={`fast-slot${slot ? " fast-slot-assigned" : ""}`}
             disabled={!slot}
             key={position}
@@ -5529,8 +5605,8 @@ function FastSlotBar({
             title={slot ? fastSlotSummary(slot) : `Alt+${position === 10 ? 0 : position}`}
             type="button"
           >
-            <span>{position === 10 ? 0 : position}</span>
-            <strong>{slot?.icon ?? slot?.label ?? "Empty"}</strong>
+            <span>{keyLabel}</span>
+            <strong>{slot?.icon ?? slot?.label ?? t("fastSlots.empty")}</strong>
           </button>
         );
       })}
@@ -6720,21 +6796,34 @@ function AssistantTool({
     : t("llm.contextEmpty");
   const providerLabel =
     provider.status === "ready"
-      ? [provider.provider, provider.model].filter(Boolean).join(" / ") || "ready"
-      : provider.status;
+      ? [provider.provider, provider.model].filter(Boolean).join(" / ") || t("llm.providerStatus.ready")
+      : localizedOrFallback(t, `llm.providerStatus.${provider.status}`, provider.status);
+  const providerMessage =
+    provider.status === "unavailable" ? t("llm.configUnavailable") : provider.message;
+  const providerStatusCard = (
+    <div className={`assistant-provider assistant-provider-${provider.status}`}>
+      <div>
+        <span>{t("llm.provider")}</span>
+        <strong>{providerLabel}</strong>
+        {providerMessage && <small>{providerMessage}</small>}
+      </div>
+      <button disabled={busy} onClick={onCheckProvider} type="button">
+        {t("llm.checkProvider")}
+      </button>
+    </div>
+  );
+
+  if (provider.status !== "ready") {
+    return (
+      <section aria-label={t("llm.title")} className="assistant-tool assistant-tool-compact" data-help-context="assistant">
+        {providerStatusCard}
+      </section>
+    );
+  }
 
   return (
     <section aria-label={t("llm.title")} className="assistant-tool" data-help-context="assistant">
-      <div className={`assistant-provider assistant-provider-${provider.status}`}>
-        <div>
-          <span>Provider</span>
-          <strong>{providerLabel}</strong>
-          {provider.message && <small>{provider.message}</small>}
-        </div>
-        <button disabled={busy} onClick={onCheckProvider} type="button">
-          Check
-        </button>
-      </div>
+      {providerStatusCard}
       <label>
         {t("llm.form")}
         <select
@@ -6771,7 +6860,7 @@ function AssistantTool({
                 >
                   {field.options.map((option) => (
                     <option key={option} value={option}>
-                      {option}
+                      {assistantOptionLabel(field.name, option, t)}
                     </option>
                   ))}
                 </select>
@@ -7079,6 +7168,12 @@ function SearchDialog({
         aria-label={t("search.title")}
         className="file-dialog tool-dialog"
         data-help-context="search"
+        onKeyDown={(event) => {
+          if (event.key === "Escape") {
+            event.preventDefault();
+            onClose();
+          }
+        }}
         onMouseDown={(event) => event.stopPropagation()}
         role="dialog"
       >
@@ -7178,17 +7273,17 @@ const PREP_HEALTH_FILTERS: Array<{ id: PrepHealthFilter; label: string }> = [
   { id: "dms", label: "DMS" }
 ];
 
-function prepHealthKindLabel(issue: PrepHealthIssue): string {
+function prepHealthKindLabel(issue: PrepHealthIssue, t?: Translator): string {
   if (issue.kind === "missing_embed") {
-    return "Missing embed";
+    return t?.("prep.kind.missingEmbed") ?? "Missing embed";
   }
   if (issue.kind === "missing_dms_reference") {
-    return "DMS reference";
+    return t?.("prep.kind.missingDmsReference") ?? "DMS reference";
   }
   if (issue.kind === "dms_parse_error") {
-    return "DMS parse";
+    return t?.("prep.kind.dmsParseError") ?? "DMS parse";
   }
-  return "Broken link";
+  return t?.("prep.kind.brokenLink") ?? "Broken link";
 }
 
 function PrepHealthDialog({
@@ -7239,10 +7334,10 @@ function PrepHealthDialog({
         </div>
         <div className="prep-health-summary">
           <div>
-            <strong>{report ? prepHealthStatusLabel(report.status) : t("prep.notChecked")}</strong>
+            <strong>{report ? prepHealthStatusLabel(report.status, t) : t("prep.status.notChecked")}</strong>
             <span>
               {report
-                ? `${report.errors} errors / ${report.warnings} warnings`
+                ? prepHealthCompactStatusLabel(report, { status: "idle" }, t)
                 : t("prep.runDescription")}
             </span>
           </div>
@@ -7257,7 +7352,7 @@ function PrepHealthDialog({
         )}
         {report && (
           <>
-            <div className="prep-health-filters" role="tablist" aria-label="Prep Check filters">
+            <div className="prep-health-filters" role="tablist" aria-label={t("prep.filters.label")}>
               {PREP_HEALTH_FILTERS.map((item) => (
                 <button
                   aria-selected={filter === item.id}
@@ -7266,7 +7361,7 @@ function PrepHealthDialog({
                   role="tab"
                   type="button"
                 >
-                  {item.label}
+                  {localizedOrFallback(t, `prep.filter.${item.id}`, item.label)}
                 </button>
               ))}
             </div>
@@ -7277,7 +7372,7 @@ function PrepHealthDialog({
                 {filteredIssues.map((issue) => (
                   <article className="prep-health-issue" key={issue.id}>
                     <div>
-                      <strong>{prepHealthKindLabel(issue)}</strong>
+                      <strong>{prepHealthKindLabel(issue, t)}</strong>
                       <span>{issue.source_path}</span>
                     </div>
                     <p>{issue.message}</p>
@@ -7563,7 +7658,10 @@ function ToolSection({
   tool: ToolId;
 }) {
   return (
-    <section className={`tool-section${open ? " tool-section-open" : ""}`} aria-label={`${title} Tool`}>
+    <section
+      className={`tool-section${open ? " tool-section-open" : ""}`}
+      aria-label={t("tools.sectionLabel", { title })}
+    >
       <div className="tool-section-header-row">
         <button
           aria-expanded={open}
@@ -7597,37 +7695,51 @@ function ToolSection({
 function metadataSummary(
   tab: OpenTab | null,
   pageState: PageLoadState,
-  editState: MetadataEditState
+  editState: MetadataEditState,
+  t: Translator
 ): string {
   if (editState.mode === "edit") {
-    return "Editing metadata";
+    return t("metadata.summary.editing");
   }
   if (!tab) {
-    return "No file selected";
+    return t("metadata.summary.noFile");
   }
   if (pageState.status === "ready") {
     return pageState.page.page_type ?? pageState.page.title;
   }
   if (pageState.status === "error") {
-    return "Could not load";
+    return t("metadata.summary.couldNotLoad");
   }
-  return "Loading";
+  return t("app.loading");
 }
 
-function screenSummary(displayState: DisplayState | null, mapState: MapState | null): string {
-  if (mapState?.presenting) {
-    return `Map: ${mapState.title ?? mapState.image_path ?? "presenting"}`;
-  }
-  const popupCount = displayState?.popups.length ?? 0;
-  const fullscreen = displayState?.fullscreen?.title ?? displayState?.fullscreen?.name ?? "Blank";
-  return popupCount > 0 ? `${fullscreen}, ${popupCount} popup${popupCount === 1 ? "" : "s"}` : fullscreen;
+function screenSummary(
+  displayState: DisplayState | null,
+  mapState: MapState | null,
+  t: Translator
+): string {
+  const mode = screenPrimaryMode(displayState, mapState);
+  const title = screenPrimaryTitle(displayState, mapState);
+  const popupCount = visibleScreenPopupCount(displayState);
+  const primary =
+    mode === "map"
+      ? t("screen.playersSeeMap", { target: title ?? t("map.noMapLoaded") })
+      : mode === "fullscreen"
+        ? t("screen.playersSeeFullscreen", { target: title ?? t("screen.fullscreen") })
+        : t("screen.playersSeeBlank");
+  return popupCount > 0 ? t("screen.playersSeeWithPopups", { primary, count: popupCount }) : primary;
 }
 
-function actionsSummary(slots: FastSlot[], bindings: ActionBinding[], midiBindings: MidiBinding[]): string {
+function actionsSummary(
+  slots: FastSlot[],
+  bindings: ActionBinding[],
+  midiBindings: MidiBinding[],
+  t: Translator
+): string {
   const parts = [
-    `${slots.length} slot${slots.length === 1 ? "" : "s"}`,
-    `${bindings.length} key${bindings.length === 1 ? "" : "s"}`,
-    `${midiBindings.length} MIDI`
+    t("actions.summary.slots", { count: slots.length }),
+    t("actions.summary.keys", { count: bindings.length }),
+    t("actions.summary.midi", { count: midiBindings.length })
   ];
   return parts.join(" / ");
 }
@@ -7645,79 +7757,96 @@ function pathPickerFilterForAction(kind: BindingActionKind | FastSlotAction["kin
   return "any";
 }
 
-function scriptsSummary(state: ScriptLoadState, runState: ScriptRunState): string {
+function scriptsSummary(state: ScriptLoadState, runState: ScriptRunState, t: Translator): string {
   if (runState.status === "running") {
-    return "Running";
+    return t("scripts.running");
   }
   if (runState.status === "ready") {
-    return runState.run.status;
+    return runState.run.status === "cancelled" ? t("scripts.cancelled") : runState.run.status;
   }
   if (state.status === "ready") {
-    return `${state.scripts.length} found`;
+    return t("scripts.summary.found", { count: state.scripts.length });
   }
   if (state.status === "loading") {
-    return "Scanning";
+    return t("scripts.scanning");
   }
   if (state.status === "error" || runState.status === "error") {
-    return "Error";
+    return t("scripts.summary.error");
   }
-  return "Ready";
+  return t("scripts.summary.ready");
+}
+
+function localizedOrFallback(t: Translator, key: string, fallback: string): string {
+  const value = t(key);
+  return value.startsWith("[[") ? fallback : value;
+}
+
+function assistantOptionLabel(fieldName: string, option: string, t: Translator): string {
+  const key = `llm.option.${fieldName}.${option.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
+  return localizedOrFallback(t, key, option);
 }
 
 function assistantSummary(
   provider: AssistantProviderState,
   result: AssistantResult | null,
-  status: AssistantStatus
+  status: AssistantStatus,
+  t?: Translator
 ): string {
   if (status.status === "generating") {
-    return "Generating";
+    return t?.("llm.generating") ?? "Generating";
   }
   if (status.status === "saving") {
-    return "Saving";
+    return t?.("app.saving") ?? "Saving";
   }
   if (status.status === "error") {
-    return "Error";
+    return t?.("llm.providerStatus.error") ?? "Error";
   }
   if (result) {
-    return "Temporary result";
+    return t?.("llm.temporaryResult") ?? "Temporary result";
   }
   if (provider.status === "checking") {
-    return "Checking provider";
+    return t?.("llm.summary.checkingProvider") ?? "Checking provider";
   }
   if (provider.status === "ready") {
-    return [provider.provider, provider.model].filter(Boolean).join(" / ") || "Provider ready";
+    return (
+      [provider.provider, provider.model].filter(Boolean).join(" / ") ||
+      t?.("llm.summary.providerReady") ||
+      "Provider ready"
+    );
   }
   if (provider.status === "unavailable" || provider.status === "error") {
-    return "Provider unavailable";
+    return t?.("llm.providerStatus.unavailable") ?? "Provider unavailable";
   }
-  return "DM only";
+  return t?.("llm.summary.dmOnly") ?? "DM only";
 }
 
-function hpSummary(rows: HpTrackerRow[], status: HpToolStatus): string {
+function hpSummary(rows: HpTrackerRow[], status: HpToolStatus, t: Translator): string {
   if (status.status === "loading") {
-    return "Loading";
+    return t("app.loading");
   }
   if (status.status === "saving") {
-    return "Saving";
+    return t("app.saving");
   }
   if (status.status === "error") {
-    return "Error";
+    return t("hp.summary.error");
   }
   const summary = summarizeHpTrackerRows(rows);
   if (summary.count === 0) {
-    return "No rows";
+    return t("hp.summary.noRows");
   }
-  return summary.down > 0 ? `${summary.count} rows, ${summary.down} down` : `${summary.count} rows`;
+  return summary.down > 0
+    ? t("hp.summary.rowsDown", { count: summary.count, down: summary.down })
+    : t("hp.summary.rows", { count: summary.count });
 }
 
-function diceSummary(history: DiceHistoryEntry[], status: DiceStatus): string {
+function diceSummary(history: DiceHistoryEntry[], status: DiceStatus, t: Translator): string {
   if (status.status === "rolling") {
-    return "Rolling";
+    return t("dice.rolling");
   }
   if (status.status === "error") {
-    return "Error";
+    return t("dice.error");
   }
-  return history[0] ? `${history[0].expression}: ${history[0].total}` : "Ready";
+  return history[0] ? `${history[0].expression}: ${history[0].total}` : t("dice.ready");
 }
 
 function mergeLoadedWorkspaceTabs(
@@ -8099,7 +8228,7 @@ function ToolsPanel({
         onToggle={onToolToggle}
         open={isToolOpen(openTools, "metadata")}
         pinned={isToolPinned(openTools, "metadata")}
-        summary={metadataSummary(activeTab, pageState, metadataEditState)}
+        summary={metadataSummary(activeTab, pageState, metadataEditState, t)}
         t={t}
         title={t("tools.metadata")}
         tool="metadata"
@@ -8128,7 +8257,7 @@ function ToolsPanel({
         onToggle={onToolToggle}
         open={isToolOpen(openTools, "assistant")}
         pinned={isToolPinned(openTools, "assistant")}
-        summary={assistantSummary(assistantProvider, assistantResult, assistantStatus)}
+        summary={assistantSummary(assistantProvider, assistantResult, assistantStatus, t)}
         t={t}
         title={t("tools.assistant")}
         tool="assistant"
@@ -8164,7 +8293,7 @@ function ToolsPanel({
         onToggle={onToolToggle}
         open={isToolOpen(openTools, "audio")}
         pinned={isToolPinned(openTools, "audio")}
-        summary={audioSummary(audioMixer)}
+        summary={audioSummary(audioMixer, t)}
         t={t}
         title={t("tools.audio")}
         tool="audio"
@@ -8209,7 +8338,7 @@ function ToolsPanel({
         onToggle={onToolToggle}
         open={isToolOpen(openTools, "dice")}
         pinned={isToolPinned(openTools, "dice")}
-        summary={diceSummary(diceHistory, diceStatus)}
+        summary={diceSummary(diceHistory, diceStatus, t)}
         t={t}
         title={t("tools.dice")}
         tool="dice"
@@ -8227,7 +8356,7 @@ function ToolsPanel({
         onToggle={onToolToggle}
         open={isToolOpen(openTools, "hp")}
         pinned={isToolPinned(openTools, "hp")}
-        summary={hpSummary(hpRows, hpStatus)}
+        summary={hpSummary(hpRows, hpStatus, t)}
         t={t}
         title={t("tools.hp")}
         tool="hp"
@@ -8249,7 +8378,7 @@ function ToolsPanel({
         onToggle={onToolToggle}
         open={isToolOpen(openTools, "actions")}
         pinned={isToolPinned(openTools, "actions")}
-        summary={actionsSummary(fastSlots, actionBindings, midiBindings)}
+        summary={actionsSummary(fastSlots, actionBindings, midiBindings, t)}
         t={t}
         title={t("tools.actions")}
         tool="actions"
@@ -8296,7 +8425,7 @@ function ToolsPanel({
         onToggle={onToolToggle}
         open={isToolOpen(openTools, "scripts")}
         pinned={isToolPinned(openTools, "scripts")}
-        summary={scriptsSummary(scriptState, scriptRunState)}
+        summary={scriptsSummary(scriptState, scriptRunState, t)}
         t={t}
         title={t("tools.scripts")}
         tool="scripts"
@@ -8314,7 +8443,7 @@ function ToolsPanel({
         onToggle={onToolToggle}
         open={isToolOpen(openTools, "screen")}
         pinned={isToolPinned(openTools, "screen")}
-        summary={screenSummary(displayState, mapState)}
+        summary={screenSummary(displayState, mapState, t)}
         t={t}
         title={t("tools.screen")}
         tool="screen"
@@ -8427,7 +8556,7 @@ function FileManagementDialog({
             onSubmit();
           }}
         >
-          {state.kind === "create" && (
+          {state.kind === "create" && !state.contextual && (
             <label>
               File type
               <select
@@ -8440,6 +8569,19 @@ function FileManagementDialog({
                 <option value="script">DMS Script</option>
               </select>
             </label>
+          )}
+          {state.kind === "create" && state.contextual && (
+            <>
+              <label>
+                Name
+                <input
+                  autoFocus
+                  onChange={(event) => onPathChange(event.target.value)}
+                  value={state.name}
+                />
+              </label>
+              <p className="dialog-hint">Will create: {state.path}</p>
+            </>
           )}
           {state.kind === "create" && state.fileType === "card" && (
             <>
@@ -8471,16 +8613,18 @@ function FileManagementDialog({
                   {state.cardTemplateCatalog.warnings.length === 1 ? "" : "s"}.
                 </p>
               )}
-              <label>
-                Card title
-                <input
-                  onChange={(event) => onCardTitleChange(event.target.value)}
-                  value={state.cardTitle}
-                />
-              </label>
+              {!state.contextual && (
+                <label>
+                  Card title
+                  <input
+                    onChange={(event) => onCardTitleChange(event.target.value)}
+                    value={state.cardTitle}
+                  />
+                </label>
+              )}
             </>
           )}
-          {state.kind !== "trash" ? (
+          {state.kind !== "trash" && !(state.kind === "create" && state.contextual) && (
             <label>
               {state.kind === "create-folder" ||
               (state.kind === "rename" && state.entryKind === "directory")
@@ -8496,7 +8640,8 @@ function FileManagementDialog({
                 }
               />
             </label>
-          ) : (
+          )}
+          {state.kind === "trash" && (
             <p>
               Move <strong>{state.path}</strong> to trash?
               {state.entryKind === "directory" ? " This includes everything inside it." : ""}
@@ -8517,18 +8662,68 @@ function FileManagementDialog({
   );
 }
 
+function DmsTrustDialog({
+  onCancel,
+  onConfirm,
+  state,
+  t
+}: {
+  onCancel: () => void;
+  onConfirm: () => void;
+  state: DmsTrustDialogState;
+  t: Translator;
+}) {
+  if (!state.open) {
+    return null;
+  }
+
+  return (
+    <div className="dialog-overlay" onMouseDown={onCancel} role="presentation">
+      <section
+        aria-label={t("scripts.trustTitle")}
+        className="file-dialog dms-trust-dialog"
+        data-help-context="document-dms"
+        onMouseDown={(event) => event.stopPropagation()}
+        role="dialog"
+      >
+        <div className="dialog-header">
+          <h2>{t("scripts.trustTitle")}</h2>
+          <button aria-label={t("app.cancel")} onClick={onCancel} type="button">
+            x
+          </button>
+        </div>
+        <p>{t("scripts.trustWarning")}</p>
+        <div className="form-field">
+          <span>{t("scripts.trustPath")}</span>
+          <code>{state.path}</code>
+        </div>
+        <div className="dialog-actions">
+          <button onClick={onCancel} type="button">
+            {t("app.cancel")}
+          </button>
+          <button onClick={onConfirm} type="button">
+            {t("scripts.trustConfirm")}
+          </button>
+        </div>
+      </section>
+    </div>
+  );
+}
+
 function DmsFormDialog({
   fileOptions,
   onChange,
   onClose,
   onSubmit,
-  state
+  state,
+  t
 }: {
   fileOptions: string[];
   onChange: (name: string, value: string | number | boolean) => void;
   onClose: () => void;
   onSubmit: () => void;
   state: DmsFormDialogState;
+  t: Translator;
 }) {
   if (!state.open) {
     return null;
@@ -8536,10 +8731,15 @@ function DmsFormDialog({
 
   return (
     <div className="dialog-overlay" role="presentation">
-      <section aria-label="DMS Script Form" className="file-dialog" role="dialog">
+      <section
+        aria-label={t("scripts.formDialog")}
+        className="file-dialog"
+        data-help-context="document-dms"
+        role="dialog"
+      >
         <div className="dialog-header">
-          <h2>Script Input</h2>
-          <button aria-label="Close DMS Script Form" onClick={onClose} type="button">
+          <h2>{t("scripts.formTitle")}</h2>
+          <button aria-label={t("scripts.closeFormDialog")} onClick={onClose} type="button">
             x
           </button>
         </div>
@@ -8601,9 +8801,9 @@ function DmsFormDialog({
           ))}
           <div className="dialog-actions">
             <button type="button" onClick={onClose}>
-              Cancel
+              {t("app.cancel")}
             </button>
-            <button type="submit">Continue</button>
+            <button type="submit">{t("app.continue")}</button>
           </div>
         </form>
       </section>
@@ -8615,12 +8815,14 @@ function DmsOutputSaveDialog({
   onChange,
   onClose,
   onSubmit,
-  state
+  state,
+  t
 }: {
   onChange: (path: string) => void;
   onClose: () => void;
   onSubmit: () => void;
   state: DmsOutputSaveDialogState;
+  t: Translator;
 }) {
   if (!state.open) {
     return null;
@@ -8629,10 +8831,15 @@ function DmsOutputSaveDialog({
 
   return (
     <div className="dialog-overlay" role="presentation">
-      <section aria-label="Save DMS Output" className="file-dialog" role="dialog">
+      <section
+        aria-label={t("scripts.saveOutputDialog")}
+        className="file-dialog"
+        data-help-context="document-dms"
+        role="dialog"
+      >
         <div className="dialog-header">
-          <h2>Save Output</h2>
-          <button aria-label="Close Save DMS Output" onClick={onClose} type="button">
+          <h2>{t("scripts.saveOutputTitle")}</h2>
+          <button aria-label={t("scripts.closeSaveOutputDialog")} onClick={onClose} type="button">
             x
           </button>
         </div>
@@ -8643,7 +8850,7 @@ function DmsOutputSaveDialog({
           }}
         >
           <label>
-            World path
+            {t("scripts.outputWorldPath")}
             <input
               onChange={(event) => onChange(event.target.value)}
               type="text"
@@ -8653,10 +8860,10 @@ function DmsOutputSaveDialog({
           {state.error && <p className="dialog-error">{state.error}</p>}
           <div className="dialog-actions">
             <button disabled={submitting} onClick={onClose} type="button">
-              Cancel
+              {t("app.cancel")}
             </button>
             <button disabled={submitting} type="submit">
-              {submitting ? "Saving..." : "Save"}
+              {submitting ? t("app.saving") : t("app.save")}
             </button>
           </div>
         </form>
@@ -8704,6 +8911,7 @@ export function App() {
   const [linksStates, setLinksStates] = useState<Record<string, LinksLoadState>>({});
   const [editorDrafts, setEditorDrafts] = useState<Record<string, EditorDraft>>({});
   const searchInputRef = useRef<HTMLInputElement | null>(null);
+  const searchButtonRef = useRef<HTMLButtonElement | null>(null);
   const [toolPanelState, setToolPanelState] = useState<ToolPanelState>(() =>
     createToolPanelState(["assistant"])
   );
@@ -8795,8 +9003,10 @@ export function App() {
     message: null
   });
   const cancelledDmsRuns = useRef<Set<string>>(new Set());
+  const [trustedScriptPaths, setTrustedScriptPaths] = useState<Set<string>>(() => new Set());
   const [linkContextMenu, setLinkContextMenu] = useState<LinkContextMenuState>({ open: false });
   const [peekState, setPeekState] = useState<PeekState>({ open: false });
+  const [dmsTrustDialog, setDmsTrustDialog] = useState<DmsTrustDialogState>({ open: false });
   const [dmsFormDialog, setDmsFormDialog] = useState<DmsFormDialogState>({ open: false });
   const [dmsOutputSaveDialog, setDmsOutputSaveDialog] = useState<DmsOutputSaveDialogState>({
     open: false
@@ -8855,7 +9065,11 @@ export function App() {
       assistantForms.map((form) => ({
         ...form,
         title: t(`llm.forms.${form.id}.title`),
-        description: t(`llm.forms.${form.id}.description`)
+        description: t(`llm.forms.${form.id}.description`),
+        fields: form.fields.map((field) => ({
+          ...field,
+          label: localizedOrFallback(t, `llm.field.${field.name}`, field.label)
+        }))
       })),
     [assistantForms, t]
   );
@@ -9154,7 +9368,7 @@ export function App() {
     function handleKeyDown(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
-        setSearchDialogOpen(true);
+        openSearchDialog();
         return;
       }
       const position = dispatchableHotkeyPosition({
@@ -9480,6 +9694,7 @@ export function App() {
       .filter(([, draft]) => isDraftDirty(draft))
       .map(([path]) => path)
   );
+  const hasDirtyDrafts = dirtyPaths.size > 0;
   const favoritePaths = new Set(favorites.map((favorite) => favorite.path));
   const idleFileState: FileLoadState = { status: "idle" };
   const idlePageState: PageLoadState = { status: "idle" };
@@ -9612,6 +9827,11 @@ export function App() {
       if (event.defaultPrevented) {
         return;
       }
+      const shortcut = Boolean(event.ctrlKey || event.metaKey);
+      const key = event.key.toLowerCase();
+      if (!shortcut || (key !== "s" && event.code !== "KeyS" && event.key !== "\\")) {
+        return;
+      }
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (target?.closest("[role='dialog'],[role='menu']")) {
         return;
@@ -9632,9 +9852,22 @@ export function App() {
       runEditorShortcutIntent(activeFileState.file, activeDraft, intent);
     }
 
-    window.addEventListener("keydown", handleEditorKeyDown);
-    return () => window.removeEventListener("keydown", handleEditorKeyDown);
+    window.addEventListener("keydown", handleEditorKeyDown, true);
+    return () => window.removeEventListener("keydown", handleEditorKeyDown, true);
   }, [activeDraft, activeFileState]);
+
+  useEffect(() => {
+    if (!hasDirtyDrafts) {
+      return;
+    }
+    function handleBeforeUnload(event: BeforeUnloadEvent) {
+      event.preventDefault();
+      event.returnValue = "";
+    }
+
+    window.addEventListener("beforeunload", handleBeforeUnload);
+    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
+  }, [hasDirtyDrafts]);
 
   const syncStateRef = useRef({
     activeContentDirty,
@@ -9872,7 +10105,34 @@ export function App() {
     setTabState((state) => activateTab(state, path));
   }
 
+  function confirmDiscardDirtyTab(path: string): boolean {
+    if (!shouldConfirmDirtyTabClose(path, dirtyPaths)) {
+      return true;
+    }
+    const tab = tabState.tabs.find((item) => item.path === path);
+    return window.confirm(
+      tab
+        ? dirtyTabCloseMessage(tab)
+        : "Close this file without saving changes?"
+    );
+  }
+
+  function confirmDiscardDirtyDrafts(message: string): boolean {
+    return !hasDirtyDrafts || window.confirm(message);
+  }
+
   function handleCloseTab(path: string) {
+    if (!confirmDiscardDirtyTab(path)) {
+      return;
+    }
+    setEditorDrafts((drafts) => {
+      if (!drafts[path]) {
+        return drafts;
+      }
+      const nextDrafts = { ...drafts };
+      delete nextDrafts[path];
+      return nextDrafts;
+    });
     setTabState((state) => {
       const nextState = closeTab(state, path);
       setWorkspaceLayout((layout) =>
@@ -10074,12 +10334,7 @@ export function App() {
     try {
       const duplicated = await duplicateWorldPath({ path: entry.path });
       await refreshWorldStructure(duplicated.affected_paths);
-      setExpandedPaths((paths) => {
-        const nextPaths = new Set(paths);
-        const parent = duplicated.path.split("/").slice(0, -1).join("/");
-        nextPaths.add(parent);
-        return nextPaths;
-      });
+      setExpandedPaths((paths) => revealWorldTreePaths(paths, [duplicated.path]));
       setWorldTreeStatus(`Duplicated ${entry.path} to ${duplicated.path}.`);
     } catch (error: unknown) {
       unmarkLocalWrite([entry.path]);
@@ -10141,7 +10396,7 @@ export function App() {
       const moved = await moveWorldPath({ path: sourcePath, new_path: targetPath });
       await refreshWorldStructure([sourcePath, moved.path, ...moved.affected_paths]);
       applyMovedPathToWorkspaceState(sourcePath, moved.path);
-      setExpandedPaths((paths) => new Set([...paths, targetEntry.path]));
+      setExpandedPaths((paths) => revealWorldTreePaths(paths, [moved.path]));
       setWorldTreeStatus(`Moved ${sourcePath} to ${moved.path}.`);
     } catch (error: unknown) {
       unmarkLocalWrite([sourcePath, targetPath]);
@@ -10495,6 +10750,7 @@ export function App() {
     let nextMapState = await loadMapPreset(presetId);
     if (present) {
       nextMapState = await presentMap();
+      setDisplayState(await fetchDisplayState());
     } else if (nextMapState.presenting) {
       nextMapState = await stopMap();
     }
@@ -10505,6 +10761,7 @@ export function App() {
     for (const effect of run.effects) {
       if (effect.kind === "screen_fullscreen") {
         setDisplayState(await setDisplayFullscreen(effect.path));
+        adoptMapState(await fetchMapState());
         setScreenToolTab("display");
       } else if (effect.kind === "screen_popup") {
         setDisplayState(await openDisplayPopup(effect.path));
@@ -10513,6 +10770,7 @@ export function App() {
         let nextMapState = await setMapSource(effect.path);
         if (effect.present) {
           nextMapState = await presentMap();
+          setDisplayState(await fetchDisplayState());
         }
         adoptMapState(nextMapState);
         setScreenToolTab("map");
@@ -10523,6 +10781,7 @@ export function App() {
         setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       } else if (effect.kind === "map_present") {
         adoptMapState(await presentMap());
+        setDisplayState(await fetchDisplayState());
         setScreenToolTab("map");
         setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       } else if (effect.kind === "map_stop") {
@@ -10601,7 +10860,7 @@ export function App() {
     }
   }
 
-  async function handleRunDmsScript(path: string) {
+  async function runTrustedDmsScript(path: string) {
     cancelledDmsRuns.current.clear();
     setScriptRunState({ status: "running", path, runId: null });
     setToolPanelState((state) => openToolSectionByUser(state, "scripts"));
@@ -10611,6 +10870,37 @@ export function App() {
       const message = error instanceof Error ? error.message : "Unknown error";
       setScriptRunState({ status: "error", message });
     }
+  }
+
+  async function handleRunDmsScript(path: string) {
+    if (!trustedScriptPaths.has(path)) {
+      setDmsTrustDialog({ open: true, path });
+      setToolPanelState((state) => openToolSectionByUser(state, "scripts"));
+      return;
+    }
+    await runTrustedDmsScript(path);
+  }
+
+  async function handleConfirmDmsTrust() {
+    if (!dmsTrustDialog.open) {
+      return;
+    }
+    const path = dmsTrustDialog.path;
+    try {
+      await acknowledgeDmsTrust();
+      setTrustedScriptPaths((paths) => new Set(paths).add(path));
+      setDmsTrustDialog({ open: false });
+      await runTrustedDmsScript(path);
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : "Unknown error";
+      setDmsTrustDialog({ open: false });
+      setScriptRunState({ status: "error", message });
+      setToolPanelState((state) => openToolSectionByUser(state, "scripts"));
+    }
+  }
+
+  function handleCancelDmsTrust() {
+    setDmsTrustDialog({ open: false });
   }
 
   function handleDmsFormChange(name: string, value: string | number | boolean) {
@@ -10685,6 +10975,7 @@ export function App() {
         return;
       }
       setDisplayState(await setDisplayFullscreen(resolved.path));
+      adoptMapState(await fetchMapState());
       setScreenToolTab("display");
       setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       return;
@@ -11042,6 +11333,7 @@ export function App() {
         content
       });
       const nextPages = await refreshWorldStructure([createdFile.path]);
+      setExpandedPaths((paths) => revealWorldTreePaths(paths, [createdFile.path]));
       const tab = tabFromFileWithPages(createdFile, nextPages);
       setFileStates((states) => ({
         ...states,
@@ -11088,6 +11380,7 @@ export function App() {
         content: dmsOutputSaveDialog.file.content
       });
       const nextPages = await refreshWorldStructure([createdFile.path]);
+      setExpandedPaths((paths) => revealWorldTreePaths(paths, [createdFile.path]));
       const tab = tabFromFileWithPages(createdFile, nextPages);
       setFileStates((states) => {
         const nextStates = { ...states };
@@ -11266,12 +11559,23 @@ export function App() {
         }
         return { ...drafts, [activeTab.path]: createEditorDraft(response.file) };
       });
+      const titledTabs = tabState.tabs.map((tab) =>
+        tab.path === activeTab.path ? { ...tab, title: response.page.title } : tab
+      );
+      const persistedTitledTabs = titledTabs.filter(shouldPersistTab);
+      const persistedActivePath = persistedTitledTabs.some((tab) => tab.path === tabState.activePath)
+        ? tabState.activePath
+        : persistedTitledTabs[0]?.path ?? null;
       setTabState((state) => ({
         ...state,
         tabs: state.tabs.map((tab) =>
           tab.path === activeTab.path ? { ...tab, title: response.page.title } : tab
         )
       }));
+      void saveWorkspaceTabs(
+        persistedTitledTabs.map(openTabToWorkspaceTab),
+        persistedActivePath
+      ).catch(() => {});
       replaceWorkspaceCollections(activeTab.path, replacement);
       setMetadataEdits((states) => {
         const nextStates = { ...states };
@@ -11304,7 +11608,7 @@ export function App() {
       return;
     }
 
-    const nextState = createFileDialogState(kind, folderPath);
+    const nextState = createFileDialogState(kind, folderPath, true);
     setFileDialog(nextState);
     if (kind === "card") {
       void loadCardTemplateCatalog(nextState.cardTemplateId);
@@ -11473,9 +11777,26 @@ export function App() {
   function handleFileDialogPathChange(path: string) {
     setFileDialog((state) => {
       if (state.kind === "create") {
+        if (state.contextual) {
+          const nextPath =
+            state.fileType === "card"
+              ? defaultCardPath(state.folderPath, cardTitleFromPath(contextualManagedFilePath(state.folderPath, path, state.fileType)))
+              : contextualManagedFilePath(state.folderPath, path, state.fileType);
+          return {
+            ...state,
+            name: path,
+            path: nextPath,
+            cardTitle:
+              state.fileType === "card"
+                ? cardTitleFromPath(nextPath)
+                : state.cardTitle,
+            error: null
+          };
+        }
         return {
           ...state,
           path,
+          folderPath: path.split("/").slice(0, -1).join("/"),
           cardTitle:
             state.fileType === "card" && state.cardTitle === DEFAULT_CARD_TITLE
               ? cardTitleFromPath(path)
@@ -11498,8 +11819,8 @@ export function App() {
       if (state.kind !== "create") {
         return state;
       }
-      const folderPath = state.path.split("/").slice(0, -1).join("/");
-      const nextState = createFileDialogState(fileType, folderPath);
+      const folderPath = state.folderPath || state.path.split("/").slice(0, -1).join("/");
+      const nextState = createFileDialogState(fileType, folderPath, state.contextual);
       if (fileType === "card") {
         void loadCardTemplateCatalog(nextState.cardTemplateId);
       }
@@ -11518,7 +11839,7 @@ export function App() {
       if (state.kind !== "create") {
         return state;
       }
-      const folderPath = state.path.split("/").slice(0, -1).join("/");
+      const folderPath = state.folderPath || state.path.split("/").slice(0, -1).join("/");
       return {
         ...state,
         cardTitle,
@@ -11600,7 +11921,6 @@ export function App() {
     const pageTitles = new Map(nextPages.map((page) => [page.path, page.title]));
     setWorldTree(nextWorldTree);
     setPages(nextPages);
-    setExpandedPaths(new Set(collectDirectoryPaths(nextWorldTree)));
     setTabState((state) => ({
       ...state,
       tabs: state.tabs.map((tab) =>
@@ -11654,6 +11974,13 @@ export function App() {
     state: Extract<FileDialogState, { kind: "create" }>
   ) {
     const path = normalizeDialogPath(state.path);
+    const contextualNameError = state.contextual
+      ? validateContextualFileName(state.name)
+      : null;
+    if (contextualNameError) {
+      setFileDialog({ ...state, path, error: contextualNameError, status: "idle" });
+      return;
+    }
     if (state.fileType === "card" && !state.cardTitle.trim()) {
       setFileDialog({ ...state, path, error: "Enter a card title.", status: "idle" });
       return;
@@ -11676,6 +12003,7 @@ export function App() {
             : undefined
       });
       const nextPages = await refreshWorldStructure([createdFile.path]);
+      setExpandedPaths((paths) => revealWorldTreePaths(paths, [createdFile.path]));
       const tab = tabFromFileWithPages(createdFile, nextPages);
       setFileStates((states) => ({
         ...states,
@@ -11713,7 +12041,7 @@ export function App() {
     try {
       const folder = await createWorldFolder({ path });
       await refreshWorldStructure([folder.path]);
-      setExpandedPaths((paths) => new Set([...paths, folder.path]));
+      setExpandedPaths((paths) => new Set([...revealWorldTreePaths(paths, [folder.path]), folder.path]));
       setFileDialog({ kind: "closed" });
     } catch (error: unknown) {
       unmarkLocalWrite([path]);
@@ -11755,6 +12083,7 @@ export function App() {
       });
       await refreshWorldStructure([state.path, moved.path, ...moved.affected_paths]);
       applyMovedPathToWorkspaceState(state.path, moved.path);
+      setExpandedPaths((paths) => revealWorldTreePaths(paths, [moved.path]));
       setWorldTreeStatus(`Moved ${state.path} to ${moved.path}.`);
       setFileDialog({ kind: "closed" });
     } catch (error: unknown) {
@@ -11862,6 +12191,7 @@ export function App() {
         ...(restorePath !== entry.original_path ? { restore_path: restorePath } : {})
       });
       await refreshWorldStructure([restorePath]);
+      setExpandedPaths((paths) => revealWorldTreePaths(paths, [restorePath]));
       await loadTrashDialog();
     } catch (error: unknown) {
       unmarkLocalWrite([restorePath]);
@@ -11990,6 +12320,16 @@ export function App() {
 
   function handleOpenRecent(tab: WorkspaceTab) {
     openWorkspaceTab(tab);
+  }
+
+  function openSearchDialog() {
+    setSearchDialogOpen(true);
+    window.setTimeout(() => searchInputRef.current?.focus(), 0);
+  }
+
+  function closeSearchDialog() {
+    setSearchDialogOpen(false);
+    window.setTimeout(() => searchButtonRef.current?.focus(), 0);
   }
 
   function handleToggleFolder(path: string) {
@@ -12135,6 +12475,8 @@ export function App() {
     setTableSnapshotStatus({ status: "idle", message: null });
     setScriptState({ status: "idle" });
     setScriptRunState({ status: "idle" });
+    setTrustedScriptPaths(new Set());
+    setDmsTrustDialog({ open: false });
     setDmsFormDialog({ open: false });
     setDmsOutputSaveDialog({ open: false });
     setTabState({ tabs: [], activePath: null });
@@ -12219,6 +12561,9 @@ export function App() {
   }
 
   async function handleOpenWorld(worldId: string) {
+    if (!confirmDiscardDirtyDrafts("Switch worlds and discard unsaved changes?")) {
+      return;
+    }
     prepareWorldSwitch();
     try {
       const nextWorldLibrary = await openWorld(worldId);
@@ -12250,6 +12595,9 @@ export function App() {
       });
       return;
     }
+    if (!confirmDiscardDirtyDrafts("Create a new world and discard unsaved changes?")) {
+      return;
+    }
 
     setWorldCreateDialog({ ...worldCreateDialog, name, status: "submitting", error: null });
     try {
@@ -12274,6 +12622,7 @@ export function App() {
     }
     try {
       setDisplayState(await setDisplayFullscreen(path));
+      adoptMapState(await fetchMapState());
     } catch {
     }
   }
@@ -12320,6 +12669,7 @@ export function App() {
           clear_existing: true
         })
       );
+      adoptMapState(await fetchMapState());
     } catch {
     }
   }
@@ -12327,6 +12677,7 @@ export function App() {
   async function handleBlankDisplay() {
     try {
       const nextDisplayState = await blankDisplay();
+      adoptMapState(await fetchMapState());
       if (hasResidualPopupsAfterBlank(nextDisplayState)) {
         const clearedState = await clearDisplayPopups();
         setDisplayState({ ...clearedState, fullscreen: null, popups: [] });
@@ -12639,7 +12990,10 @@ export function App() {
   async function handleMapRevealCreate(reveal: MapRevealPayload) {
     try {
       adoptMapState(await addMapReveal(reveal));
-      setMapActionStatus({ status: "ready", message: "Reveal added." });
+      setMapActionStatus({
+        status: "ready",
+        message: reveal.action === "hide" ? t("map.hideAdded") : t("map.revealAdded")
+      });
     } catch (error: unknown) {
       setMapActionStatus({
         status: "error",
@@ -12711,6 +13065,7 @@ export function App() {
   async function handleMapPresent() {
     try {
       adoptMapState(await presentMap());
+      setDisplayState(await fetchDisplayState());
       setMapActionStatus({ status: "ready", message: "Map presented to player screen." });
     } catch (error: unknown) {
       setMapActionStatus({
@@ -13159,10 +13514,11 @@ export function App() {
     const paneLinksState = tab ? linksStates[tab.path] ?? idleLinksState : idleLinksState;
     const paneDraft = tab ? editorDrafts[tab.path] ?? null : null;
     const viewerDraft = paneActive || !paneDraft ? paneDraft : { ...paneDraft, mode: "preview" as const };
+    const paneLabel = paneId === "main" ? t("live.pane.main") : t("live.pane.secondary");
 
     return (
       <section
-        aria-label={`${paneId === "main" ? "Main" : "Secondary"} viewer pane`}
+        aria-label={t("workspace.viewerPane", { pane: paneLabel })}
         className={`viewer-surface workspace-viewer-pane ${
           paneActive ? "workspace-viewer-pane-active" : ""
         }`}
@@ -13176,9 +13532,9 @@ export function App() {
         onKeyDownCapture={(event) => handlePaneKeyDown(paneActive, paneFileState, paneDraft, event)}
       >
         <div className="workspace-pane-header">
-          <strong>{paneId === "main" ? "Main" : "Secondary"}</strong>
-          <span>{tab ? tab.title ?? tab.name : "Empty"}</span>
-          {paneActive && <em>Target</em>}
+          <strong>{paneLabel}</strong>
+          <span>{tab ? tab.title ?? tab.name : t("live.pane.empty")}</span>
+          {paneActive && <em>{t("actions.target")}</em>}
         </div>
         {tab ? (
           <>
@@ -13373,7 +13729,8 @@ export function App() {
             onDelete={() => void handleDeleteCurrentWorkspace()}
             onHelp={() => openContextHelp(helpContextForMediaKind(activeTab?.mediaKind ?? null))}
             onNewCard={handleOpenNewCardDialog}
-            onSearch={() => setSearchDialogOpen(true)}
+            onSearch={openSearchDialog}
+            searchButtonRef={searchButtonRef}
             onModeChange={handleWorkspaceModeChange}
             onNew={() =>
               setWorkspaceDialog({ kind: "create", name: "", status: "idle", error: null })
@@ -13395,7 +13752,7 @@ export function App() {
                 error: null
               });
             }}
-            prepStatus={livePrepHealthLabel(prepHealthReport).replace("Prep: ", "")}
+            prepStatus={livePrepHealthLabel(prepHealthReport, t).replace(/^.*?:\s*/, "")}
             summaries={workspaces}
             t={t}
           />
@@ -13405,7 +13762,22 @@ export function App() {
                 const tabDraft = editorDrafts[tab.path];
                 const dirty = tabDraft ? isDraftDirty(tabDraft) : false;
                 return (
-                  <div className="tab-shell" key={tab.path}>
+                  <div
+                    className="tab-shell"
+                    key={tab.path}
+                    onAuxClick={(event) => {
+                      if (event.button === 1) {
+                        event.preventDefault();
+                        event.stopPropagation();
+                        handleCloseTab(tab.path);
+                      }
+                    }}
+                    onMouseDown={(event) => {
+                      if (event.button === 1) {
+                        event.preventDefault();
+                      }
+                    }}
+                  >
                     <button
                       aria-selected={tab.path === tabState.activePath}
                       className="tab-button"
@@ -13427,6 +13799,7 @@ export function App() {
                   </div>
                 );
               })}
+              <span className="tab-strip-count">{t("workspace.openFileCount", { count: tabState.tabs.length })}</span>
             </div>
           )}
 
@@ -13631,12 +14004,12 @@ export function App() {
               t={t}
             />
           </div>
-          <FastSlotBar slots={fastSlots} onTrigger={(slot) => void handleFastSlotTrigger(slot)} />
+          <FastSlotBar slots={fastSlots} onTrigger={(slot) => void handleFastSlotTrigger(slot)} t={t} />
         </div>
       </section>
       <SearchDialog
         inputRef={searchInputRef}
-        onClose={() => setSearchDialogOpen(false)}
+        onClose={closeSearchDialog}
         onOpenOtherPane={(result) => {
           handleOpenSearchResultOtherPane(result);
           setSearchDialogOpen(false);
@@ -13806,12 +14179,20 @@ export function App() {
         onClose={() => setDmsFormDialog({ open: false })}
         onSubmit={() => void handleDmsFormSubmit()}
         state={dmsFormDialog}
+        t={t}
+      />
+      <DmsTrustDialog
+        onCancel={handleCancelDmsTrust}
+        onConfirm={handleConfirmDmsTrust}
+        state={dmsTrustDialog}
+        t={t}
       />
       <DmsOutputSaveDialog
         onChange={handleDmsOutputSavePathChange}
         onClose={() => setDmsOutputSaveDialog({ open: false })}
         onSubmit={() => void handleSaveDmsOutput()}
         state={dmsOutputSaveDialog}
+        t={t}
       />
       <ContextHelpDialog
         onClose={closeContextHelp}

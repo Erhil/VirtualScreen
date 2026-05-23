@@ -132,6 +132,23 @@ def test_reads_svg_as_text_file_and_media(tmp_path: Path) -> None:
     assert media_response.text == "<svg></svg>"
 
 
+def test_svg_media_response_has_safety_headers(tmp_path: Path) -> None:
+    world = tmp_path / "world"
+    media = world / "Media"
+    media.mkdir(parents=True)
+    (media / "map.svg").write_text(
+        "<svg><script>alert('x')</script></svg>",
+        encoding="utf-8",
+    )
+    client = make_client(world)
+
+    response = client.get("/api/world/media", params={"path": "Media/map.svg"})
+
+    assert response.status_code == 200
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert "sandbox" in response.headers["content-security-policy"]
+
+
 def test_serves_gif_and_mp4_media(tmp_path: Path) -> None:
     world = tmp_path / "world"
     media = world / "Media"

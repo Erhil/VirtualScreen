@@ -32,6 +32,80 @@ export function defaultManagedFilePath(
   return joinWorldPath(folderPath, "New Note.md");
 }
 
+export function defaultManagedFileName(fileType: ManagedFileType): string {
+  if (fileType === "csv") {
+    return "new-table";
+  }
+  if (fileType === "card") {
+    return "New Card";
+  }
+  if (fileType === "script") {
+    return "new-script";
+  }
+  return "New Note";
+}
+
+export function managedFileExtension(fileType: ManagedFileType): string {
+  if (fileType === "csv") {
+    return ".csv";
+  }
+  if (fileType === "card") {
+    return ".cs";
+  }
+  if (fileType === "script") {
+    return ".dms";
+  }
+  return ".md";
+}
+
+export function contextualManagedFilePath(
+  folderPath: string,
+  name: string,
+  fileType: ManagedFileType
+): string {
+  const normalizedName = name.trim().replace(/\\/g, "/").replace(/^\/+|\/+$/g, "");
+  const extension = managedFileExtension(fileType);
+  const hasExtension =
+    fileType === "markdown"
+      ? /\.(md|markdown)$/i.test(normalizedName)
+      : normalizedName.toLowerCase().endsWith(extension);
+  return joinWorldPath(folderPath, hasExtension ? normalizedName : `${normalizedName}${extension}`);
+}
+
+export function validateContextualFileName(name: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) {
+    return "Enter a name.";
+  }
+  if (/[\\/]/.test(trimmed)) {
+    return "Enter a filename, not a path.";
+  }
+  return null;
+}
+
+export function ancestorDirectoryPaths(path: string): string[] {
+  const parts = path.trim().replace(/\\/g, "/").split("/").filter(Boolean);
+  const ancestors = [""];
+  for (let index = 0; index < parts.length - 1; index += 1) {
+    ancestors.push(parts.slice(0, index + 1).join("/"));
+  }
+  return ancestors;
+}
+
+export function revealWorldTreePaths(
+  expandedPaths: Iterable<string>,
+  affectedPaths: Iterable<string>
+): Set<string> {
+  const nextPaths = new Set(expandedPaths);
+  nextPaths.add("");
+  for (const path of affectedPaths) {
+    for (const ancestor of ancestorDirectoryPaths(path)) {
+      nextPaths.add(ancestor);
+    }
+  }
+  return nextPaths;
+}
+
 export function defaultManagedFolderPath(folderPath: string): string {
   return joinWorldPath(folderPath, "New Folder");
 }

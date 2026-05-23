@@ -66,7 +66,14 @@ export function WorldPathPicker({
     [audioTracks, candidates, tree]
   );
   const results = useMemo(
-    () => searchWorldPathPickerCandidates(filterWorldPathPickerCandidates(baseCandidates, filter ?? "any"), query),
+    () => {
+      const activeFilter = filter ?? "any";
+      return searchWorldPathPickerCandidates(
+        filterWorldPathPickerCandidates(baseCandidates, activeFilter),
+        query,
+        activeFilter
+      );
+    },
     [baseCandidates, filter, query]
   );
   const activeResult = selectedWorldPathPickerCandidate(results, selectedIndex);

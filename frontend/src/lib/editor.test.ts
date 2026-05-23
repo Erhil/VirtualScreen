@@ -134,6 +134,12 @@ describe("editor helpers", () => {
     ).toBe("save");
     expect(
       editorShortcutIntent(
+        { code: "KeyS", ctrlKey: true, key: "ы" },
+        { dirty: true, mode: "edit", supportsSplit: true }
+      )
+    ).toBe("save");
+    expect(
+      editorShortcutIntent(
         { ctrlKey: true, key: "\\" },
         { dirty: false, mode: "edit", supportsSplit: true }
       )

@@ -1,5 +1,7 @@
+import os
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings, get_settings
@@ -10,6 +12,13 @@ def make_client(world: Path) -> TestClient:
     app = create_app()
     app.dependency_overrides[get_settings] = lambda: Settings(world_root=world)
     return TestClient(app)
+
+
+def make_symlink(source: Path, link: Path, *, target_is_directory: bool = False) -> None:
+    try:
+        os.symlink(source, link, target_is_directory=target_is_directory)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"Symlinks are not available in this environment: {exc}")
 
 
 def file_preconditions(client: TestClient, path: str) -> dict[str, str]:
@@ -132,6 +141,37 @@ def test_create_rejects_existing_traversal_missing_parent_unsupported_and_intern
         ).status_code
         == 400
     )
+
+
+def test_world_routes_reject_nested_reserved_path_segments(tmp_path: Path) -> None:
+    world = tmp_path / "world"
+    (world / "Notes" / ".virtualscreen").mkdir(parents=True)
+    (world / "Notes" / ".git").mkdir()
+    (world / "Notes" / "__pycache__").mkdir()
+    (world / "Notes" / ".virtualscreen" / "secret.md").write_text(
+        "# Secret\n",
+        encoding="utf-8",
+    )
+    client = make_client(world)
+
+    read_response = client.get(
+        "/api/world/file",
+        params={"path": "Notes/.virtualscreen/secret.md"},
+    )
+    create_response = client.post(
+        "/api/world/file",
+        json={"path": "Notes/.git/new.md", "file_type": "markdown"},
+    )
+    folder_response = client.post(
+        "/api/world/folder",
+        json={"path": "Notes/__pycache__/New"},
+    )
+
+    assert read_response.status_code == 400
+    assert create_response.status_code == 400
+    assert folder_response.status_code == 400
+    assert not (world / "Notes" / ".git" / "new.md").exists()
+    assert not (world / "Notes" / "__pycache__" / "New").exists()
 
 
 def test_renames_markdown_and_updates_index(tmp_path: Path) -> None:
@@ -545,6 +585,35 @@ def test_duplicates_folder_path_recursively_and_updates_index(tmp_path: Path) ->
         "Source Copy/Nested/notes.md",
         "Source/Nested/notes.md",
     ]
+
+
+def test_tree_search_index_and_duplicate_do_not_follow_symlinks(tmp_path: Path) -> None:
+    world = tmp_path / "world"
+    outside = tmp_path / "outside"
+    (world / "Source").mkdir(parents=True)
+    outside.mkdir()
+    (world / "Source" / "note.md").write_text("# Local Note\n", encoding="utf-8")
+    (outside / "secret.md").write_text("# Outside Secret\noutside-needle\n", encoding="utf-8")
+    make_symlink(outside / "secret.md", world / "linked-secret.md")
+    make_symlink(outside, world / "LinkedOutside", target_is_directory=True)
+    make_symlink(outside / "secret.md", world / "Source" / "linked-secret.md")
+    client = make_client(world)
+
+    tree_response = client.get("/api/world/tree")
+    search_response = client.get("/api/search", params={"q": "outside-needle"})
+    duplicate_response = client.post(
+        "/api/world/path/duplicate",
+        json={"path": "Source", "new_path": "Source Copy"},
+    )
+
+    assert tree_response.status_code == 200
+    root_names = {child["name"] for child in tree_response.json()["children"]}
+    assert "linked-secret.md" not in root_names
+    assert "LinkedOutside" not in root_names
+    assert search_response.status_code == 200
+    assert search_response.json() == []
+    assert duplicate_response.status_code == 400
+    assert not (world / "Source Copy").exists()
 
 
 def test_duplicate_path_rejects_unsafe_missing_duplicate_and_self_descendant(

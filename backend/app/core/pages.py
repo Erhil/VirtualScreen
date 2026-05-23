@@ -13,6 +13,8 @@ from app.core.paths import normalize_relative_path
 MARKDOWN_EXTENSIONS = {".md", ".markdown"}
 TEXT_BODY_EXTENSIONS = {".csv", ".cs", ".dms", ".md", ".markdown", ".svg", ".txt"}
 SIDECAR_METADATA_DIR = ".virtualscreen/metadata"
+MAX_INDEX_TEXT_BYTES = 1_000_000
+MAX_SIDECAR_METADATA_BYTES = 64_000
 
 
 @dataclass(frozen=True)
@@ -62,11 +64,52 @@ def _read_sidecar_metadata(root: Path, relative_path: str) -> dict[str, Any]:
     sidecar_path = metadata_sidecar_path(root, relative_path)
     if not sidecar_path.exists():
         return {}
+    if sidecar_path.stat().st_size > MAX_SIDECAR_METADATA_BYTES:
+        return {}
     try:
         loaded = json.loads(sidecar_path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
+    except (UnicodeDecodeError, json.JSONDecodeError):
         return {}
     return loaded if isinstance(loaded, dict) else {}
+
+
+def _sha256_file(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _read_index_text(path: Path, stat_size: int) -> tuple[bytes | None, str]:
+    if stat_size > MAX_INDEX_TEXT_BYTES:
+        return None, ""
+    try:
+        body = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError:
+        return None, ""
+    return body.encode("utf-8"), body
+
+
+def _is_link_or_reparse_point(path: Path) -> bool:
+    try:
+        stat_result = path.lstat()
+    except OSError:
+        return True
+    return path.is_symlink() or bool(getattr(stat_result, "st_file_attributes", 0) & 0x400)
+
+
+def _has_link_or_reparse_part(root: Path, path: Path) -> bool:
+    try:
+        relative_parts = path.relative_to(root).parts
+    except ValueError:
+        return True
+    current = root
+    for part in relative_parts:
+        current = current / part
+        if _is_link_or_reparse_point(current):
+            return True
+    return False
 
 
 def render_sidecar_metadata(
@@ -117,27 +160,20 @@ def parse_page(root: Path, path: Path) -> PageData:
     relative_path = normalize_relative_path(path.relative_to(root).as_posix())
     metadata: dict[str, Any] = {}
     body = ""
-    content_bytes = path.read_bytes()
+    content_hash = _sha256_file(path)
 
     if path.suffix.lower() in MARKDOWN_EXTENSIONS:
-        raw_content = path.read_text(encoding="utf-8")
-        content_bytes = raw_content.encode("utf-8")
-        post = frontmatter.loads(raw_content)
-        metadata = dict(post.metadata)
-        body = post.content
+        content_bytes, raw_content = _read_index_text(path, stat.st_size)
+        if content_bytes is not None:
+            post = frontmatter.loads(raw_content)
+            metadata = dict(post.metadata)
+            body = post.content
     elif path.suffix.lower() in CARD_EXTENSIONS:
-        try:
-            raw_content = path.read_text(encoding="utf-8")
-            content_bytes = raw_content.encode("utf-8")
+        content_bytes, raw_content = _read_index_text(path, stat.st_size)
+        if content_bytes is not None:
             metadata, body = parse_card(raw_content)
-        except UnicodeDecodeError:
-            body = ""
     elif path.suffix.lower() in TEXT_BODY_EXTENSIONS:
-        try:
-            body = path.read_text(encoding="utf-8")
-            content_bytes = body.encode("utf-8")
-        except UnicodeDecodeError:
-            body = ""
+        _, body = _read_index_text(path, stat.st_size)
         metadata = _read_sidecar_metadata(root, relative_path)
     else:
         metadata = _read_sidecar_metadata(root, relative_path)
@@ -156,7 +192,7 @@ def parse_page(root: Path, path: Path) -> PageData:
         aliases=_string_list(metadata.get("aliases")),
         size=stat.st_size,
         modified_at=datetime.fromtimestamp(stat.st_mtime, tz=UTC),
-        hash=hashlib.sha256(content_bytes).hexdigest(),
+        hash=content_hash,
         metadata=metadata,
         fields=fields,
         body=body,
@@ -172,10 +208,12 @@ def scan_pages(root: Path) -> list[PageData]:
     for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix().lower()):
         if any(part in ignored_names for part in path.relative_to(root).parts):
             continue
+        if _has_link_or_reparse_part(root, path):
+            continue
         if path.is_file():
             try:
                 pages.append(parse_page(root, path))
-            except (FileNotFoundError, PermissionError):
+            except (FileNotFoundError, OSError, PermissionError):
                 continue
 
     return pages

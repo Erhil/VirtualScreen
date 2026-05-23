@@ -6,8 +6,10 @@ import type {
   WorldMediaKind,
   WorkspaceTab
 } from "./api";
+import type { MapState } from "./map";
 
 export type { DisplayState };
+export type ScreenPrimaryMode = "blank" | "fullscreen" | "map";
 
 export type LocationLike = {
   protocol: string;
@@ -68,11 +70,42 @@ export function displayPopupVisibilityStatus(popup: DisplayPopup): "visible" | "
 }
 
 export function displayPopupVisibilityLabel(popup: DisplayPopup): string {
-  return displayPopupVisibilityStatus(popup);
+  return isDisplayPopupVisible(popup) ? "Shown to players" : "Staged (hidden)";
 }
 
 export function hasResidualPopupsAfterBlank(state: DisplayState): boolean {
   return state.popups.length > 0;
+}
+
+export function screenPrimaryMode(
+  displayState: DisplayState | null,
+  mapState: MapState | null
+): ScreenPrimaryMode {
+  if (mapState?.presenting && mapState.image_path) {
+    return "map";
+  }
+  if (displayState?.fullscreen) {
+    return "fullscreen";
+  }
+  return "blank";
+}
+
+export function screenPrimaryTitle(
+  displayState: DisplayState | null,
+  mapState: MapState | null
+): string | null {
+  const mode = screenPrimaryMode(displayState, mapState);
+  if (mode === "map") {
+    return mapState?.title ?? mapState?.image_path ?? null;
+  }
+  if (mode === "fullscreen") {
+    return displayState?.fullscreen?.title ?? displayState?.fullscreen?.name ?? null;
+  }
+  return null;
+}
+
+export function visibleScreenPopupCount(displayState: DisplayState | null): number {
+  return visibleDisplayPopups(displayState?.popups ?? []).length;
 }
 
 export function displayTabFromItem(item: DisplayItem): WorkspaceTab {

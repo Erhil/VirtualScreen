@@ -47,6 +47,20 @@ def test_display_background_serves_optional_world_internal_image(tmp_path: Path)
     assert response.content == b"\xff\xd8\xff\xe0screen-background\xff\xd9"
 
 
+def test_svg_display_background_has_safety_headers(tmp_path: Path) -> None:
+    world = make_world(tmp_path)
+    background = world / ".virtualscreen" / "screen-background.svg"
+    background.parent.mkdir()
+    background.write_text("<svg><script>alert('x')</script></svg>", encoding="utf-8")
+    client = make_client(world)
+
+    response = client.get("/api/screen/display/background")
+
+    assert response.status_code == 200
+    assert response.headers["x-content-type-options"] == "nosniff"
+    assert "sandbox" in response.headers["content-security-policy"]
+
+
 def test_display_state_starts_blank(tmp_path: Path) -> None:
     client = make_client(make_world(tmp_path))
 
@@ -195,6 +209,42 @@ def test_display_show_active_shortcut_clears_and_sets_content(tmp_path: Path) ->
     assert popup_response.json()["fullscreen"] is None
     assert popup_response.json()["popups"][0]["path"] == "Handout.md"
     assert popup_response.json()["popups"][0]["preset"] == "clue"
+
+
+def test_display_primary_actions_stop_presented_map(tmp_path: Path) -> None:
+    client = make_client(make_world(tmp_path))
+
+    assert client.put("/api/map/source", json={"path": "Media/map.svg"}).status_code == 200
+    assert client.post("/api/map/present").status_code == 200
+
+    fullscreen_response = client.put("/api/display/fullscreen", json={"path": "README.md"})
+
+    assert fullscreen_response.status_code == 200
+    assert client.get("/api/screen/map/state").json()["image_path"] is None
+    assert client.get("/api/screen/map/media", params={"path": "Media/map.svg"}).status_code == 403
+
+    assert client.post("/api/map/present").status_code == 200
+    blank_response = client.post("/api/display/blank")
+
+    assert blank_response.status_code == 200
+    assert blank_response.json()["fullscreen"] is None
+    assert client.get("/api/screen/map/state").json()["image_path"] is None
+
+
+def test_display_show_active_fullscreen_stops_presented_map(tmp_path: Path) -> None:
+    client = make_client(make_world(tmp_path))
+
+    assert client.put("/api/map/source", json={"path": "Media/map.svg"}).status_code == 200
+    assert client.post("/api/map/present").status_code == 200
+
+    response = client.post(
+        "/api/display/show-active",
+        json={"path": "README.md", "mode": "fullscreen", "clear_existing": False},
+    )
+
+    assert response.status_code == 200
+    assert response.json()["fullscreen"]["path"] == "README.md"
+    assert client.get("/api/screen/map/state").json()["image_path"] is None
 
 
 def test_display_accepts_pdf_paths(tmp_path: Path) -> None:

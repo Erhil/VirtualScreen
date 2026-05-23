@@ -27,9 +27,10 @@ def request_token(scope: Scope) -> str | None:
     if header_token:
         return header_token
 
-    query_token = QueryParams(scope.get("query_string", b"")).get("token")
-    if query_token:
-        return query_token
+    if scope.get("type") == "websocket":
+        query_token = QueryParams(scope.get("query_string", b"")).get("token")
+        if query_token:
+            return query_token
 
     cookie_header = headers.get("cookie")
     if not cookie_header:

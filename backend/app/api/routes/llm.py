@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 
 from app.core.config import Settings, get_settings
-from app.core.llm import LlmError, LlmTimeoutError, generate_llm_text
+from app.core.llm import LlmError, LlmTimeoutError, generate_llm_text, resolve_llm_runtime
 
 router = APIRouter()
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -16,6 +16,7 @@ class LlmConfigResponse(BaseModel):
     provider: str | None
     base_url: str
     model: str | None
+    reason: str | None = None
     max_input_chars: int
     max_output_tokens: int
     temperature: float
@@ -38,13 +39,14 @@ class LlmGenerateResponse(BaseModel):
 
 @router.get("/llm/config", response_model=LlmConfigResponse)
 def llm_config(settings: SettingsDep) -> LlmConfigResponse:
-    enabled = settings.llm_enabled
+    runtime = resolve_llm_runtime(settings)
     return LlmConfigResponse(
-        enabled=enabled,
-        configured=enabled,
-        provider="openai-compatible" if enabled else None,
-        base_url=settings.llm_base_url.strip(),
-        model=settings.llm_model.strip() if enabled else None,
+        enabled=runtime.enabled,
+        configured=runtime.enabled,
+        provider="openai-compatible" if runtime.enabled else None,
+        base_url=runtime.base_url,
+        model=runtime.model if runtime.enabled else None,
+        reason=runtime.reason,
         max_input_chars=settings.llm_max_input_chars,
         max_output_tokens=settings.llm_max_output_tokens,
         temperature=settings.llm_temperature,
@@ -54,13 +56,18 @@ def llm_config(settings: SettingsDep) -> LlmConfigResponse:
 
 @router.post("/llm/generate", response_model=LlmGenerateResponse)
 def llm_generate(payload: LlmGeneratePayload, settings: SettingsDep) -> LlmGenerateResponse:
-    if not settings.llm_enabled:
-        raise HTTPException(status_code=400, detail="LLM provider is not configured.")
+    runtime = resolve_llm_runtime(settings)
+    if not runtime.enabled:
+        raise HTTPException(
+            status_code=400,
+            detail=runtime.reason or "LLM provider is not configured.",
+        )
 
     try:
         result = generate_llm_text(
             payload.prompt,
             settings,
+            runtime=runtime,
             max_tokens=payload.max_tokens,
             temperature=payload.temperature,
         )

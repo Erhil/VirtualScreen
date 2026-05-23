@@ -9,7 +9,12 @@ from typing import Literal
 from app.core.audio import AUDIO_EXTENSIONS
 from app.core.card_templates import TEMPLATE_ID_PATTERN, VALID_KINDS, validate_card_shape
 from app.core.file_safety import atomic_write_bytes, backup_file
-from app.core.paths import WorldPathError, normalize_relative_path, resolve_under_root
+from app.core.paths import (
+    WorldPathError,
+    normalize_relative_path,
+    reserved_path_part,
+    resolve_under_root,
+)
 
 MAX_MANIFEST_FILES = 200
 MAX_ZIP_BYTES = 50 * 1024 * 1024
@@ -104,6 +109,7 @@ def _message_for_reason(reason: str | None) -> str | None:
         "directory": "Pack entry is a directory.",
         "invalid_card_template": "Card template is not valid.",
         "missing": "Manifest file is missing from the zip.",
+        "duplicate_path": "Pack manifest contains the same target path more than once.",
         "nested_card_template": "Card templates must be direct JSON files.",
         "symlink": "Symbolic links are not allowed.",
         "unsafe_path": "Path is not safe to import.",
@@ -283,7 +289,21 @@ def _validate_card_template(content: bytes) -> bool:
     return validate_card_shape(loaded.get("card"), allowed_kinds=VALID_KINDS) is None
 
 
+def _reserved_path_reason(path: str) -> str | None:
+    parts = path.split("/")
+    if ".music" in parts and parts[0] != ".music":
+        return "unsafe_path"
+    if reserved_path_part(path, allow_virtualscreen_card_template=True):
+        if path.startswith(".virtualscreen/card-templates/"):
+            return "nested_card_template"
+        return "unsafe_path"
+    return None
+
+
 def _skip_reason(path: str, info: zipfile.ZipInfo | None, content: bytes | None) -> str | None:
+    reserved_reason = _reserved_path_reason(path)
+    if reserved_reason:
+        return reserved_reason
     if info is None:
         return "missing"
     if info.is_dir():
@@ -329,6 +349,7 @@ def plan_system_pack(root: Path, content: bytes) -> PackPlan:
         manifest = _read_manifest(archive)
         infos = _zip_file_map(archive)
         manifest_paths = set(manifest.files)
+        seen_paths: set[str] = set()
         files: list[PlannedFile] = []
 
         for raw_path in manifest.files:
@@ -343,6 +364,17 @@ def plan_system_pack(root: Path, content: bytes) -> PackPlan:
                     )
                 )
                 continue
+            if relative_path in seen_paths:
+                files.append(
+                    PlannedFile(
+                        source_path=raw_path,
+                        path=relative_path,
+                        status="invalid",
+                        reason="duplicate_path",
+                    )
+                )
+                continue
+            seen_paths.add(relative_path)
             info = infos.get(relative_path)
             content_bytes = archive.read(info) if info and not _is_symlink(info) else None
             reason = _skip_reason(relative_path, info, content_bytes)
@@ -386,6 +418,9 @@ def _rename_target_reason(
     target_path: str,
     content: bytes,
 ) -> str | None:
+    reserved_reason = _reserved_path_reason(target_path)
+    if reserved_reason:
+        return reserved_reason
     if Path(source_path).suffix.lower() != Path(target_path).suffix.lower():
         return "unsupported_extension"
     if target_path.startswith(".music/"):
@@ -433,6 +468,9 @@ def import_system_pack(
         infos = _zip_file_map(archive)
         imported: list[ImportedFile] = []
         skipped: list[PlannedFile] = []
+        planned_writes: list[
+            tuple[PlannedFile, str, Path, Literal["created", "overwritten", "renamed"], str | None]
+        ] = []
 
         for item in plan.files:
             if item.status == "skipped":
@@ -456,12 +494,9 @@ def import_system_pack(
             target_relative_path = item.path
             target_path = resolve_under_root(root, target_relative_path)
             source_path: str | None = None
-            backup_path: str | None = None
             action: Literal["created", "overwritten", "renamed"] = "created"
 
             if item.status == "conflict" and decision == "overwrite":
-                backup = backup_file(root, target_path)
-                backup_path = normalize_relative_path(backup.relative_to(root).as_posix())
                 action = "overwritten"
             elif item.status == "conflict" and decision == "rename":
                 source_path = item.path
@@ -479,7 +514,23 @@ def import_system_pack(
                     raise SystemPackError("Rename target already exists.")
                 action = "renamed"
 
-            info = infos[target_relative_path if source_path is None else source_path]
+            planned_writes.append((item, target_relative_path, target_path, action, source_path))
+
+        seen_final_targets: set[str] = set()
+        for _, target_relative_path, target_path, action, _ in planned_writes:
+            normalized_target = normalize_relative_path(target_relative_path)
+            if normalized_target in seen_final_targets:
+                raise SystemPackError("System pack import has duplicate final target paths.")
+            seen_final_targets.add(normalized_target)
+            if action in {"created", "renamed"} and target_path.exists():
+                raise SystemPackError("System pack import target already exists.")
+
+        for item, target_relative_path, target_path, action, source_path in planned_writes:
+            backup_path: str | None = None
+            if action == "overwritten":
+                backup = backup_file(root, target_path)
+                backup_path = normalize_relative_path(backup.relative_to(root).as_posix())
+            info = infos[source_path or item.path]
             content_bytes = archive.read(info)
             target_path.parent.mkdir(parents=True, exist_ok=True)
             atomic_write_bytes(target_path, content_bytes)

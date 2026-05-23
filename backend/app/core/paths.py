@@ -5,6 +5,49 @@ class WorldPathError(ValueError):
     """Raised when a user-supplied world path is invalid or unsafe."""
 
 
+RESERVED_WORLD_PATH_PARTS = {".virtualscreen", ".git", "__pycache__"}
+
+
+def is_direct_card_template_path(relative_path: str) -> bool:
+    parts = relative_path.split("/")
+    return (
+        len(parts) == 3
+        and parts[0] == ".virtualscreen"
+        and parts[1] == "card-templates"
+        and parts[2].endswith(".json")
+    )
+
+
+def reserved_path_part(
+    relative_path: str,
+    *,
+    allow_virtualscreen_card_template: bool = False,
+) -> str | None:
+    parts = [part for part in relative_path.split("/") if part]
+    if allow_virtualscreen_card_template and is_direct_card_template_path(relative_path):
+        for part in parts:
+            if part in {".git", "__pycache__"}:
+                return part
+        return None
+    for part in parts:
+        if part in RESERVED_WORLD_PATH_PARTS:
+            return part
+    return None
+
+
+def ensure_no_reserved_path_parts(
+    relative_path: str,
+    *,
+    allow_virtualscreen_card_template: bool = False,
+    message: str = "World path contains a reserved folder.",
+) -> None:
+    if reserved_path_part(
+        relative_path,
+        allow_virtualscreen_card_template=allow_virtualscreen_card_template,
+    ):
+        raise WorldPathError(message)
+
+
 def normalize_relative_path(raw_path: str | Path) -> str:
     """Normalize a browser/API path to a POSIX-style path relative to the world root."""
 

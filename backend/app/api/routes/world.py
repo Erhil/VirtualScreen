@@ -23,7 +23,12 @@ from app.core.file_safety import (
 )
 from app.core.index import rebuild_index
 from app.core.pages import MARKDOWN_EXTENSIONS, parse_page
-from app.core.paths import WorldPathError, normalize_relative_path, resolve_under_root
+from app.core.paths import (
+    WorldPathError,
+    ensure_no_reserved_path_parts,
+    normalize_relative_path,
+    resolve_under_root,
+)
 
 router = APIRouter()
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -237,7 +242,9 @@ def _metadata_for_path(
 
 def _resolve_existing_file(root: Path, requested_path: str) -> Path:
     try:
-        path = resolve_under_root(root, requested_path)
+        relative_path = normalize_relative_path(requested_path)
+        ensure_no_reserved_path_parts(relative_path, message="World file path is not allowed.")
+        path = resolve_under_root(root, relative_path)
     except WorldPathError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -252,6 +259,13 @@ def _resolve_existing_file(root: Path, requested_path: str) -> Path:
 def _reject_internal_path(relative_path: str) -> None:
     if relative_path == "" or relative_path.split("/")[0] in {".virtualscreen", ".music"}:
         raise HTTPException(status_code=400, detail="World management path is not allowed.")
+    try:
+        ensure_no_reserved_path_parts(
+            relative_path,
+            message="World management path is not allowed.",
+        )
+    except WorldPathError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _resolve_management_target(root: Path, requested_path: str) -> tuple[str, Path]:
@@ -279,11 +293,15 @@ def _file_kind_for_management(path: Path) -> tuple[str, str]:
 
 
 def _validate_managed_tree(path: Path) -> None:
+    if _is_link_or_reparse_point(path):
+        raise HTTPException(status_code=400, detail="World folder contains unmanaged paths.")
     if path.is_file():
         return
     if not path.is_dir():
         raise HTTPException(status_code=404, detail="World path was not found.")
     for child in path.rglob("*"):
+        if _is_link_or_reparse_point(child):
+            raise HTTPException(status_code=400, detail="World folder contains unmanaged paths.")
         if child.name in {".virtualscreen", ".music", ".git", "__pycache__"}:
             raise HTTPException(status_code=400, detail="World folder contains unmanaged paths.")
 
@@ -379,7 +397,7 @@ def _descendant_file_paths(root: Path, path: Path) -> list[str]:
     paths = [
         normalize_relative_path(child.relative_to(root).as_posix())
         for child in path.rglob("*")
-        if child.is_file()
+        if child.is_file() and not _is_link_or_reparse_point(child)
     ]
     return sorted(paths) or [normalize_relative_path(path.relative_to(root).as_posix())]
 
@@ -412,6 +430,8 @@ def _entry_for_path(path: Path, root: Path) -> WorldEntry:
         for child in sorted_children:
             if child.name in {".music", ".virtualscreen", ".git", "__pycache__"}:
                 continue
+            if _is_link_or_reparse_point(child):
+                continue
             try:
                 children.append(_entry_for_path(child, root))
             except OSError:
@@ -442,7 +462,19 @@ def _trash_root(root: Path) -> Path:
 def _path_size(path: Path) -> int:
     if path.is_file():
         return path.stat().st_size
-    return sum(child.stat().st_size for child in path.rglob("*") if child.is_file())
+    return sum(
+        child.stat().st_size
+        for child in path.rglob("*")
+        if child.is_file() and not _is_link_or_reparse_point(child)
+    )
+
+
+def _is_link_or_reparse_point(path: Path) -> bool:
+    try:
+        stat_result = path.lstat()
+    except OSError:
+        return True
+    return path.is_symlink() or bool(getattr(stat_result, "st_file_attributes", 0) & 0x400)
 
 
 def _cleanup_empty_trash_dirs(root: Path, path: Path) -> None:
@@ -889,9 +921,15 @@ def world_media(path: str, settings: SettingsDep) -> FileResponse:
 
     _, fallback_type = file_kind
     content_type = _content_type(file_path, fallback_type)
+    headers = {"X-Content-Type-Options": "nosniff"}
+    if extension == ".svg":
+        headers["Content-Security-Policy"] = (
+            "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'"
+        )
     return FileResponse(
         file_path,
         media_type=content_type,
         filename=file_path.name,
         content_disposition_type="inline",
+        headers=headers,
     )

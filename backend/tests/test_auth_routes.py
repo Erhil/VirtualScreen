@@ -61,6 +61,16 @@ def test_auth_header_unlocks_protected_api(tmp_path: Path, monkeypatch) -> None:
     assert response.status_code == 200
 
 
+def test_http_query_token_does_not_unlock_protected_api(tmp_path: Path, monkeypatch) -> None:
+    client = make_client(tmp_path, monkeypatch, token="secret")
+
+    query_response = client.get("/api/world/tree?token=secret")
+    header_response = client.get("/api/world/tree", headers={"X-VirtualScreen-Token": "secret"})
+
+    assert query_response.status_code == 401
+    assert header_response.status_code == 200
+
+
 def test_logout_clears_cookie_access(tmp_path: Path, monkeypatch) -> None:
     client = make_client(tmp_path, monkeypatch, token="secret")
 

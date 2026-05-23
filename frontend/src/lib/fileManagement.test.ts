@@ -3,6 +3,9 @@ import { describe, expect, it } from "vitest";
 import type { WorldFile, WorkspaceTab } from "./api";
 import {
   affectedDescendantPaths,
+  ancestorDirectoryPaths,
+  contextualManagedFilePath,
+  defaultManagedFileName,
   defaultManagedFilePath,
   defaultManagedFolderPath,
   fileNameFromPath,
@@ -16,6 +19,8 @@ import {
   removeDescendantWorkspacePaths,
   removeWorkspacePath,
   replaceWorkspacePath,
+  revealWorldTreePaths,
+  validateContextualFileName,
   validateManagedFolderPath,
   validateManagedFilePath,
   workspaceTabFromWorldFile
@@ -87,6 +92,46 @@ describe("file management helpers", () => {
     expect(defaultManagedFilePath("Tables", "csv")).toBe("Tables/new-table.csv");
     expect(defaultManagedFilePath("Scripts", "script")).toBe("Scripts/new-script.dms");
     expect(defaultManagedFolderPath("NPCs")).toBe("NPCs/New Folder");
+  });
+
+  it("builds contextual create paths from simple names and fixed types", () => {
+    expect(defaultManagedFileName("markdown")).toBe("New Note");
+    expect(contextualManagedFilePath("Notes", "Rumors", "markdown")).toBe("Notes/Rumors.md");
+    expect(contextualManagedFilePath("Notes", "Rumors.markdown", "markdown")).toBe(
+      "Notes/Rumors.markdown"
+    );
+    expect(contextualManagedFilePath("Tables", "events", "csv")).toBe("Tables/events.csv");
+    expect(contextualManagedFilePath("Scripts", "setup.dms", "script")).toBe(
+      "Scripts/setup.dms"
+    );
+    expect(contextualManagedFilePath("Cards", "Captain Ilyra", "card")).toBe(
+      "Cards/Captain Ilyra.cs"
+    );
+    expect(
+      validateManagedFilePath(
+        contextualManagedFilePath("Notes", "../escape", "markdown"),
+        "markdown"
+      )
+    ).toBe("Path cannot contain parent-directory traversal.");
+  });
+
+  it("rejects folder paths in contextual create names", () => {
+    expect(validateContextualFileName("Rumors")).toBeNull();
+    expect(validateContextualFileName("")).toBe("Enter a name.");
+    expect(validateContextualFileName("Nested/Rumors")).toBe("Enter a filename, not a path.");
+  });
+
+  it("reveals only ancestors of affected world tree paths", () => {
+    expect(ancestorDirectoryPaths("Notes/Harbor/Rumors.md")).toEqual([
+      "",
+      "Notes",
+      "Notes/Harbor"
+    ]);
+    expect(Array.from(revealWorldTreePaths(new Set(["", "Cards"]), ["Notes/Rumors.md"]))).toEqual([
+      "",
+      "Cards",
+      "Notes"
+    ]);
   });
 
   it("builds workspace tabs from saved world files", () => {

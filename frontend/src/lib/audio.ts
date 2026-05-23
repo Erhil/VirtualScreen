@@ -1,4 +1,5 @@
 import type { AudioBus, AudioPlaylist, AudioTrack } from "./api";
+import type { Translator } from "../lang";
 
 export const AUDIO_BUSES: AudioBus[] = ["ambient", "music", "effect"];
 
@@ -629,16 +630,16 @@ export function audioQueueLabel(busState: AudioBusState): string {
   return busState.track ? displayAudioTrackTitle(busState.track) : "Quiet";
 }
 
-export function audioSummary(state: AudioMixerState): string {
+export function audioSummary(state: AudioMixerState, t?: Translator): string {
   const active = AUDIO_BUSES.filter((bus) => state[bus].track);
   if (active.length === 0) {
-    return "Quiet";
+    return t?.("audio.summary.quiet") ?? "Quiet";
   }
   const playing = active.filter((bus) => state[bus].playing);
   if (playing.length === 0) {
-    return `${active.length} loaded`;
+    return t?.("audio.summary.loaded", { count: active.length }) ?? `${active.length} loaded`;
   }
-  return `${playing.length} playing`;
+  return t?.("audio.summary.playing", { count: playing.length }) ?? `${playing.length} playing`;
 }
 
 export function busLabel(bus: AudioBus): string {

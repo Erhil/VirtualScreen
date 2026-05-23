@@ -1,14 +1,25 @@
 from pathlib import Path
 
+import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings, get_settings
 from app.main import create_app
 
 
-def make_client(world: Path) -> TestClient:
+@pytest.fixture(autouse=True)
+def clear_cached_settings():
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
+
+
+def make_client(world: Path, *, enable_legacy_scenarios: bool = True) -> TestClient:
     app = create_app()
-    app.dependency_overrides[get_settings] = lambda: Settings(world_root=world)
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        world_root=world,
+        enable_legacy_scenarios=enable_legacy_scenarios,
+    )
     return TestClient(app)
 
 
@@ -58,6 +69,36 @@ def make_world(tmp_path: Path) -> Path:
         '{"id":"invalid","name":"Invalid","script":"../oops.py","inputs":[]}',
     )
     return world
+
+
+def test_legacy_scenario_routes_are_unavailable_by_default(tmp_path: Path) -> None:
+    world = make_world(tmp_path)
+    client = make_client(world, enable_legacy_scenarios=False)
+
+    list_response = client.get("/api/scenarios")
+    run_response = client.post("/api/scenarios/create-npc/run", json={"inputs": {"name": "Mira"}})
+    runs_response = client.get("/api/scenarios/runs")
+
+    assert Settings(world_root=world).enable_legacy_scenarios is False
+    assert list_response.status_code == 404
+    assert run_response.status_code == 404
+    assert runs_response.status_code == 404
+
+
+def test_legacy_scenario_env_opt_in_restores_compatibility(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    world = make_world(tmp_path)
+    monkeypatch.setenv("VIRTUALSCREEN_WORLD_ROOT", str(world))
+    monkeypatch.setenv("VIRTUALSCREEN_ENABLE_LEGACY_SCENARIOS", "true")
+    get_settings.cache_clear()
+    client = TestClient(create_app())
+
+    response = client.get("/api/scenarios")
+
+    assert response.status_code == 200
+    assert [scenario["id"] for scenario in response.json()] == ["create-npc"]
 
 
 def test_valid_manifest_is_discovered_and_invalid_manifest_is_ignored(tmp_path: Path) -> None:

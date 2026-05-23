@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import type { DisplayState, PrepHealthResponse, WorkspaceLayout, WorkspaceTab } from "./api";
 import { createAudioMixerState, loadAudioTrack, setAudioBusPlaying } from "./audio";
+import { createTranslator } from "../lang";
 import type { MapState } from "./map";
 import {
   liveAudioBusSummaries,
@@ -44,6 +45,35 @@ const tabs: WorkspaceTab[] = [
   { path: "README.md", name: "README.md", title: "Home", mediaKind: "markdown" },
   { path: "NPCs/Captain.md", name: "Captain.md", title: "Captain Ilyra", mediaKind: "markdown" }
 ];
+
+const t = createTranslator({
+  "live.audio.loaded": "загружено",
+  "live.audio.playing": "играет",
+  "live.audio.quiet": "тихо",
+  "live.map": "Карта: {value}",
+  "live.map.fogReveals": "туман, открыто: {count}",
+  "live.map.noMap": "нет карты",
+  "live.map.playerPins": "меток игроков: {count}",
+  "live.map.presenting": "на экране",
+  "live.map.ready": "готова",
+  "live.output": "Экран: {value}",
+  "live.output.clear": "пусто",
+  "live.pane.empty": "пусто",
+  "live.pane.main": "Главная",
+  "live.pane.secondary": "Вторая",
+  "live.pane.unsaved": "не сохранено",
+  "live.popups": "Окна: {value}",
+  "live.popups.none": "нет",
+  "live.popups.staged": "скрыто: {count}",
+  "live.popups.visible": "видно: {count}",
+  "live.prep": "Подготовка: {value}",
+  "prep.count.error": "{count} ошибка",
+  "prep.count.errors": "Ошибок: {count}",
+  "prep.count.warning": "{count} предупреждение",
+  "prep.count.warnings": "Предупреждений: {count}",
+  "prep.status.notChecked": "Не проверено",
+  "prep.status.ready": "Готово"
+});
 
 function prepReport(overrides: Partial<PrepHealthResponse>): PrepHealthResponse {
   return {
@@ -155,6 +185,20 @@ describe("live status helpers", () => {
     );
     expect(livePrepHealthLabel(prepReport({ status: "error", errors: 1, warnings: 1, issue_count: 2 }))).toBe(
       "Prep: 1 error, 1 warning"
+    );
+  });
+
+  it("summarizes live labels with localized strings", () => {
+    expect(liveOutputSummary(blankDisplay, t)).toBe("Экран: пусто");
+    expect(livePopupSummary(blankDisplay, t)).toBe("Окна: нет");
+    expect(liveMapSummary(baseMap, t)).toBe("Карта: нет карты");
+    expect(livePaneSummary(layout, [], new Set(), t)).toEqual([
+      "Главная: пусто",
+      "Вторая: пусто"
+    ]);
+    expect(livePrepHealthLabel(null, t)).toBe("Подготовка: Не проверено");
+    expect(livePrepHealthLabel(prepReport({ status: "warning", warnings: 2, issue_count: 2 }), t)).toBe(
+      "Подготовка: Предупреждений: 2"
     );
   });
 });

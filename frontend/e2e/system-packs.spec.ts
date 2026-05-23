@@ -74,6 +74,7 @@ async function importPreview(dialog: Locator) {
   await expect(importButton).toBeEnabled();
   await importButton.click();
   await expect(dialog.locator(".settings-pack-summary")).toBeVisible();
+  await expect(importButton).toBeDisabled();
 }
 
 async function closeSettings(dialog: Locator) {
@@ -117,7 +118,7 @@ test("imports the real sample-world Harbor Starter Pack", async ({ page }) => {
   await page.reload();
 
   await page
-    .getByRole("region", { name: /Audio Tool/ })
+    .getByRole("region", { name: /Audio tool/i })
     .getByRole("button")
     .first()
     .click();
@@ -162,7 +163,7 @@ test("previews and imports a valid content-only system pack", async ({ page }) =
   await page.reload();
 
   await page
-    .getByRole("region", { name: /Audio Tool|Инструмент Аудио/ })
+    .getByRole("region", { name: /Audio tool|Инструмент Аудио/i })
     .getByRole("button")
     .first()
     .click();

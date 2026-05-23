@@ -144,6 +144,7 @@ test("Dice has context help and DMS roll regression @smoke", async ({ page, requ
   await page.keyboard.press("F1");
   await expect(page.getByRole("dialog", { name: "Context Help" })).toContainText("Dice Help");
 
+  await request.post("/api/scripts/trust");
   const runResponse = await request.post("/api/scripts/run", {
     data: { path: "Scripts/dice-roll.dms" }
   });

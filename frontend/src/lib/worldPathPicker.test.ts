@@ -89,6 +89,57 @@ describe("world path picker helpers", () => {
     ]);
   });
 
+  it("ranks displayable picker results with media before text paths", () => {
+    const candidates = flattenWorldPathPickerEntries({
+      ...tree,
+      children: [
+        ...(tree.children ?? []),
+        {
+          name: "Guide",
+          path: "Guide",
+          kind: "directory",
+          extension: null,
+          children: [
+            {
+              name: "03 Screen Map Audio.md",
+              path: "Guide/03 Screen Map Audio.md",
+              kind: "file",
+              extension: "md",
+              title: "Screen Map Audio",
+              children: []
+            }
+          ]
+        },
+        {
+          name: "Media",
+          path: "Media",
+          kind: "directory",
+          extension: null,
+          children: [
+            {
+              name: "sample-map.svg",
+              path: "Media/sample-map.svg",
+              kind: "file",
+              extension: "svg",
+              children: []
+            }
+          ]
+        }
+      ]
+    });
+
+    const displayable = filterWorldPathPickerCandidates(candidates, "displayable");
+
+    expect(displayable.map(pathOf).slice(0, 2)).toEqual([
+      "Media/sample-map.svg",
+      "Cards/Lantern Whisper.cs"
+    ]);
+    expect(searchWorldPathPickerCandidates(displayable, "map").map(pathOf).slice(0, 2)).toEqual([
+      "Media/sample-map.svg",
+      "Guide/03 Screen Map Audio.md"
+    ]);
+  });
+
   it("searches path, name, title, and aliases with stable scoring", () => {
     const candidates = flattenWorldPathPickerEntries(tree);
 

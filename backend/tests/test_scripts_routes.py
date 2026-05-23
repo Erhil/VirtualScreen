@@ -5,6 +5,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core import scripts as scripts_core
 from app.core.config import Settings, get_settings
 from app.core.map import map_state_from_payload, save_map_preset
 from app.main import create_app
@@ -16,13 +17,22 @@ def clear_cached_settings():
     get_settings.cache_clear()
 
 
-def make_client(world: Path, *, token: str | None = None) -> TestClient:
+def make_client(
+    world: Path,
+    *,
+    token: str | None = None,
+    auto_trust: bool = True,
+) -> TestClient:
     app = create_app()
     app.dependency_overrides[get_settings] = lambda: Settings(
         access_token=token,
         world_root=world,
     )
-    return TestClient(app)
+    client = TestClient(app)
+    if auto_trust:
+        trust_response = client.post("/api/scripts/trust")
+        assert trust_response.status_code == 200
+    return client
 
 
 def make_world(tmp_path: Path) -> Path:
@@ -57,6 +67,57 @@ def wait_for_run(
             return run
         time.sleep(0.05)
     raise AssertionError(f"DMS run {run_id} did not finish")
+
+
+def test_dms_trust_required_before_run_and_acknowledgement_enables_it(tmp_path: Path) -> None:
+    world = make_world(tmp_path)
+    write_script(world, "Scripts/trusted.dms", "create_note('Notes/trusted.md', '# Trusted')\n")
+    (world / "Notes").mkdir()
+    client = make_client(world, auto_trust=False)
+
+    trust_status = client.get("/api/scripts/trust")
+    blocked = client.post("/api/scripts/run", json={"path": "Scripts/trusted.dms"})
+    trust = client.post("/api/scripts/trust")
+    started = client.post("/api/scripts/run", json={"path": "Scripts/trusted.dms"})
+
+    assert trust_status.status_code == 200
+    assert trust_status.json() == {"trusted": False}
+    assert blocked.status_code == 403
+    assert not (world / "Notes" / "trusted.md").exists()
+    assert trust.status_code == 200
+    assert trust.json() == {"trusted": True}
+    assert started.status_code == 200
+    assert wait_for_run(client, started.json()["run_id"])["status"] == "success"
+    assert (world / "Notes" / "trusted.md").exists()
+
+
+def test_dms_subprocess_environment_does_not_inherit_unrelated_secrets(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    monkeypatch.setenv("UNRELATED_SECRET_TOKEN", "do-not-leak")
+    world = make_world(tmp_path)
+    write_script(
+        world,
+        "Scripts/env.dms",
+        "\n".join(
+            [
+                "import os",
+                "secret = os.environ.get('UNRELATED_SECRET_TOKEN', 'missing')",
+                "run_id = 'set' if os.environ.get('VIRTUALSCREEN_DMS_RUN_ID') else 'missing'",
+                "render_md(f'{secret}|{run_id}')",
+            ]
+        ),
+    )
+    client = make_client(world)
+
+    started = client.post("/api/scripts/run", json={"path": "Scripts/env.dms"})
+    run = wait_for_run(client, started.json()["run_id"])
+
+    assert run["status"] == "success"
+    assert run["outputs"][0]["content"] == "missing|set"
+    assert "do-not-leak" not in run["stdout"]
+    assert "do-not-leak" not in run["stderr"]
 
 
 def test_lists_dms_scripts_and_rejects_unsafe_run_paths(tmp_path: Path) -> None:
@@ -96,6 +157,55 @@ def test_run_dms_render_outputs(tmp_path: Path) -> None:
     assert [output["media_kind"] for output in run["outputs"]] == ["markdown", "csv"]
     assert run["outputs"][0]["content"] == "# Hello DMS"
     assert run["outputs"][1]["content"] == "result,event\n1,Door"
+
+
+def test_dms_runs_and_outputs_are_retained_with_caps(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    world = make_world(tmp_path)
+    write_script(
+        world,
+        "Scripts/many_outputs.dms",
+        "\n".join(
+            [
+                "render_md('1234567890abcdef')",
+                "render_csv('abcdefghijklmnop')",
+                "render_md('third output')",
+            ]
+        ),
+    )
+    monkeypatch.setattr(scripts_core, "MAX_DMS_RUNS", 2)
+    monkeypatch.setattr(scripts_core, "MAX_DMS_OUTPUTS_PER_RUN", 2)
+    monkeypatch.setattr(scripts_core, "MAX_DMS_OUTPUT_CONTENT_CHARS", 12)
+    with scripts_core._RUNS_LOCK:
+        scripts_core._RUNS.clear()
+    client = make_client(world)
+
+    run_ids: list[str] = []
+    try:
+        for _ in range(3):
+            started = client.post("/api/scripts/run", json={"path": "Scripts/many_outputs.dms"})
+            assert started.status_code == 200
+            run_id = started.json()["run_id"]
+            run_ids.append(run_id)
+            wait_for_run(client, run_id)
+
+        first_response = client.get(f"/api/scripts/runs/{run_ids[0]}")
+        second_response = client.get(f"/api/scripts/runs/{run_ids[1]}")
+        latest_response = client.get(f"/api/scripts/runs/{run_ids[2]}")
+
+        assert first_response.status_code == 404
+        assert second_response.status_code == 200
+        assert latest_response.status_code == 200
+        outputs = latest_response.json()["outputs"]
+        assert len(outputs) == 2
+        assert outputs[0]["content"] == "1234567890ab"
+        assert outputs[1]["content"] == "abcdefghijkl"
+        assert not (world / ".virtualscreen" / "dms-runs" / run_ids[0]).exists()
+    finally:
+        with scripts_core._RUNS_LOCK:
+            scripts_core._RUNS.clear()
 
 
 def test_dms_form_pauses_and_resumes(tmp_path: Path) -> None:
@@ -434,6 +544,30 @@ def test_dms_note_write_safety(tmp_path: Path) -> None:
         started = client.post("/api/scripts/run", json={"path": f"Scripts/{name}"})
         run = wait_for_run(client, started.json()["run_id"])
         assert run["status"] == "error", name
+
+
+def test_dms_writes_reject_reserved_path_segments(tmp_path: Path) -> None:
+    world = make_world(tmp_path)
+    (world / "Notes" / ".virtualscreen").mkdir(parents=True)
+    (world / "Notes" / ".git").mkdir()
+    (world / "Notes" / "__pycache__").mkdir()
+    scripts = {
+        "nested_internal.dms": "create_note('Notes/.virtualscreen/no.md', '# No')",
+        "nested_git.dms": "create_note('Notes/.git/no.md', '# No')",
+        "nested_cache.dms": "create_note('Notes/__pycache__/no.md', '# No')",
+    }
+    client = make_client(world)
+
+    for name, content in scripts.items():
+        write_script(world, f"Scripts/{name}", content)
+        started = client.post("/api/scripts/run", json={"path": f"Scripts/{name}"})
+        run = wait_for_run(client, started.json()["run_id"])
+        assert run["status"] == "error", name
+        assert "DMS write path is not allowed" in run["stderr"]
+
+    assert not (world / "Notes" / ".virtualscreen" / "no.md").exists()
+    assert not (world / "Notes" / ".git" / "no.md").exists()
+    assert not (world / "Notes" / "__pycache__" / "no.md").exists()
 
 
 def test_dms_card_template_can_create_valid_card(tmp_path: Path) -> None:

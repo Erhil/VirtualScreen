@@ -41,6 +41,10 @@ async function closeRussianSettings(page: Page) {
   await page.getByRole("button", { name: "Закрыть", exact: true }).click();
 }
 
+async function visiblePageText(page: Page) {
+  return page.locator("body").evaluate((element) => (element as HTMLElement).innerText);
+}
+
 test("Settings switches the UI language and persists it after reload @smoke", async ({ page }) => {
   await page.goto("/");
   await expect(page.getByRole("navigation", { name: "World files" })).toBeVisible();
@@ -106,7 +110,7 @@ test("Russian labels cover core tools and document state", async ({ page }) => {
   await switchToRussian(page);
   await closeRussianSettings(page);
 
-  await page.getByRole("button", { name: "README.md" }).click();
+  await page.locator(".file-item").filter({ hasText: "README.md" }).first().click();
   await expect(page.locator(".document-state")).toContainText("Просмотр");
 
   await page.locator(".tool-section-header").filter({ hasText: "Метаданные" }).click();
@@ -127,7 +131,78 @@ test("Russian labels cover core tools and document state", async ({ page }) => {
 
   await page.locator(".tool-section-header").filter({ hasText: "Экран" }).click();
   await expect(page.getByRole("region", { name: "Управление экраном" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Пустой экран" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Пустой экран", exact: true })).toBeVisible();
+});
+
+test("Russian visible UI has no English live-session leftovers", async ({ page }) => {
+  await page.goto("/");
+  await switchToRussian(page);
+  await closeRussianSettings(page);
+
+  await page.locator(".file-item").filter({ hasText: "README.md" }).first().click();
+  await expect(page.getByRole("heading", { name: "E2E World" })).toBeVisible();
+  await page.locator(".markdown-viewer").dblclick();
+
+  await page.locator(".tool-section-header").filter({ hasText: "Ассистент" }).click();
+  await expect(page.getByRole("button", { name: /^Ассистент/ })).toBeVisible();
+
+  const text = await visiblePageText(page);
+  expect(text).not.toMatch(/\b(Quiet|Ready|Target)\b/);
+  expect(text).not.toMatch(/\b(rows|slots)\b/i);
+  expect(text).not.toContain("LLM assistant is not configured.");
+  expect(text).not.toContain("Provider unavailable");
+  await expect(page.locator(".document-shortcuts")).toHaveCount(0);
+});
+
+test("Russian tool panel and HP controls fit above the fast-slot dock", async ({ page }) => {
+  await page.setViewportSize({ width: 1366, height: 768 });
+  await page.goto("/");
+  await switchToRussian(page);
+  await closeRussianSettings(page);
+
+  await page.locator(".tool-section-header").filter({ hasText: "Хиты" }).click();
+  const hpTool = page.getByRole("region", { name: "Хиты", exact: true });
+  await hpTool.getByRole("button", { name: "Добавить" }).click();
+
+  const boxes = await page.evaluate(() => {
+    const tools = document.querySelector(".tools-panel")?.getBoundingClientRect();
+    const dock = document.querySelector(".fast-slot-bar")?.getBoundingClientRect();
+    return tools && dock ? { toolsBottom: tools.bottom, dockTop: dock.top } : null;
+  });
+  expect(boxes).not.toBeNull();
+  expect(boxes!.toolsBottom).toBeLessThanOrEqual(boxes!.dockTop + 1);
+
+  const clippedRows = await page.locator(".hp-row-main, .hp-row-actions").evaluateAll((rows) =>
+    rows
+      .filter((row) => row.scrollWidth > row.clientWidth + 1 || row.scrollHeight > row.clientHeight + 1)
+      .map((row) => row.className)
+  );
+  expect(clippedRows).toEqual([]);
+});
+
+test("tab strip shows an open-file count when tabs can overflow", async ({ page }) => {
+  await page.goto("/");
+
+  for (const name of ["README.md", "Captain Ilyra", "random-events.csv", "hello_world1.dms"]) {
+    await page.locator(".file-item").filter({ hasText: name }).first().click();
+  }
+
+  await expect(page.locator(".tab-strip-count")).toBeVisible();
+  await expect(page.locator(".tab-strip-count")).toContainText("4 open");
+});
+
+test("world tree add buttons are visually quiet but still reachable", async ({ page }) => {
+  await page.goto("/");
+
+  const addButton = page.locator(".tree-add-button").first();
+  await expect(addButton).toBeVisible();
+  const opacity = await addButton.evaluate((button) => Number(getComputedStyle(button).opacity));
+  expect(opacity).toBeLessThan(0.75);
+
+  await addButton.focus();
+  await expect(addButton).toBeFocused();
+  await addButton.click();
+  await expect(page.locator(".tree-add-menu")).toBeVisible();
 });
 
 test("Player screen does not expose DM Settings controls", async ({ page }) => {

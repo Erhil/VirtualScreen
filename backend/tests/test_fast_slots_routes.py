@@ -32,9 +32,12 @@ def make_world(tmp_path: Path) -> Path:
     return world
 
 
-def make_client(world: Path) -> TestClient:
+def make_client(world: Path, *, enable_legacy_scenarios: bool = True) -> TestClient:
     app = create_app()
-    app.dependency_overrides[get_settings] = lambda: Settings(world_root=world)
+    app.dependency_overrides[get_settings] = lambda: Settings(
+        world_root=world,
+        enable_legacy_scenarios=enable_legacy_scenarios,
+    )
     return TestClient(app)
 
 
@@ -287,3 +290,15 @@ def test_fast_slots_reject_missing_file_audio_and_scenario(tmp_path: Path) -> No
     assert missing_audio.status_code == 404
     assert missing_scenario.status_code == 404
     assert missing_script.status_code == 404
+
+
+def test_fast_slots_reject_legacy_scenario_actions_by_default(tmp_path: Path) -> None:
+    client = make_client(make_world(tmp_path), enable_legacy_scenarios=False)
+
+    response = client.put(
+        "/api/fast-slots",
+        json={"slots": [slot(1, {"kind": "scenario", "scenario_id": "create-npc", "inputs": {}})]},
+    )
+
+    assert Settings(world_root=tmp_path / "world").enable_legacy_scenarios is False
+    assert response.status_code == 400

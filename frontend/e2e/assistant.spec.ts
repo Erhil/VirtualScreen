@@ -377,7 +377,8 @@ test("disabled provider config leaves the assistant visible but inert", async ({
   const assistant = await openAssistant(page);
 
   await expect(assistant).toContainText(/not configured|disabled|configure|provider|VIRTUALSCREEN/i);
-  await expect(assistant.getByRole("button", { name: GENERATE_NAME }).first()).toBeDisabled();
+  await expect(assistant.getByRole("button", { name: GENERATE_NAME })).toHaveCount(0);
+  await expect(assistant.locator("textarea, select, input[type='text']")).toHaveCount(0);
   expect(assistantMock.generateRequests).toHaveLength(0);
 });
 

@@ -2,8 +2,10 @@ import json
 import sqlite3
 from pathlib import Path
 
+from app.core import pages as page_core
 from app.core.database import database_path, initialize_database
 from app.core.index import list_indexed_pages, rebuild_index
+from app.core.search import search_index
 
 
 def test_schema_initialization_creates_database_and_tables(tmp_path: Path) -> None:
@@ -155,3 +157,32 @@ def test_rebuild_index_ignores_virtualscreen_directory(tmp_path: Path) -> None:
 
     assert result.pages_indexed == 1
     assert [page.path for page in pages] == ["visible.md"]
+
+
+def test_rebuild_index_caps_large_text_and_sidecar_metadata_reads(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    world = tmp_path / "world"
+    (world / "Media").mkdir(parents=True)
+    metadata_dir = world / ".virtualscreen" / "metadata" / "Media"
+    metadata_dir.mkdir(parents=True)
+    (world / "large.md").write_text("# Hidden Needle\noutside-needle\n", encoding="utf-8")
+    (world / "Media" / "map.png").write_bytes(b"png")
+    (metadata_dir / "map.png.json").write_text(
+        json.dumps({"title": "Outside Needle", "tags": ["outside-needle"]}),
+        encoding="utf-8",
+    )
+    monkeypatch.setattr(page_core, "MAX_INDEX_TEXT_BYTES", 10)
+    monkeypatch.setattr(page_core, "MAX_SIDECAR_METADATA_BYTES", 10)
+
+    result = rebuild_index(world)
+    indexed = {page.path: page for page in list_indexed_pages(world)}
+    search_results = search_index(world, "outside-needle")
+
+    assert result.pages_indexed == 2
+    assert indexed["large.md"].title == "large"
+    assert indexed["large.md"].body == ""
+    assert indexed["Media/map.png"].title == "map"
+    assert indexed["Media/map.png"].metadata == {}
+    assert search_results == []

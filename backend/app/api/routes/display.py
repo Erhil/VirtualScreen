@@ -34,6 +34,7 @@ from app.core.display import (
     set_popup_visible,
     show_active,
 )
+from app.core.map import queue_map_event, stop_map
 from app.core.paths import WorldPathError, normalize_relative_path
 
 router = APIRouter()
@@ -136,7 +137,13 @@ def display_background(settings: SettingsDep) -> Response:
     if path is None:
         return Response(status_code=204, headers={"Cache-Control": "no-store"})
     content_type = mimetypes.guess_type(path.name)[0] or "application/octet-stream"
-    return FileResponse(path, media_type=content_type, headers={"Cache-Control": "no-store"})
+    headers = {"Cache-Control": "no-store"}
+    if path.suffix.lower() == ".svg":
+        headers["X-Content-Type-Options"] = "nosniff"
+        headers["Content-Security-Policy"] = (
+            "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'"
+        )
+    return FileResponse(path, media_type=content_type, headers=headers)
 
 
 @router.get("/api/screen/display/background")
@@ -181,6 +188,8 @@ def display_fullscreen(
     item = _resolve_item(settings, payload.path)
     state = set_fullscreen(settings.resolved_world_root, item)
     queue_display_event(background_tasks, state)
+    map_state = stop_map(settings.resolved_world_root)
+    queue_map_event(background_tasks, map_state, settings.resolved_world_root)
     return _display_response(state)
 
 
@@ -223,6 +232,9 @@ def display_show_active(
         preset=payload.preset,
     )
     queue_display_event(background_tasks, state)
+    if payload.mode == "fullscreen":
+        map_state = stop_map(settings.resolved_world_root)
+        queue_map_event(background_tasks, map_state, settings.resolved_world_root)
     return _display_response(state)
 
 
@@ -254,6 +266,8 @@ def display_blank(
 ) -> dict[str, object]:
     state = blank_fullscreen(settings.resolved_world_root)
     queue_display_event(background_tasks, state)
+    map_state = stop_map(settings.resolved_world_root)
+    queue_map_event(background_tasks, map_state, settings.resolved_world_root)
     return _display_response(state)
 
 

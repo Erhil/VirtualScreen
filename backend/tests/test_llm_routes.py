@@ -53,7 +53,53 @@ def make_client(
     return TestClient(create_app())
 
 
+class UnreachableOllamaClient:
+    def __init__(self, *, timeout: float) -> None:
+        self.timeout = timeout
+
+    def __enter__(self) -> "UnreachableOllamaClient":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def get(self, _url: str, *, headers: dict[str, str]):
+        raise RuntimeError("ollama is not running")
+
+
+class OllamaTagsResponse:
+    def __init__(self, models: list[str]) -> None:
+        self.models = models
+
+    def raise_for_status(self) -> None:
+        return None
+
+    def json(self) -> dict[str, Any]:
+        return {"models": [{"name": model} for model in self.models]}
+
+
+class OllamaTagsClient:
+    def __init__(self, models: list[str], requests: list[dict[str, Any]] | None = None) -> None:
+        self.models = models
+        self.requests = requests
+
+    def __enter__(self) -> "OllamaTagsClient":
+        return self
+
+    def __exit__(self, *args: object) -> None:
+        return None
+
+    def get(self, url: str, *, headers: dict[str, str]) -> OllamaTagsResponse:
+        if self.requests is not None:
+            self.requests.append({"method": "GET", "url": url, "headers": headers})
+        return OllamaTagsResponse(self.models)
+
+
 def test_llm_config_is_disabled_without_env(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        "app.core.llm.httpx.Client",
+        lambda *, timeout: UnreachableOllamaClient(timeout=timeout),
+    )
     client = make_client(tmp_path, monkeypatch)
 
     response = client.get("/api/llm/config")
@@ -63,12 +109,84 @@ def test_llm_config_is_disabled_without_env(tmp_path: Path, monkeypatch: MonkeyP
     assert body["enabled"] is False
     assert body["configured"] is False
     assert body["provider"] is None
-    assert body["base_url"] == ""
+    assert body["base_url"] == "http://127.0.0.1:11434/v1"
     assert body["model"] is None
+    assert "Ollama" in body["reason"]
     assert body["max_input_chars"] == 12000
     assert body["max_output_tokens"] == 800
     assert body["temperature"] == 0.7
     assert body["timeout_seconds"] == 90.0
+
+
+def test_llm_config_auto_detects_default_local_ollama_model(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    requests: list[dict[str, Any]] = []
+    monkeypatch.setattr(
+        "app.core.llm.httpx.Client",
+        lambda *, timeout: OllamaTagsClient(
+            ["huihui_ai/qwen3.5-abliterated:4b"],
+            requests,
+        ),
+    )
+    client = make_client(tmp_path, monkeypatch)
+
+    response = client.get("/api/llm/config")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is True
+    assert body["configured"] is True
+    assert body["provider"] == "openai-compatible"
+    assert body["base_url"] == "http://127.0.0.1:11434/v1"
+    assert body["model"] == "huihui_ai/qwen3.5-abliterated:4b"
+    assert body["reason"] is None
+    assert requests == [
+        {
+            "method": "GET",
+            "url": "http://127.0.0.1:11434/api/tags",
+            "headers": {"Content-Type": "application/json"},
+        }
+    ]
+
+
+def test_llm_config_uses_env_model_for_local_ollama_probe(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.core.llm.httpx.Client",
+        lambda *, timeout: OllamaTagsClient(["custom:model"]),
+    )
+    client = make_client(tmp_path, monkeypatch, model="custom:model")
+
+    response = client.get("/api/llm/config")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is True
+    assert body["model"] == "custom:model"
+
+
+def test_llm_config_reports_missing_local_ollama_model(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    monkeypatch.setattr(
+        "app.core.llm.httpx.Client",
+        lambda *, timeout: OllamaTagsClient(["other:model"]),
+    )
+    client = make_client(tmp_path, monkeypatch, model="custom:model")
+
+    response = client.get("/api/llm/config")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["enabled"] is False
+    assert body["configured"] is False
+    assert body["model"] is None
+    assert "custom:model" in body["reason"]
 
 
 def test_llm_config_reports_enabled_without_exposing_api_key(
@@ -99,12 +217,16 @@ def test_llm_generate_rejects_disabled_provider(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "app.core.llm.httpx.Client",
+        lambda *, timeout: UnreachableOllamaClient(timeout=timeout),
+    )
     client = make_client(tmp_path, monkeypatch)
 
     response = client.post("/api/llm/generate", json={"prompt": "Summarize this."})
 
     assert response.status_code == 400
-    assert response.json() == {"detail": "LLM provider is not configured."}
+    assert "Ollama" in response.json()["detail"]
 
 
 def test_llm_generate_rejects_empty_or_oversized_prompt(
@@ -204,6 +326,58 @@ def test_llm_generate_posts_openai_compatible_payload(
     ]
 
 
+def test_llm_generate_uses_auto_detected_local_ollama_defaults(
+    tmp_path: Path,
+    monkeypatch: MonkeyPatch,
+) -> None:
+    requests: list[dict[str, Any]] = []
+
+    class FakeResponse:
+        def __init__(self, payload: dict[str, Any]) -> None:
+            self.payload = payload
+
+        def raise_for_status(self) -> None:
+            return None
+
+        def json(self) -> dict[str, Any]:
+            return self.payload
+
+    class FakeClient:
+        def __init__(self, *, timeout: float) -> None:
+            self.timeout = timeout
+
+        def __enter__(self) -> "FakeClient":
+            return self
+
+        def __exit__(self, *args: object) -> None:
+            return None
+
+        def get(self, url: str, *, headers: dict[str, str]) -> FakeResponse:
+            requests.append({"method": "GET", "url": url, "headers": headers})
+            return FakeResponse(
+                {"models": [{"name": "huihui_ai/qwen3.5-abliterated:4b"}]}
+            )
+
+        def post(self, url: str, *, json: dict[str, Any], headers: dict[str, str]) -> FakeResponse:
+            requests.append({"method": "POST", "url": url, "json": json, "headers": headers})
+            return FakeResponse({"choices": [{"message": {"content": "Draft answer."}}]})
+
+    monkeypatch.setattr("app.core.llm.httpx.Client", FakeClient)
+    client = make_client(tmp_path, monkeypatch)
+
+    response = client.post("/api/llm/generate", json={"prompt": "Summarize this."})
+
+    assert response.status_code == 200
+    assert response.json()["text"] == "Draft answer."
+    assert requests[0] == {
+        "method": "GET",
+        "url": "http://127.0.0.1:11434/api/tags",
+        "headers": {"Content-Type": "application/json"},
+    }
+    assert requests[1]["url"] == "http://127.0.0.1:11434/v1/chat/completions"
+    assert requests[1]["json"]["model"] == "huihui_ai/qwen3.5-abliterated:4b"
+
+
 def test_llm_generate_retries_ollama_reasoning_only_response(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
@@ -229,6 +403,12 @@ def test_llm_generate_retries_ollama_reasoning_only_response(
 
         def __exit__(self, *args: object) -> None:
             return None
+
+        def get(self, url: str, *, headers: dict[str, str]) -> FakeResponse:
+            requests.append({"url": url, "json": {}, "headers": headers, "timeout": self.timeout})
+            return FakeResponse(
+                {"models": [{"name": "huihui_ai/qwen3.5-abliterated:4b"}]}
+            )
 
         def post(self, url: str, *, json: dict[str, Any], headers: dict[str, str]) -> FakeResponse:
             requests.append({"url": url, "json": json, "headers": headers, "timeout": self.timeout})
@@ -274,12 +454,13 @@ def test_llm_generate_retries_ollama_reasoning_only_response(
     assert body["text"] == "Final tavern rumor."
     assert "private reasoning" not in response.text
     assert [request["url"] for request in requests] == [
+        "http://127.0.0.1:11434/api/tags",
         "http://127.0.0.1:11434/v1/chat/completions",
         "http://127.0.0.1:11434/api/chat",
     ]
-    assert requests[1]["json"] == {
+    assert requests[2]["json"] == {
         "model": "huihui_ai/qwen3.5-abliterated:4b",
-        "messages": requests[0]["json"]["messages"],
+        "messages": requests[1]["json"]["messages"],
         "stream": False,
         "think": False,
         "options": {"num_predict": 800, "temperature": 0.7},
@@ -312,6 +493,12 @@ def test_llm_generate_retries_ollama_reasoning_only_stop_response(
 
         def __exit__(self, *args: object) -> None:
             return None
+
+        def get(self, url: str, *, headers: dict[str, str]) -> FakeResponse:
+            requests.append(url)
+            return FakeResponse(
+                {"models": [{"name": "huihui_ai/qwen3.5-abliterated:4b"}]}
+            )
 
         def post(self, url: str, *, json: dict[str, Any], headers: dict[str, str]) -> FakeResponse:
             requests.append(url)
@@ -347,6 +534,7 @@ def test_llm_generate_retries_ollama_reasoning_only_stop_response(
     assert response.json()["text"] == "Final answer."
     assert "private reasoning" not in response.text
     assert requests == [
+        "http://127.0.0.1:11434/api/tags",
         "http://127.0.0.1:11434/v1/chat/completions",
         "http://127.0.0.1:11434/api/chat",
     ]
@@ -375,6 +563,11 @@ def test_llm_generate_reports_reasoning_only_when_ollama_retry_has_no_content(
 
         def __exit__(self, *args: object) -> None:
             return None
+
+        def get(self, _url: str, *, headers: dict[str, str]) -> FakeResponse:
+            return FakeResponse(
+                {"models": [{"name": "huihui_ai/qwen3.5-abliterated:4b"}]}
+            )
 
         def post(self, url: str, *, json: dict[str, Any], headers: dict[str, str]) -> FakeResponse:
             if url.endswith("/v1/chat/completions"):

@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.core.config import Settings, get_settings
+from app.core.display import clear_fullscreen, queue_display_event
 from app.core.map import (
     MapState,
     add_map_pin,
@@ -143,11 +144,17 @@ def screen_map_media(path: str, settings: SettingsDep) -> FileResponse:
     except ValueError as exc:
         raise HTTPException(status_code=415, detail=str(exc)) from exc
 
+    headers = {"X-Content-Type-Options": "nosniff"}
+    if media_path.suffix.lower() == ".svg":
+        headers["Content-Security-Policy"] = (
+            "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'"
+        )
     return FileResponse(
         media_path,
         media_type=map_media_content_type(media_path),
         filename=media_path.name,
         content_disposition_type="inline",
+        headers=headers,
     )
 
 
@@ -372,6 +379,8 @@ def map_present(
         state = present_map(settings.resolved_world_root)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    display_state = clear_fullscreen(settings.resolved_world_root)
+    queue_display_event(background_tasks, display_state)
     _queue(background_tasks, state, settings)
     return _response(state)
 

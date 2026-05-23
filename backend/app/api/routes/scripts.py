@@ -9,10 +9,12 @@ from app.core.scripts import (
     DmsRunStatus,
     cancel_dms_run,
     get_dms_run,
+    is_dms_trusted,
     list_dms_scripts,
     resume_dms_form,
     run_dms_script,
     run_payload,
+    trust_dms_world,
 )
 
 router = APIRouter()
@@ -29,6 +31,10 @@ class DmsScriptSummaryModel(BaseModel):
 
 class DmsRunPayload(BaseModel):
     path: str
+
+
+class DmsTrustStateModel(BaseModel):
+    trusted: bool
 
 
 class DmsFormPayload(BaseModel):
@@ -82,6 +88,22 @@ class DmsRunStateModel(BaseModel):
     created_at: str
 
 
+def _require_dms_trust(settings: Settings) -> None:
+    if not is_dms_trusted(settings.resolved_world_root):
+        raise HTTPException(status_code=403, detail="DMS scripts require trust acknowledgement.")
+
+
+@router.get("/scripts/trust", response_model=DmsTrustStateModel)
+def scripts_trust(settings: SettingsDep) -> DmsTrustStateModel:
+    return DmsTrustStateModel(trusted=is_dms_trusted(settings.resolved_world_root))
+
+
+@router.post("/scripts/trust", response_model=DmsTrustStateModel)
+def scripts_trust_acknowledge(settings: SettingsDep) -> DmsTrustStateModel:
+    trust_dms_world(settings.resolved_world_root)
+    return DmsTrustStateModel(trusted=True)
+
+
 @router.get("/scripts", response_model=list[DmsScriptSummaryModel])
 def scripts(settings: SettingsDep) -> list[DmsScriptSummaryModel]:
     return [
@@ -96,6 +118,7 @@ def scripts(settings: SettingsDep) -> list[DmsScriptSummaryModel]:
     response_model_exclude_none=True,
 )
 def script_run(payload: DmsRunPayload, settings: SettingsDep) -> DmsRunStateModel:
+    _require_dms_trust(settings)
     try:
         run = run_dms_script(settings.resolved_world_root, payload.path)
         return DmsRunStateModel(**run_payload(run))
@@ -119,6 +142,7 @@ def script_form(
     payload: DmsFormPayload,
     settings: SettingsDep,
 ) -> DmsRunStateModel:
+    _require_dms_trust(settings)
     try:
         run = resume_dms_form(
             settings.resolved_world_root,

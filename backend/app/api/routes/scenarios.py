@@ -47,8 +47,14 @@ class ScenarioRunResultModel(BaseModel):
     created_at: str
 
 
+def _require_legacy_scenarios(settings: Settings) -> None:
+    if not settings.enable_legacy_scenarios:
+        raise HTTPException(status_code=404, detail="Legacy scenario routes are disabled.")
+
+
 @router.get("/scenarios", response_model=list[ScenarioSummaryModel])
 def scenarios(settings: SettingsDep) -> list[ScenarioSummaryModel]:
+    _require_legacy_scenarios(settings)
     return [
         ScenarioSummaryModel(
             id=scenario.id,
@@ -76,6 +82,7 @@ def scenario_run(
     payload: ScenarioRunPayload,
     settings: SettingsDep,
 ) -> ScenarioRunResultModel:
+    _require_legacy_scenarios(settings)
     try:
         result = run_scenario(settings.resolved_world_root, scenario_id, payload.inputs)
     except FileNotFoundError as exc:
@@ -85,6 +92,7 @@ def scenario_run(
 
 @router.get("/scenarios/runs", response_model=list[ScenarioRunResultModel])
 def scenario_runs(settings: SettingsDep) -> list[ScenarioRunResultModel]:
+    _require_legacy_scenarios(settings)
     return [
         ScenarioRunResultModel(**result.__dict__)
         for result in load_scenario_runs(settings.resolved_world_root)

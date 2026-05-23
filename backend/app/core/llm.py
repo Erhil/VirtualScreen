@@ -1,12 +1,16 @@
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
+from urllib.parse import urlparse
 
 import httpx
 
 from app.core.config import Settings
 
 LLM_PROVIDER = "openai-compatible"
+DEFAULT_LLM_BASE_URL = "http://127.0.0.1:11434/v1"
+DEFAULT_LLM_MODEL = "huihui_ai/qwen3.5-abliterated:4b"
+OLLAMA_TAGS_TIMEOUT_SECONDS = 2.0
 OLLAMA_REASONING_ONLY_ERROR = (
     "The model produced reasoning but no final answer. Try again or increase max output tokens."
 )
@@ -25,6 +29,14 @@ class LlmGeneration:
     usage: dict[str, Any] | None = None
 
 
+@dataclass(frozen=True)
+class LlmRuntimeConfig:
+    enabled: bool
+    base_url: str
+    model: str
+    reason: str | None = None
+
+
 class LlmError(RuntimeError):
     pass
 
@@ -35,6 +47,83 @@ class LlmTimeoutError(LlmError):
 
 def _utc_now() -> str:
     return datetime.now(UTC).isoformat().replace("+00:00", "Z")
+
+
+def resolved_llm_base_url(settings: Settings) -> str:
+    return settings.llm_base_url.strip() or DEFAULT_LLM_BASE_URL
+
+
+def resolved_llm_model(settings: Settings) -> str:
+    return settings.llm_model.strip() or DEFAULT_LLM_MODEL
+
+
+def _is_local_ollama_url(base_url: str) -> bool:
+    parsed = urlparse(base_url)
+    host = (parsed.hostname or "").lower()
+    return (
+        parsed.scheme in {"http", "https"}
+        and host in {"127.0.0.1", "localhost", "::1"}
+        and (parsed.port in {None, 11434})
+        and parsed.path.rstrip("/") in {"", "/v1"}
+    )
+
+
+def _ollama_model_names(data: dict[str, Any]) -> set[str]:
+    models = data.get("models")
+    if not isinstance(models, list):
+        return set()
+    names: set[str] = set()
+    for item in models:
+        if not isinstance(item, dict):
+            continue
+        for key in ("name", "model"):
+            value = item.get(key)
+            if isinstance(value, str) and value.strip():
+                names.add(value.strip())
+    return names
+
+
+def resolve_llm_runtime(settings: Settings) -> LlmRuntimeConfig:
+    base_url = resolved_llm_base_url(settings)
+    model = resolved_llm_model(settings)
+    if not _is_local_ollama_url(base_url):
+        return LlmRuntimeConfig(enabled=True, base_url=base_url, model=model)
+
+    tags_url = _ollama_native_chat_url(base_url).removesuffix("/api/chat") + "/api/tags"
+    headers = {"Content-Type": "application/json"}
+    api_key = settings.llm_api_key.strip()
+    if api_key:
+        headers["Authorization"] = f"Bearer {api_key}"
+
+    try:
+        with httpx.Client(timeout=OLLAMA_TAGS_TIMEOUT_SECONDS) as client:
+            response = client.get(tags_url, headers=headers)
+            response.raise_for_status()
+            data = response.json()
+    except Exception:
+        return LlmRuntimeConfig(
+            enabled=False,
+            base_url=base_url,
+            model=model,
+            reason=(
+                "Local Ollama is not reachable at http://127.0.0.1:11434. "
+                f"Start Ollama or configure VIRTUALSCREEN_LLM_BASE_URL and "
+                f"VIRTUALSCREEN_LLM_MODEL. Expected model: {model}."
+            ),
+        )
+
+    if not isinstance(data, dict) or model not in _ollama_model_names(data):
+        return LlmRuntimeConfig(
+            enabled=False,
+            base_url=base_url,
+            model=model,
+            reason=(
+                f"Local Ollama is running, but model '{model}' is not installed. "
+                f"Pull it or set VIRTUALSCREEN_LLM_MODEL to an installed model."
+            ),
+        )
+
+    return LlmRuntimeConfig(enabled=True, base_url=base_url, model=model)
 
 
 def validate_llm_prompt(prompt: str, settings: Settings) -> str:
@@ -147,23 +236,25 @@ def generate_llm_text(
     prompt: str,
     settings: Settings,
     *,
+    runtime: LlmRuntimeConfig | None = None,
     max_tokens: int | None = None,
     temperature: float | None = None,
 ) -> LlmGeneration:
-    if not settings.llm_enabled:
-        raise ValueError("LLM provider is not configured.")
+    runtime_config = runtime if runtime is not None else resolve_llm_runtime(settings)
+    if not runtime_config.enabled:
+        raise ValueError(runtime_config.reason or "LLM provider is not configured.")
 
     clean_prompt = validate_llm_prompt(prompt, settings)
     output_tokens = _validate_max_tokens(max_tokens, settings)
     output_temperature = _validate_temperature(temperature, settings)
-    url = f"{settings.llm_base_url.rstrip('/')}/chat/completions"
+    url = f"{runtime_config.base_url.rstrip('/')}/chat/completions"
     headers = {"Content-Type": "application/json"}
     api_key = settings.llm_api_key.strip()
     if api_key:
         headers["Authorization"] = f"Bearer {api_key}"
 
     payload = {
-        "model": settings.llm_model.strip(),
+        "model": runtime_config.model,
         "messages": [
             {"role": "system", "content": SYSTEM_PROMPT},
             {"role": "user", "content": clean_prompt},
@@ -181,9 +272,9 @@ def generate_llm_text(
         if text is None and _is_ollama_reasoning_only(data):
             native_data = _post_json(
                 client,
-                _ollama_native_chat_url(settings.llm_base_url),
+                _ollama_native_chat_url(runtime_config.base_url),
                 {
-                    "model": settings.llm_model.strip(),
+                    "model": runtime_config.model,
                     "messages": payload["messages"],
                     "stream": False,
                     "think": False,
@@ -204,7 +295,7 @@ def generate_llm_text(
     return LlmGeneration(
         text=text,
         provider=LLM_PROVIDER,
-        model=settings.llm_model.strip(),
+        model=runtime_config.model,
         created_at=_utc_now(),
         usage=usage,
     )

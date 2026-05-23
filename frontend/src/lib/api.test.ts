@@ -66,6 +66,7 @@ import {
   fetchScenarioRuns,
   fetchScripts,
   fetchDmsRun,
+  acknowledgeDmsTrust,
   importSystemPack,
   previewSystemPack,
   fetchLlmConfig,
@@ -1653,6 +1654,7 @@ describe("world API helpers", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(mockJsonResponse(scripts))
+      .mockResolvedValueOnce(mockJsonResponse({ trusted: true }))
       .mockResolvedValueOnce(mockJsonResponse(run))
       .mockResolvedValueOnce(mockJsonResponse({ ...run, status: "success", form_request: null }))
       .mockResolvedValueOnce(mockJsonResponse(run))
@@ -1660,6 +1662,7 @@ describe("world API helpers", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(fetchScripts()).resolves.toEqual(scripts);
+    await expect(acknowledgeDmsTrust()).resolves.toEqual({ trusted: true });
     await expect(runDmsScript("Scripts/hello.dms")).resolves.toEqual(run);
     await expect(submitDmsForm("run-1", { name: "Ilyra" })).resolves.toMatchObject({
       status: "success"
@@ -1668,18 +1671,19 @@ describe("world API helpers", () => {
     await expect(cancelDmsRun("run-1")).resolves.toMatchObject({ status: "cancelled" });
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/scripts");
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/scripts/run", {
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/scripts/trust", { method: "POST" });
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/scripts/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: "Scripts/hello.dms" })
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/scripts/runs/run-1/form", {
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/scripts/runs/run-1/form", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ values: { name: "Ilyra" } })
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/scripts/runs/run-1");
-    expect(fetchMock).toHaveBeenNthCalledWith(5, "/api/scripts/runs/run-1/cancel", {
+    expect(fetchMock).toHaveBeenNthCalledWith(5, "/api/scripts/runs/run-1");
+    expect(fetchMock).toHaveBeenNthCalledWith(6, "/api/scripts/runs/run-1/cancel", {
       method: "POST"
     });
   });

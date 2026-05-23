@@ -324,13 +324,23 @@ select {
 
 .tree-add-button {
   align-self: center;
-  background: #3a3530;
-  border: 1px solid #51493f;
+  background: transparent;
+  border: 1px solid transparent;
   border-radius: 6px;
-  color: #f1d39b;
+  color: #c9bfae;
   cursor: pointer;
   min-height: 26px;
-  min-width: 28px;
+  min-width: 26px;
+  opacity: 0.45;
+  padding: 0 5px;
+}
+
+.tree-folder-row:hover .tree-add-button,
+.tree-add-button:focus-visible {
+  background: #3a3530;
+  border-color: #51493f;
+  color: #f1d39b;
+  opacity: 1;
 }
 
 .tree-add-menu {
@@ -470,6 +480,7 @@ select {
   background: #ddd6c9;
   border-bottom: 1px solid #c9c1b1;
   display: flex;
+  gap: 4px;
   min-height: 42px;
   overflow-x: auto;
   padding: 0 10px;
@@ -576,6 +587,20 @@ select {
   border-left: 0;
   border-radius: 0 6px 6px 0;
   padding: 0 10px;
+}
+
+.tab-strip-count {
+  background: #d0c6b5;
+  border: 1px solid #b7ad9c;
+  border-radius: 999px;
+  color: #514638;
+  flex: 0 0 auto;
+  font-size: 12px;
+  font-weight: 700;
+  margin-left: auto;
+  padding: 3px 8px;
+  position: sticky;
+  right: 0;
 }
 
 .content-layout {
@@ -1312,6 +1337,7 @@ select {
 .hp-row-actions {
   align-items: center;
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
 }
 
@@ -1361,7 +1387,11 @@ select {
 }
 
 .hp-row-actions button {
-  flex: 1 1 0;
+  flex: 1 1 42px;
+}
+
+.assistant-tool-compact {
+  gap: 0;
 }
 
 .dice-tool,

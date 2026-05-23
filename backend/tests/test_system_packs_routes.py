@@ -2,12 +2,16 @@ import io
 import json
 import stat
 import zipfile
+from asyncio import run
 from pathlib import Path
 
 import pytest
+from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
 
+from app.api.routes.system_packs import _read_multipart_upload
 from app.core.config import Settings, get_settings
+from app.core.system_packs import MAX_ZIP_BYTES
 from app.main import create_app
 
 
@@ -81,6 +85,24 @@ def upload_zip(
         url,
         files={"pack": ("pack.zip", content, "application/zip")},
         data=data or {},
+    )
+
+
+def upload_request(headers: list[tuple[bytes, bytes]]) -> Request:
+    async def receive():
+        raise AssertionError("System pack upload body should not be read.")
+
+    return Request(
+        {
+            "type": "http",
+            "method": "POST",
+            "path": "/api/system-packs/import",
+            "headers": [
+                (b"content-type", b"multipart/form-data; boundary=pack"),
+                *headers,
+            ],
+        },
+        receive,
     )
 
 
@@ -240,6 +262,76 @@ def test_preview_reports_ready_conflicts_and_skipped_entries(tmp_path: Path) -> 
     assert not (world / "Notes" / "New.md").exists()
 
 
+def test_preview_marks_duplicate_manifest_targets_invalid(tmp_path: Path) -> None:
+    world = tmp_path / "world"
+    world.mkdir()
+    client = make_client(world)
+
+    response = upload_zip(
+        client,
+        "/api/system-packs/preview",
+        pack_bytes(
+            {"Notes/New.md": "# New\n"},
+            manifest_files=["Notes/New.md", "./Notes/New.md"],
+        ),
+    )
+
+    assert response.status_code == 200
+    rows = response.json()["rows"]
+    assert rows[0]["status"] == "ready"
+    assert rows[1]["source_path"] == "./Notes/New.md"
+    assert rows[1]["target_path"] == "Notes/New.md"
+    assert rows[1]["status"] == "invalid"
+    assert rows[1]["reason"] == "duplicate_path"
+
+
+def test_upload_rejects_missing_invalid_and_oversized_content_length_before_body_read() -> None:
+    missing = upload_request([])
+    invalid = upload_request([(b"content-length", b"not-a-number")])
+    oversized = upload_request(
+        [(b"content-length", str(MAX_ZIP_BYTES + 1024 * 1024 + 1).encode("ascii"))]
+    )
+
+    with pytest.raises(HTTPException) as missing_exc:
+        run(_read_multipart_upload(missing))
+    with pytest.raises(HTTPException) as invalid_exc:
+        run(_read_multipart_upload(invalid))
+    with pytest.raises(HTTPException) as oversized_exc:
+        run(_read_multipart_upload(oversized))
+
+    assert missing_exc.value.status_code == 411
+    assert invalid_exc.value.status_code == 400
+    assert oversized_exc.value.status_code == 413
+
+
+def test_preview_rejects_reserved_path_segments_except_direct_card_templates(
+    tmp_path: Path,
+) -> None:
+    world = tmp_path / "world"
+    world.mkdir()
+    client = make_client(world)
+
+    response = upload_zip(
+        client,
+        "/api/system-packs/preview",
+        pack_bytes(
+            {
+                "Notes/.virtualscreen/secret.md": "# No\n",
+                "Notes/.git/secret.md": "# No\n",
+                "Notes/__pycache__/secret.md": "# No\n",
+                ".virtualscreen/card-templates/npc-pack.json": json.dumps(template_payload()),
+            }
+        ),
+    )
+
+    assert response.status_code == 200
+    rows = {row["target_path"]: row for row in response.json()["rows"]}
+    assert rows["Notes/.virtualscreen/secret.md"]["reason"] == "unsafe_path"
+    assert rows["Notes/.git/secret.md"]["reason"] == "unsafe_path"
+    assert rows["Notes/__pycache__/secret.md"]["reason"] == "unsafe_path"
+    assert rows[".virtualscreen/card-templates/npc-pack.json"]["status"] == "ready"
+
+
 def test_import_skip_overwrite_and_rename_conflict_strategies(tmp_path: Path) -> None:
     world = tmp_path / "world"
     (world / "Notes").mkdir(parents=True)
@@ -297,6 +389,48 @@ def test_import_skip_overwrite_and_rename_conflict_strategies(tmp_path: Path) ->
     )
     assert unsafe_rename.status_code == 400
     assert not (world / ".virtualscreen" / "not-allowed.md").exists()
+
+
+def test_import_rejects_existing_rename_target_before_writing(tmp_path: Path) -> None:
+    world = tmp_path / "world"
+    (world / "Notes").mkdir(parents=True)
+    (world / "Notes" / "Existing.md").write_text("# Existing\n", encoding="utf-8")
+    (world / "Notes" / "Other.md").write_text("# Other\n", encoding="utf-8")
+    client = make_client(world)
+
+    response = upload_zip(
+        client,
+        "/api/system-packs/import",
+        pack_bytes({"Notes/Existing.md": "# Replacement\n"}),
+        data=decisions(("Notes/Existing.md", "rename", "Notes/Other.md")),
+    )
+
+    assert response.status_code == 400
+    assert (world / "Notes" / "Existing.md").read_text(encoding="utf-8") == "# Existing\n"
+    assert (world / "Notes" / "Other.md").read_text(encoding="utf-8") == "# Other\n"
+
+
+def test_import_rejects_final_target_collisions_before_writing(tmp_path: Path) -> None:
+    world = tmp_path / "world"
+    (world / "Notes").mkdir(parents=True)
+    (world / "Notes" / "Existing.md").write_text("# Existing\n", encoding="utf-8")
+    client = make_client(world)
+
+    response = upload_zip(
+        client,
+        "/api/system-packs/import",
+        pack_bytes(
+            {
+                "Notes/Existing.md": "# Replacement\n",
+                "Notes/New.md": "# New\n",
+            }
+        ),
+        data=decisions(("Notes/Existing.md", "rename", "Notes/New.md")),
+    )
+
+    assert response.status_code == 400
+    assert (world / "Notes" / "Existing.md").read_text(encoding="utf-8") == "# Existing\n"
+    assert not (world / "Notes" / "New.md").exists()
 
 
 def test_import_writes_allowed_files_and_publishes_one_event(tmp_path: Path) -> None:

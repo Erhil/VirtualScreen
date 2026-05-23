@@ -7,7 +7,12 @@ from app.core.audio import AUDIO_EXTENSIONS, MUSIC_ROOT
 from app.core.database import initialize_database
 from app.core.display import DISPLAY_POPUP_PRESETS
 from app.core.map import list_map_presets
-from app.core.paths import WorldPathError, normalize_relative_path, resolve_under_root
+from app.core.paths import (
+    WorldPathError,
+    ensure_no_reserved_path_parts,
+    normalize_relative_path,
+    resolve_under_root,
+)
 from app.core.scenarios import get_scenario
 from app.core.scripts import validate_script_path
 
@@ -49,6 +54,7 @@ def _validate_existing_file(root: Path, raw_path: object) -> str:
         raise WorldPathError("Fast slot target must be a file.")
     if path_text.split("/")[0] == ".virtualscreen":
         raise WorldPathError("Fast slot target cannot be an internal file.")
+    ensure_no_reserved_path_parts(path_text, message="Fast slot target cannot be reserved.")
     return path_text
 
 
@@ -62,6 +68,7 @@ def _validate_audio_path(root: Path, raw_path: object) -> str:
     parts = path_text.split("/")
     if parts[0] != MUSIC_ROOT or target.suffix.lower() not in AUDIO_EXTENSIONS:
         raise WorldPathError("Fast slot audio target is not supported.")
+    ensure_no_reserved_path_parts(path_text, message="Fast slot audio target is not supported.")
     return path_text
 
 
@@ -87,7 +94,12 @@ def _validate_map_preset(root: Path, action: dict[str, object]) -> dict[str, obj
     }
 
 
-def _validate_action(root: Path, action: object) -> dict[str, object]:
+def _validate_action(
+    root: Path,
+    action: object,
+    *,
+    enable_legacy_scenarios: bool,
+) -> dict[str, object]:
     if not isinstance(action, dict):
         raise ValueError("Fast slot action must be an object.")
     kind = str(action.get("kind") or "")
@@ -113,6 +125,8 @@ def _validate_action(root: Path, action: object) -> dict[str, object]:
             "play": True,
         }
     if kind == "scenario":
+        if not enable_legacy_scenarios:
+            raise ValueError("Fast slot scenario actions are disabled.")
         scenario_id = str(action.get("scenario_id") or "").strip()
         get_scenario(root, scenario_id)
         inputs = action.get("inputs") or {}
@@ -126,7 +140,12 @@ def _validate_action(root: Path, action: object) -> dict[str, object]:
     raise ValueError("Fast slot action kind is invalid.")
 
 
-def _slot_from_dict(root: Path, value: object) -> FastSlot:
+def _slot_from_dict(
+    root: Path,
+    value: object,
+    *,
+    enable_legacy_scenarios: bool,
+) -> FastSlot:
     if not isinstance(value, dict):
         raise ValueError("Fast slot must be an object.")
     position = int(value.get("position") or 0)
@@ -141,25 +160,43 @@ def _slot_from_dict(root: Path, value: object) -> FastSlot:
         position=position,
         label=label,
         icon=str(icon) if icon is not None else None,
-        action=_validate_action(root, value.get("action")),
+        action=_validate_action(
+            root,
+            value.get("action"),
+            enable_legacy_scenarios=enable_legacy_scenarios,
+        ),
     )
 
 
-def load_fast_slots(root: Path) -> list[FastSlot]:
+def load_fast_slots(root: Path, *, enable_legacy_scenarios: bool = False) -> list[FastSlot]:
     conn = initialize_database(root)
     rows = conn.execute("select slot_json from fast_slots order by position").fetchall()
     conn.close()
     slots: list[FastSlot] = []
     for row in rows:
         try:
-            slots.append(_slot_from_dict(root, json.loads(row["slot_json"])))
+            slots.append(
+                _slot_from_dict(
+                    root,
+                    json.loads(row["slot_json"]),
+                    enable_legacy_scenarios=enable_legacy_scenarios,
+                )
+            )
         except (ValueError, FileNotFoundError, WorldPathError, json.JSONDecodeError):
             continue
     return slots
 
 
-def save_fast_slots(root: Path, values: list[object]) -> list[FastSlot]:
-    slots = [_slot_from_dict(root, item) for item in values]
+def save_fast_slots(
+    root: Path,
+    values: list[object],
+    *,
+    enable_legacy_scenarios: bool = False,
+) -> list[FastSlot]:
+    slots = [
+        _slot_from_dict(root, item, enable_legacy_scenarios=enable_legacy_scenarios)
+        for item in values
+    ]
     positions = [slot.position for slot in slots]
     if len(positions) != len(set(positions)):
         raise ValueError("Fast slot positions must be unique.")
@@ -176,4 +213,4 @@ def save_fast_slots(root: Path, values: list[object]) -> list[FastSlot]:
                 ),
             )
     conn.close()
-    return load_fast_slots(root)
+    return load_fast_slots(root, enable_legacy_scenarios=enable_legacy_scenarios)

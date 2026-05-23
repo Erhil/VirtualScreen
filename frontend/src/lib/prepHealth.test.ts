@@ -8,6 +8,7 @@ import {
   prepHealthStatusLabel,
   sortPrepHealthIssues
 } from "./prepHealth";
+import { createTranslator } from "../lang";
 
 const linkError: PrepHealthIssue = {
   id: "link:README.md:Missing Page",
@@ -48,11 +49,34 @@ const embedError: PrepHealthIssue = {
   message: "Missing embedded reference: Old Map"
 };
 
+const t = createTranslator({
+  "prep.count.error": "{count} ошибка",
+  "prep.count.errors": "Ошибок: {count}",
+  "prep.count.warning": "{count} предупреждение",
+  "prep.count.warnings": "Предупреждений: {count}",
+  "prep.status.checkFailed": "Проверка не удалась",
+  "prep.status.checking": "Проверяем",
+  "prep.status.errors": "Ошибки",
+  "prep.status.notChecked": "Не проверено",
+  "prep.status.ready": "Готово",
+  "prep.status.warnings": "Предупреждения"
+});
+
 describe("prep health helpers", () => {
   it("maps prep health statuses to labels", () => {
     const statuses: PrepHealthStatus[] = ["ok", "warning", "error"];
 
     expect(statuses.map(prepHealthStatusLabel)).toEqual(["Ready", "Warnings", "Errors"]);
+  });
+
+  it("maps prep health statuses to localized labels", () => {
+    const statuses: PrepHealthStatus[] = ["ok", "warning", "error"];
+
+    expect(statuses.map((status) => prepHealthStatusLabel(status, t))).toEqual([
+      "Готово",
+      "Предупреждения",
+      "Ошибки"
+    ]);
   });
 
   it("builds compact labels from the latest report and current status", () => {
@@ -87,6 +111,27 @@ describe("prep health helpers", () => {
         { status: "idle" }
       )
     ).toBe("1 error / 2 warnings");
+  });
+
+  it("builds localized compact labels from the latest report and current status", () => {
+    expect(prepHealthCompactStatusLabel(null, { status: "idle" }, t)).toBe("Не проверено");
+    expect(prepHealthCompactStatusLabel(null, { status: "loading" }, t)).toBe("Проверяем");
+    expect(prepHealthCompactStatusLabel(null, { status: "error" }, t)).toBe("Проверка не удалась");
+
+    expect(
+      prepHealthCompactStatusLabel(
+        {
+          checked_at: "2026-05-14T17:00:00Z",
+          status: "warning",
+          issue_count: 3,
+          errors: 1,
+          warnings: 2,
+          issues: [linkError, dmsWarning, embedError]
+        },
+        { status: "idle" },
+        t
+      )
+    ).toBe("1 ошибка / Предупреждений: 2");
   });
 
   it("filters issues by all, severity, and audit kind", () => {

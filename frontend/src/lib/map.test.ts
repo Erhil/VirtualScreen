@@ -1,5 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
+import { createTranslator } from "../lang";
 import {
   addMapPin,
   addMapReveal,
@@ -488,6 +489,19 @@ describe("map helpers", () => {
         presenting: true
       })
     ).toBe("Presenting: City Map.svg");
+    const t = createTranslator({
+      "map.summary.noMap": "Карты нет",
+      "map.summary.presenting": "На экране: {map}",
+      "map.summary.ready": "Готово: {map}"
+    });
+    expect(mapSummary(blankState, t)).toBe("Карты нет");
+    expect(
+      mapSummary({
+        ...blankState,
+        image_path: "Media/City Map.svg",
+        title: "City Map"
+      }, t)
+    ).toBe("Готово: City Map");
   });
 
   it("replaces map state from websocket events", () => {

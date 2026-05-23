@@ -322,6 +322,24 @@ def test_map_present_stop_and_public_media_restrictions(tmp_path: Path) -> None:
     assert client.get("/api/screen/map/state").json()["image_path"] is None
 
 
+def test_map_present_clears_fullscreen_but_preserves_popups(tmp_path: Path) -> None:
+    client = make_client(make_world(tmp_path))
+
+    assert client.put("/api/display/fullscreen", json={"path": "Media/clip.mp4"}).status_code == 200
+    popup = client.post("/api/display/popup", json={"path": "README.md"})
+    assert popup.status_code == 200
+    assert client.put("/api/map/source", json={"path": "Media/map.svg"}).status_code == 200
+
+    response = client.post("/api/map/present")
+
+    assert response.status_code == 200
+    display_state = client.get("/api/screen/display/state").json()
+    map_state = client.get("/api/screen/map/state").json()
+    assert display_state["fullscreen"] is None
+    assert [popup["path"] for popup in display_state["popups"]] == ["README.md"]
+    assert map_state["image_path"] == "Media/map.svg"
+
+
 def test_map_websocket_receives_mutation_events(tmp_path: Path) -> None:
     client = make_client(make_world(tmp_path))
 

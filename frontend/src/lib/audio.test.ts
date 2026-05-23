@@ -83,6 +83,26 @@ describe("audio mixer helpers", () => {
     expect(audioSummary(state)).toBe("2 playing");
   });
 
+  it("localizes compact audio summaries for the shell", () => {
+    const t = (key: string, values?: Record<string, string | number | boolean | null | undefined>) => {
+      const catalog: Record<string, string> = {
+        "audio.summary.loaded": "Загружено: {count}",
+        "audio.summary.playing": "Играет: {count}",
+        "audio.summary.quiet": "Тихо"
+      };
+      return (catalog[key] ?? key).replace("{count}", String(values?.count ?? ""));
+    };
+    let state = createAudioMixerState();
+
+    expect(audioSummary(state, t)).toBe("Тихо");
+
+    state = loadAudioTrack(state, track(".music/ambient/Tavern/crowd.mp3", "ambient"));
+    expect(audioSummary(state, t)).toBe("Загружено: 1");
+
+    state = setAudioBusPlaying(state, "ambient", true);
+    expect(audioSummary(state, t)).toBe("Играет: 1");
+  });
+
   it("clamps volume and stores loop per bus", () => {
     let state = createAudioMixerState();
     state = setAudioBusVolume(state, "ambient", 2);

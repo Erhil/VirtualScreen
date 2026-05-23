@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -20,11 +21,40 @@ from app.core.display import display_item_for_path
 from app.core.file_safety import atomic_write_bytes, backup_file
 from app.core.index import rebuild_index
 from app.core.map import list_map_presets, map_image_path
-from app.core.paths import WorldPathError, normalize_relative_path, resolve_under_root
+from app.core.paths import (
+    WorldPathError,
+    ensure_no_reserved_path_parts,
+    normalize_relative_path,
+    resolve_under_root,
+)
 
 DMS_PREFIX = "__VIRTUALSCREEN_DMS__"
 DMS_WAITING_EXIT_CODE = 42
 DMS_TIMEOUT_SECONDS = 10
+MAX_DMS_RUNS = 50
+MAX_DMS_OUTPUTS_PER_RUN = 20
+MAX_DMS_OUTPUT_CONTENT_CHARS = 200_000
+MAX_DMS_STDIO_CHARS = 200_000
+DMS_TRUST_PATH = ".virtualscreen/dms-trust.json"
+DMS_SUBPROCESS_ENV_ALLOWLIST = {
+    "APPDATA",
+    "COMSPEC",
+    "HOME",
+    "LOCALAPPDATA",
+    "PATH",
+    "PATHEXT",
+    "PROGRAMDATA",
+    "PYTHONHOME",
+    "PYTHONPATH",
+    "PYTHONUTF8",
+    "SYSTEMROOT",
+    "SystemRoot",
+    "TEMP",
+    "TMP",
+    "USERPROFILE",
+    "VIRTUAL_ENV",
+    "WINDIR",
+}
 
 DmsRunStatus = Literal[
     "running",
@@ -112,8 +142,76 @@ _RUNS: dict[str, DmsRunState] = {}
 _RUNS_LOCK = threading.Lock()
 
 
+def _cap_text(value: str, limit: int) -> str:
+    return value if len(value) <= limit else value[:limit]
+
+
+def _cap_outputs(outputs: list[DmsOutput]) -> list[DmsOutput]:
+    return [
+        DmsOutput(
+            id=output.id,
+            media_kind=output.media_kind,
+            virtual_path=output.virtual_path,
+            name=output.name,
+            content=_cap_text(output.content, MAX_DMS_OUTPUT_CONTENT_CHARS),
+        )
+        for output in outputs[:MAX_DMS_OUTPUTS_PER_RUN]
+    ]
+
+
+def _runtime_dir_path(root: Path, run_id: str) -> Path:
+    return root / ".virtualscreen" / "dms-runs" / run_id
+
+
+def _prune_old_runs(root: Path) -> None:
+    removed: list[str] = []
+    with _RUNS_LOCK:
+        removable = sorted(
+            (
+                (run_id, state)
+                for run_id, state in _RUNS.items()
+                if state.status not in {"running", "waiting_for_form"}
+            ),
+            key=lambda item: item[1].created_at,
+        )
+        while len(_RUNS) > MAX_DMS_RUNS and removable:
+            run_id, _ = removable.pop(0)
+            if _RUNS.pop(run_id, None) is not None:
+                removed.append(run_id)
+    for run_id in removed:
+        shutil.rmtree(_runtime_dir_path(root, run_id), ignore_errors=True)
+
+
 def _utc_now() -> str:
     return datetime.now(tz=UTC).isoformat().replace("+00:00", "Z")
+
+
+def _dms_trust_path(root: Path) -> Path:
+    return root / DMS_TRUST_PATH
+
+
+def is_dms_trusted(root: Path) -> bool:
+    try:
+        loaded = json.loads(_dms_trust_path(root).read_text(encoding="utf-8"))
+    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
+        return False
+    return isinstance(loaded, dict) and loaded.get("trusted") is True
+
+
+def trust_dms_world(root: Path) -> None:
+    trust_path = _dms_trust_path(root)
+    trust_path.parent.mkdir(parents=True, exist_ok=True)
+    atomic_write_bytes(
+        trust_path,
+        (
+            json.dumps(
+                {"trusted": True, "trusted_at": _utc_now()},
+                ensure_ascii=False,
+                sort_keys=True,
+            )
+            + "\n"
+        ).encode("utf-8"),
+    )
 
 
 def _script_title(path: Path) -> str:
@@ -129,6 +227,7 @@ def validate_script_path(root: Path, raw_path: object) -> str:
         raise IsADirectoryError("DMS script path points to a directory.")
     if path.split("/")[0] == ".virtualscreen":
         raise WorldPathError("DMS script cannot be an internal file.")
+    ensure_no_reserved_path_parts(path, message="DMS script path is not allowed.")
     if target.suffix.lower() != ".dms":
         raise ValueError("DMS script must use the .dms extension.")
     return path
@@ -139,6 +238,10 @@ def list_dms_scripts(root: Path) -> list[DmsScriptSummary]:
     for path in root.rglob("*.dms"):
         relative = path.relative_to(root).as_posix()
         if relative.split("/")[0] in {".virtualscreen", ".music"}:
+            continue
+        try:
+            ensure_no_reserved_path_parts(relative)
+        except WorldPathError:
             continue
         stat = path.stat()
         scripts.append(
@@ -184,18 +287,21 @@ def _emit(payload):
     print(DMS_PREFIX + json.dumps(payload, ensure_ascii=False), flush=True)
 
 
-def _safe_world_path(path):
+def _safe_world_path(path, message="World path is not allowed."):
     raw_path = str(path or "").replace("\\\\", "/").strip("/")
     target = (_world_root / raw_path).resolve()
     if target != _world_root and _world_root not in target.parents:
         raise ValueError("World path escapes the active world.")
-    if raw_path == "" or raw_path.split("/")[0] == ".virtualscreen":
-        raise ValueError("World path is not allowed.")
+    parts = [part for part in raw_path.split("/") if part]
+    if raw_path == "" or any(
+        part in {{".virtualscreen", ".git", "__pycache__"}} for part in parts
+    ):
+        raise ValueError(message)
     return raw_path, target
 
 
 def _safe_write_path(path):
-    raw_path, target = _safe_world_path(path)
+    raw_path, target = _safe_world_path(path, "DMS write path is not allowed.")
     if raw_path.split("/")[0] == ".music":
         raise ValueError("DMS write path is not allowed.")
     return raw_path, target
@@ -573,7 +679,7 @@ exec(compile(source, script_path, "exec"), globals_dict)
 
 
 def _runtime_dir(root: Path, run_id: str) -> Path:
-    path = root / ".virtualscreen" / "dms-runs" / run_id
+    path = _runtime_dir_path(root, run_id)
     path.mkdir(parents=True, exist_ok=True)
     return path
 
@@ -686,6 +792,7 @@ def _validate_write(root: Path, command: dict[str, object]) -> DmsWrite:
     target = resolve_under_root(root, path)
     if path == "" or path.split("/")[0] == ".virtualscreen":
         raise WorldPathError("DMS write path is not allowed.")
+    ensure_no_reserved_path_parts(path, message="DMS write path is not allowed.")
     if path.split("/")[0] == ".music":
         raise WorldPathError("DMS write path is not allowed.")
     if kind == "create_card" and target.suffix.lower() != ".cs":
@@ -790,6 +897,10 @@ def _set_run(run_id: str, **updates: object) -> DmsRunState:
     with _RUNS_LOCK:
         state = _RUNS[run_id]
         for key, value in updates.items():
+            if key in {"stdout", "stderr"}:
+                value = _cap_text(str(value), MAX_DMS_STDIO_CHARS)
+            elif key == "outputs" and isinstance(value, list):
+                value = _cap_outputs(value)
             setattr(state, key, value)
         return state
 
@@ -801,6 +912,27 @@ def _script_stderr(path: str, stderr: str) -> str:
     return f"{stderr.rstrip()}\n{suffix}\n" if stderr else f"{suffix}\n"
 
 
+def _dms_subprocess_env(
+    root: Path,
+    run_id: str,
+    form_values: list[dict[str, object]],
+) -> dict[str, str]:
+    env = {
+        key: os.environ[key]
+        for key in DMS_SUBPROCESS_ENV_ALLOWLIST
+        if key in os.environ
+    }
+    env.update(
+        {
+            "PYTHONIOENCODING": "utf-8",
+            "VIRTUALSCREEN_DMS_FORM_VALUES": json.dumps(form_values, ensure_ascii=False),
+            "VIRTUALSCREEN_DMS_RUN_ID": run_id,
+            "VIRTUALSCREEN_WORLD_ROOT": str(root),
+        }
+    )
+    return env
+
+
 def _execute_script(
     root: Path,
     run_id: str,
@@ -810,18 +942,13 @@ def _execute_script(
 ) -> None:
     script_path = resolve_under_root(root, path)
     runner = _write_runtime(root, run_id, script_path)
-    env = {
-        "PYTHONIOENCODING": "utf-8",
-        "VIRTUALSCREEN_DMS_FORM_VALUES": json.dumps(form_values, ensure_ascii=False),
-        "VIRTUALSCREEN_DMS_RUN_ID": run_id,
-        "VIRTUALSCREEN_WORLD_ROOT": str(root),
-    }
+    env = _dms_subprocess_env(root, run_id, form_values)
     try:
         process = subprocess.Popen(
             [sys.executable, str(runner)],
             cwd=script_path.parent,
             encoding="utf-8",
-            env={**os.environ, **env},
+            env=env,
             stderr=subprocess.PIPE,
             stdout=subprocess.PIPE,
             text=True,
@@ -965,6 +1092,7 @@ def run_dms_script(root: Path, raw_path: object) -> DmsRunState:
     )
     with _RUNS_LOCK:
         _RUNS[run_id] = state
+    _prune_old_runs(root)
     _start_worker(root, run_id, path, [], created_at)
     return state
 

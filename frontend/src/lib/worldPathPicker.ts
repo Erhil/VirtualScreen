@@ -57,6 +57,15 @@ const DISPLAYABLE_PICKER_KINDS = new Set<WorldPathPickerKind>([
   "pdf",
   "video"
 ]);
+const DISPLAYABLE_PICKER_KIND_ORDER: WorldPathPickerKind[] = [
+  "image",
+  "video",
+  "pdf",
+  "card",
+  "markdown",
+  "csv",
+  "text"
+];
 
 export const worldPathPickerFilters = {
   any: { label: "All paths", include: () => true },
@@ -198,9 +207,42 @@ export function filterWorldPathPickerCandidates(
     return candidates;
   }
   if (filter === "displayable") {
-    return candidates.filter((candidate) => DISPLAYABLE_PICKER_KINDS.has(candidate.pickerKind));
+    return rankWorldPathPickerCandidates(
+      candidates.filter((candidate) => DISPLAYABLE_PICKER_KINDS.has(candidate.pickerKind)),
+      filter
+    );
   }
-  return candidates.filter((candidate) => candidate.pickerKind === filter);
+  return rankWorldPathPickerCandidates(
+    candidates.filter((candidate) => candidate.pickerKind === filter),
+    filter
+  );
+}
+
+function typeRankForFilter(
+  candidate: WorldPathPickerCandidate,
+  filter: WorldPathPickerFilter
+): number {
+  if (filter === "displayable") {
+    const rank = DISPLAYABLE_PICKER_KIND_ORDER.indexOf(candidate.pickerKind);
+    return rank === -1 ? DISPLAYABLE_PICKER_KIND_ORDER.length : rank;
+  }
+  if (filter !== "any") {
+    return candidate.pickerKind === filter ? 0 : 1;
+  }
+  return 0;
+}
+
+export function rankWorldPathPickerCandidates(
+  candidates: WorldPathPickerCandidate[],
+  filter: WorldPathPickerFilter = "any"
+): WorldPathPickerCandidate[] {
+  if (filter === "any") {
+    return candidates;
+  }
+  return candidates
+    .map((candidate, index) => ({ candidate, index, rank: typeRankForFilter(candidate, filter) }))
+    .sort((left, right) => left.rank - right.rank || left.index - right.index)
+    .map((result) => result.candidate);
 }
 
 function normalizedSearchParts(query: string): string[] {
@@ -249,19 +291,33 @@ function scoreCandidate(candidate: WorldPathPickerCandidate, terms: string[]): n
 
 export function searchWorldPathPickerCandidates(
   candidates: WorldPathPickerCandidate[],
-  query: string
+  query: string,
+  filter: WorldPathPickerFilter = "any"
 ): WorldPathPickerCandidate[] {
+  const effectiveFilter =
+    filter === "any" && candidates.every((candidate) => DISPLAYABLE_PICKER_KINDS.has(candidate.pickerKind))
+      ? "displayable"
+      : filter;
   const terms = normalizedSearchParts(query);
   if (terms.length === 0) {
-    return candidates;
+    return rankWorldPathPickerCandidates(candidates, effectiveFilter);
   }
 
   return candidates
-    .map((candidate, index) => ({ candidate, index, score: scoreCandidate(candidate, terms) }))
-    .filter((result): result is { candidate: WorldPathPickerCandidate; index: number; score: number } =>
-      result.score !== null
+    .map((candidate, index) => ({
+      candidate,
+      index,
+      rank: typeRankForFilter(candidate, effectiveFilter),
+      score: scoreCandidate(candidate, terms)
+    }))
+    .filter((result): result is {
+      candidate: WorldPathPickerCandidate;
+      index: number;
+      rank: number;
+      score: number;
+    } => result.score !== null
     )
-    .sort((left, right) => right.score - left.score || left.index - right.index)
+    .sort((left, right) => left.rank - right.rank || right.score - left.score || left.index - right.index)
     .map((result) => result.candidate);
 }
 
@@ -320,7 +376,7 @@ export function filterWorldPathPickerEntries(
     typeof filter === "object"
       ? candidates.filter((candidate) => filter.include(candidate.entry))
       : filterWorldPathPickerCandidates(candidates, filter ?? "any");
-  return searchWorldPathPickerCandidates(filtered, query);
+  return searchWorldPathPickerCandidates(filtered, query, typeof filter === "string" ? filter : "any");
 }
 
 export const moveWorldPathPickerSelection = moveWorldPathPickerActiveIndex;

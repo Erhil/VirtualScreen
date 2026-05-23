@@ -13,7 +13,12 @@ from fastapi import BackgroundTasks, WebSocket
 from app.core.database import initialize_database
 from app.core.index import media_kind_for_extension
 from app.core.pages import parse_page
-from app.core.paths import WorldPathError, normalize_relative_path, resolve_under_root
+from app.core.paths import (
+    WorldPathError,
+    ensure_no_reserved_path_parts,
+    normalize_relative_path,
+    resolve_under_root,
+)
 
 DISPLAY_BACKGROUND_FILENAMES = (
     "screen-background.png",
@@ -187,6 +192,7 @@ def display_item_for_path(root: Path, requested_path: str) -> DisplayItem:
         relative_path = normalize_relative_path(requested_path)
         if relative_path.split("/")[0] == ".virtualscreen":
             raise WorldPathError("Display path is not allowed.")
+        ensure_no_reserved_path_parts(relative_path, message="Display path is not allowed.")
         path = resolve_under_root(root, relative_path)
     except WorldPathError as exc:
         raise exc
@@ -213,6 +219,11 @@ def set_fullscreen(root: Path, item: DisplayItem) -> DisplayState:
 
 def blank_fullscreen(root: Path) -> DisplayState:
     return _save_display_state(root, None, [])
+
+
+def clear_fullscreen(root: Path) -> DisplayState:
+    current = load_display_state(root)
+    return _save_display_state(root, None, current.popups)
 
 
 def restore_display_state(root: Path, state: DisplayState) -> DisplayState:

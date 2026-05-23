@@ -1,6 +1,13 @@
 import { describe, expect, it } from "vitest";
 
-import { activateTab, closeTab, openTab, type OpenTab } from "./tabs";
+import {
+  activateTab,
+  closeTab,
+  dirtyTabCloseMessage,
+  shouldConfirmDirtyTabClose,
+  openTab,
+  type OpenTab
+} from "./tabs";
 
 const first: OpenTab = { path: "README.md", name: "README.md", mediaKind: "markdown" };
 const second: OpenTab = {
@@ -37,5 +44,18 @@ describe("tab helpers", () => {
       activePath: second.path
     });
   });
-});
 
+  it("requires confirmation only for dirty tab closes", () => {
+    expect(shouldConfirmDirtyTabClose(first.path, new Set())).toBe(false);
+    expect(shouldConfirmDirtyTabClose(first.path, new Set([first.path]))).toBe(true);
+  });
+
+  it("formats a clear dirty tab close warning", () => {
+    expect(dirtyTabCloseMessage({ ...first, title: "Sample World Guide" })).toBe(
+      "Close Sample World Guide without saving changes?"
+    );
+    expect(dirtyTabCloseMessage(second)).toBe(
+      "Close random-events.csv without saving changes?"
+    );
+  });
+});

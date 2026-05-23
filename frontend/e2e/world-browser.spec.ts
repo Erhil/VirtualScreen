@@ -500,11 +500,12 @@ async function searchTool(page: Page) {
 }
 
 async function quickCaptureTool(page: Page) {
-  const existing = page.getByRole("region", { name: "Quick Capture" });
+  const existing = page.getByRole("region", { name: "Capture" });
   if ((await existing.count()) > 0 && await existing.isVisible()) {
     return existing;
   }
   await workspaceControls(page).getByRole("button", { name: "Capture" }).click();
+  await expect(existing).toBeVisible();
   return existing;
 }
 
@@ -593,8 +594,27 @@ async function revertDirtyDraft(page: Page) {
 async function runActiveScript(page: Page) {
   await page
     .getByRole("region", { name: "Document status" })
-    .getByRole("button", { name: "Run", exact: true })
+    .getByRole("button", { name: "Run Active Script", exact: true })
     .click();
+  await confirmDmsTrustIfVisible(page);
+}
+
+async function confirmDmsTrustIfVisible(page: Page, expectedPath?: string) {
+  const dialog = page.getByRole("dialog", { name: "Trust DMS Script" });
+  if (
+    !(await dialog
+      .waitFor({ state: "visible", timeout: 1000 })
+      .then(() => true)
+      .catch(() => false))
+  ) {
+    return;
+  }
+  await expect(dialog).toContainText("DMS scripts are trusted local Python run by the backend.");
+  if (expectedPath) {
+    await expect(dialog.getByText(expectedPath, { exact: true })).toBeVisible();
+  }
+  await dialog.getByRole("button", { name: "Run Trusted Script" }).click();
+  await expect(dialog).toBeHidden();
 }
 
 async function chooseCodeCompletion(page: Page, label: string | RegExp) {
@@ -957,6 +977,12 @@ test("open folder dialog and add new world work from the world library", async (
 test("folder add menu creates markdown, csv, and nested folders", async ({ page }) => {
   await page.goto("/");
 
+  const cardsFolder = worldTree(page).getByRole("button", { name: "Cards", exact: true });
+  if ((await cardsFolder.getAttribute("aria-expanded")) === "true") {
+    await cardsFolder.click();
+  }
+  await expect(cardsFolder).toHaveAttribute("aria-expanded", "false");
+
   await worldTree(page).getByRole("button", { name: "Add in NPCs" }).click();
   await page.getByRole("button", { name: "New Folder" }).click();
   let dialog = page.getByRole("dialog", { name: "New Folder" });
@@ -969,18 +995,47 @@ test("folder add menu creates markdown, csv, and nested folders", async ({ page 
   await worldTree(page).getByRole("button", { name: "Add in Playwright Nest" }).click();
   await page.getByRole("button", { name: "New Markdown" }).click();
   dialog = page.getByRole("dialog", { name: "New File" });
-  await dialog.getByLabel("New file path").fill("NPCs/Playwright Nest/Rumor.md");
+  await expect(dialog.getByLabel("Name")).toBeVisible();
+  await expect(dialog.getByLabel("File type")).toHaveCount(0);
+  await expect(dialog.getByLabel("New file path")).toHaveCount(0);
+  await dialog.getByLabel("Name").fill("Rumor");
+  await expect(dialog).toContainText("Will create: NPCs/Playwright Nest/Rumor.md");
   await dialog.getByRole("button", { name: "Create File" }).click();
   await expect(page.getByRole("tab", { name: "Rumor" })).toBeVisible();
   await expect(worldTree(page).getByText("Rumor.md")).toBeVisible();
+  await expect(cardsFolder).toHaveAttribute("aria-expanded", "false");
 
   await worldTree(page).getByRole("button", { name: "Add in Playwright Nest" }).click();
   await page.getByRole("button", { name: "New CSV" }).click();
   dialog = page.getByRole("dialog", { name: "New File" });
-  await dialog.getByLabel("New file path").fill("NPCs/Playwright Nest/rumors.csv");
+  await dialog.getByLabel("Name").fill("rumors");
+  await expect(dialog).toContainText("Will create: NPCs/Playwright Nest/rumors.csv");
   await dialog.getByRole("button", { name: "Create File" }).click();
   await expect(page.getByRole("tab", { name: /rumors/ })).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "result" })).toBeVisible();
+  await expect(cardsFolder).toHaveAttribute("aria-expanded", "false");
+
+  await worldTree(page).getByRole("button", { name: "Add in Playwright Nest" }).click();
+  await page.getByRole("button", { name: "New Script" }).click();
+  dialog = page.getByRole("dialog", { name: "New File" });
+  await dialog.getByLabel("Name").fill("setup");
+  await expect(dialog).toContainText("Will create: NPCs/Playwright Nest/setup.dms");
+  await dialog.getByRole("button", { name: "Create File" }).click();
+  await expect(page.getByRole("tab", { name: "setup" })).toBeVisible();
+  await expect(cardsFolder).toHaveAttribute("aria-expanded", "false");
+
+  await worldTree(page).getByRole("button", { name: "Add in Playwright Nest" }).click();
+  await worldTree(page)
+    .getByRole("menu")
+    .getByRole("button", { name: "New Card", exact: true })
+    .click();
+  dialog = page.getByRole("dialog", { name: "New Card" });
+  await dialog.getByLabel("Name").fill("Dock Boss");
+  await expect(dialog.getByLabel("New file path")).toHaveCount(0);
+  await expect(dialog).toContainText("Will create: NPCs/Playwright Nest/Dock Boss.cs");
+  await dialog.getByRole("button", { name: "Create Card" }).click();
+  await expect(page.getByRole("tab", { name: "Dock Boss" })).toBeVisible();
+  await expect(cardsFolder).toHaveAttribute("aria-expanded", "false");
 });
 
 test("opens markdown in a tab", async ({ page }) => {
@@ -1064,7 +1119,7 @@ test("audio tool searches music and plays independent buses @smoke", async ({ pa
   }));
   expect(trackListMetrics.scrollHeight).toBeGreaterThan(trackListMetrics.clientHeight);
   await ambientBus
-    .getByRole("button", { name: "Queue Ambient Tavern" })
+    .getByRole("button", { name: "Load Ambient folder playlist Tavern into queue" })
     .click();
   await expect(ambientBus.locator(".audio-queue-line").getByText("Tavern 1/13")).toBeVisible();
   await expect(ambientBus.getByRole("button", { name: "Pause" })).toBeVisible();
@@ -1074,7 +1129,7 @@ test("audio tool searches music and plays independent buses @smoke", async ({ pa
   await expect(ambientBus.locator(".audio-queue-line").getByText("Tavern 1/13")).toBeVisible();
   await audio.getByRole("button", { name: "tavern-crowd", exact: true }).click();
   await expect(ambientBus.locator(".audio-bus-heading").getByText("tavern-crowd")).toBeVisible();
-  await ambientBus.getByRole("button", { name: "Play" }).click();
+  await ambientBus.getByRole("button", { name: "Play", exact: true }).click();
   await expect(ambientBus.getByRole("button", { name: "Pause" })).toBeVisible();
   const ambientPlayer = page.locator('audio[aria-label="Ambient audio"]');
   await expect(ambientPlayer).toHaveCount(1);
@@ -1091,7 +1146,7 @@ test("audio tool searches music and plays independent buses @smoke", async ({ pa
   await audio.getByRole("searchbox", { name: "Music Search" }).fill("bard");
   await audio.getByRole("button", { name: /bard-song/ }).click();
   const musicBus = audio.getByRole("region", { name: "Music Bus" });
-  await musicBus.getByRole("button", { name: "Play" }).click();
+  await musicBus.getByRole("button", { name: "Play", exact: true }).click();
   await musicBus.getByRole("button", { name: "Fade Out" }).click();
   await expect(musicBus.getByRole("button", { name: "Play" })).toBeVisible({ timeout: 4000 });
   await expect(ambientBus.getByRole("button", { name: "Pause" })).toBeVisible();
@@ -1101,7 +1156,7 @@ test("audio tool searches music and plays independent buses @smoke", async ({ pa
   await audio.getByRole("searchbox", { name: "Music Search" }).fill("glass");
   await audio.getByRole("button", { name: /broken-glass/ }).click();
   const effectBus = audio.getByRole("region", { name: "Effect Bus" });
-  await effectBus.getByRole("button", { name: "Play" }).click();
+  await effectBus.getByRole("button", { name: "Play", exact: true }).click();
   await effectBus.getByRole("button", { name: "Stop" }).click();
 
   await expect(ambientBus.getByRole("button", { name: "Pause" })).toBeVisible();
@@ -1139,7 +1194,7 @@ test("saved audio playlists persist and play through the existing queue @smoke",
   playlist = saved.getByRole("region", { name: "Saved playlist Storm Set" });
   await expect(playlist).toBeVisible();
   await playlist.getByRole("button", { name: "Move .music/music/Bard/bard-song.ogg up" }).click();
-  await playlist.getByRole("button", { name: "Play" }).click();
+  await playlist.getByRole("button", { name: "Load Saved Playlist" }).click();
 
   const ambientBus = audio.getByRole("region", { name: "Ambient Bus" });
   await expect(ambientBus.locator(".audio-queue-line").getByText("Storm Set 1/2")).toBeVisible();
@@ -1267,6 +1322,7 @@ test("script fast slot runs a saved DMS file", async ({ page }) => {
   const slotButton = page.getByRole("button", { name: /Fast slot 1: Core script/ });
   await expect(slotButton).toBeEnabled();
   await slotButton.click();
+  await confirmDmsTrustIfVisible(page, "Scripts/core_commands.dms");
 
   await expect(page.getByRole("heading", { name: "Core Commands" })).toBeVisible();
   await expect(toolsPanel(page).getByRole("button", { name: /^Scripts success/ })).toBeVisible();
@@ -1312,7 +1368,34 @@ test("DMS scripts run from editor and scripts tool @smoke", async ({ page }) => 
 
   await expect(toolsPanel(page).getByRole("button", { name: /^Scenarios/ })).toHaveCount(0);
   await openScriptsFile(page, "hello_world1\\.dms");
-  await runActiveScript(page);
+  await expect(
+    page
+      .getByRole("region", { name: "Document status" })
+      .getByRole("button", { name: "Run Active Script", exact: true })
+  ).toBeVisible();
+  const runRequests: string[] = [];
+  await page.route("**/api/scripts/run", async (route) => {
+    runRequests.push((route.request().postDataJSON() as { path: string }).path);
+    await route.continue();
+  });
+  await page
+    .getByRole("region", { name: "Document status" })
+    .getByRole("button", { name: "Run Active Script", exact: true })
+    .click();
+  const trust = page.getByRole("dialog", { name: "Trust DMS Script" });
+  await expect(trust).toBeVisible();
+  await expect(trust).toContainText("DMS scripts are trusted local Python run by the backend.");
+  await expect(trust.getByText("Scripts/hello_world1.dms", { exact: true })).toBeVisible();
+  await trust.getByText("Cancel", { exact: true }).click();
+  await expect(trust).toBeHidden();
+  await page.waitForTimeout(300);
+  expect(runRequests).toEqual([]);
+  await page
+    .getByRole("region", { name: "Document status" })
+    .getByRole("button", { name: "Run Active Script", exact: true })
+    .click();
+  await confirmDmsTrustIfVisible(page, "Scripts/hello_world1.dms");
+  await expect.poll(() => runRequests.slice()).toEqual(["Scripts/hello_world1.dms"]);
   const form = page.getByRole("dialog", { name: "DMS Script Form" });
   await expect(form).toBeVisible();
   await form.getByLabel("name").fill("Mira");
@@ -1329,6 +1412,7 @@ test("DMS scripts run from editor and scripts tool @smoke", async ({ page }) => 
   await openToolSection(page, "Scripts");
   const scripts = toolsPanel(page).getByRole("region", { name: "DMS Scripts" });
   await expect(scripts.getByText("Hello World")).toBeVisible();
+  await expect(scripts.getByRole("button", { name: "Run Saved Script" }).first()).toBeVisible();
 });
 
 test("DMS scripts can control screen and audio", async ({ page, context }) => {
@@ -1343,7 +1427,9 @@ test("DMS scripts can control screen and audio", async ({ page, context }) => {
   await worldTree(page).getByRole("button", { name: /effects_demo\.dms/ }).click();
   await runActiveScript(page);
 
-  await expect(toolsPanel(page).getByRole("button", { name: /Screen sample-map/ })).toBeVisible();
+  await expect(
+    toolsPanel(page).getByRole("button", { name: /Screen Players currently see: Fullscreen/ })
+  ).toBeVisible();
   await screen.reload();
   await expect(screen.locator(".screen-fullscreen img")).toBeVisible();
   await expect(screen.getByRole("region", { name: "Popup Sample World Guide" })).toBeVisible();
@@ -2161,16 +2247,16 @@ test("staged active popup stays hidden until shown from DM controls", async ({
   await controls.getByRole("button", { name: "Stage Active as Popup" }).click();
 
   const popupItem = controls.locator(".screen-popup-item").filter({ hasText: "Sample World Guide" });
-  await expect(controls.getByRole("heading", { name: "Staged" })).toBeVisible();
+  await expect(controls.getByRole("heading", { name: "Staged (Hidden)" })).toBeVisible();
   await expect(popupItem).toContainText("letter");
   await expect(screen.getByRole("region", { name: "Popup Sample World Guide" })).toBeHidden();
 
-  await popupItem.getByRole("button", { name: "Show", exact: true }).click();
+  await popupItem.getByRole("button", { name: "Show to Players", exact: true }).click();
   const screenPopup = screen.getByRole("region", { name: "Popup Sample World Guide" });
   await expect(screenPopup).toBeVisible();
   await expect(screenPopup).toHaveClass(/screen-popup-letter/);
 
-  await popupItem.getByRole("button", { name: "Hide", exact: true }).click();
+  await popupItem.getByRole("button", { name: "Hide from Players", exact: true }).click();
   await expect(screen.getByRole("region", { name: "Popup Sample World Guide" })).toBeHidden();
 });
 
@@ -2350,6 +2436,7 @@ test("interactive map presents image maps with fog reveals and pins on player sc
   await expect(canvas).toBeFocused();
   await map.getByRole("button", { name: "Hide Box" }).click();
   await dragMapCanvas(map, 0.25, 0.25, 0.38, 0.38);
+  await expect(map.locator(".map-tool-message")).toContainText("Hidden area added.");
   await expect(screen.locator(".map-fog-cover")).toHaveCount(1);
   await expect(canvas).toBeFocused();
 
@@ -2367,6 +2454,7 @@ test("interactive map presents image maps with fog reveals and pins on player sc
   await clickMapCanvas(map, 0.3, 0.7);
   await clickMapCanvas(map, 0.24, 0.8);
   await map.getByRole("button", { name: "Commit Polygon" }).click();
+  await expect(map.locator(".map-tool-message")).toContainText("Hidden area added.");
   await expect(screen.locator(".map-fog-cover")).toHaveCount(2);
   await expect(canvas).toBeFocused();
 
@@ -2735,9 +2823,12 @@ test("opens multiple tabs, switches, and closes the active tab", async ({ page }
   await page.getByRole("tab", { name: "Sample World Guide" }).click();
   await expect(page.getByRole("heading", { name: "Sample World Guide" })).toBeVisible();
 
+  await page.getByRole("tab", { name: "random-events.csv" }).click({ button: "middle" });
+  await expect(page.getByRole("tab", { name: "random-events.csv" })).toBeHidden();
+  await expect(page.getByRole("heading", { name: "Sample World Guide" })).toBeVisible();
+
   await page.getByRole("button", { name: "Close README.md" }).click();
   await expect(page.getByRole("tab", { name: "Sample World Guide" })).toBeHidden();
-  await expect(page.getByRole("columnheader", { name: "result" })).toBeVisible();
 });
 
 test("search hotkey opens search and navigates to a result", async ({ page }) => {
@@ -2750,6 +2841,13 @@ test("search hotkey opens search and navigates to a result", async ({ page }) =>
   await expect(search).toBeVisible();
 
   await search.getByRole("searchbox", { name: "Search World" }).fill("Ilyra");
+  const result = search.getByRole("article", {
+    name: "Captain Ilyra NPCs/Captain Ilyra.md"
+  });
+  await expect(result.getByRole("button", { name: "Open in Other Pane" })).toBeVisible();
+  await expect(result.getByRole("button", { name: "Other", exact: true })).toHaveCount(0);
+  await expect(result.getByRole("button", { name: "Stage on Screen" })).toBeVisible();
+  await expect(result.getByRole("button", { name: "Show on Screen" })).toBeVisible();
   await search
     .getByRole("button", { name: /^Captain Ilyra\s+NPCs\/Captain Ilyra\.md/ })
     .click();
@@ -2776,7 +2874,7 @@ test("capture dialog stays closed until opened", async ({ page }) => {
   await page.goto("/");
 
   await expect(workspaceControls(page).getByRole("button", { name: "Capture" })).toBeVisible();
-  await expect(page.getByRole("region", { name: "Quick Capture" })).toBeHidden();
+  await expect(page.getByRole("region", { name: "Capture" })).toBeHidden();
 });
 
 test("HP tool stays closed until opened", async ({ page }) => {
@@ -3291,7 +3389,8 @@ test("creates markdown note, opens it, and indexes it for search", async ({ page
   await worldTree(page).getByRole("button", { name: "Add in world" }).click();
   await page.getByRole("button", { name: "New Markdown" }).click();
   const dialog = page.getByRole("dialog", { name: "New File" });
-  await dialog.getByLabel("New file path").fill("Session Clue.md");
+  await dialog.getByLabel("Name").fill("Session Clue");
+  await expect(dialog.getByLabel("New file path")).toHaveCount(0);
   await dialog.getByRole("button", { name: "Create File" }).click();
 
   await expect(page.getByRole("tab", { name: "Session Clue" })).toBeVisible();
@@ -3309,7 +3408,8 @@ test("creates CSV table and opens editable grid", async ({ page }) => {
   await worldTree(page).getByRole("button", { name: "Add in world" }).click();
   await page.getByRole("button", { name: "New CSV" }).click();
   const dialog = page.getByRole("dialog", { name: "New File" });
-  await dialog.getByLabel("New file path").fill("custom-rolls.csv");
+  await dialog.getByLabel("Name").fill("custom-rolls");
+  await expect(dialog.getByLabel("New file path")).toHaveCount(0);
   await dialog.getByRole("button", { name: "Create File" }).click();
 
   await expect(page.getByRole("tab", { name: /custom-rolls/ })).toBeVisible();
@@ -3325,7 +3425,8 @@ test("creates edits and searches DMS scripts", async ({ page }) => {
   await worldTree(page).getByRole("button", { name: "Add in world" }).click();
   await page.getByRole("button", { name: "New Script" }).click();
   const dialog = page.getByRole("dialog", { name: "New File" });
-  await dialog.getByLabel("New file path").fill("hello_world.dms");
+  await dialog.getByLabel("Name").fill("hello_world");
+  await expect(dialog.getByLabel("New file path")).toHaveCount(0);
   await dialog.getByRole("button", { name: "Create File" }).click();
 
   await expect(page.getByRole("tab", { name: "hello_world" })).toBeVisible();
@@ -3356,7 +3457,8 @@ test("folder add menu creates a structured card and opens it", async ({ page }) 
   await expect(newCardButton).toBeVisible();
   await newCardButton.click();
   const dialog = page.getByRole("dialog", { name: /New (File|Card)/ });
-  await dialog.getByLabel(/New (file|card) path/i).fill("Cards/Playwright Sigil.cs");
+  await dialog.getByLabel("Name").fill("Playwright Sigil");
+  await expect(dialog.getByLabel(/New (file|card) path/i)).toHaveCount(0);
   await dialog.getByRole("button", { name: /Create (File|Card)/ }).click();
 
   await expect(page.getByRole("tab", { name: "Playwright Sigil" })).toBeVisible();
