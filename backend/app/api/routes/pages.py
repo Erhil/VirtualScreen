@@ -20,7 +20,8 @@ from app.core.index import (
     list_indexed_links,
     list_indexed_pages,
     media_kind_for_extension,
-    rebuild_index,
+    refresh_index,
+    refresh_index_for_disk_changes,
 )
 from app.core.links import PageLink
 from app.core.pages import (
@@ -288,7 +289,7 @@ def update_page_metadata(
                 fields=normalized_metadata["fields"],
             ).encode("utf-8"),
         )
-    result = rebuild_index(root)
+    result = refresh_index(root, changed_paths=[file_path.relative_to(root).as_posix()])
     queue_world_event(
         background_tasks,
         result,
@@ -312,7 +313,6 @@ def page_links(path: str, settings: SettingsDep) -> list[PageLinkResponse]:
         return []
 
     ensure_page_indexed(root, file_path)
-    rebuild_index(root)
     source_path = file_path.relative_to(root).as_posix()
     return [_link_response(link) for link in list_indexed_links(root, source_path)]
 
@@ -320,7 +320,7 @@ def page_links(path: str, settings: SettingsDep) -> list[PageLinkResponse]:
 @router.get("/page/backlinks", response_model=list[PageLinkResponse])
 def page_backlinks(path: str, settings: SettingsDep) -> list[PageLinkResponse]:
     root, file_path = _resolve_page(settings, path)
-    rebuild_index(root)
+    refresh_index_for_disk_changes(root)
     target_path = file_path.relative_to(root).as_posix()
     backlinks = [link for link in list_indexed_links(root) if link.target_path == target_path]
     backlinks.sort(key=lambda link: (link.source_path.lower(), link.order))

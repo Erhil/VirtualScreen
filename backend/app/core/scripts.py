@@ -19,7 +19,7 @@ from app.core.dice import (
 )
 from app.core.display import display_item_for_path
 from app.core.file_safety import atomic_write_bytes, backup_file
-from app.core.index import rebuild_index
+from app.core.index import refresh_index
 from app.core.map import list_map_presets, map_image_path
 from app.core.paths import (
     WorldPathError,
@@ -872,6 +872,7 @@ def _commands_to_outputs_effects_writes(
 def _apply_writes(root: Path, writes: list[DmsWrite]) -> None:
     if not writes:
         return
+    changed_paths = [write.path for write in writes]
     for write in writes:
         _validate_write(
             root,
@@ -890,7 +891,7 @@ def _apply_writes(root: Path, writes: list[DmsWrite]) -> None:
             backup_file(root, target)
             current = target.read_text(encoding="utf-8")
             atomic_write_bytes(target, f"{current}{write.content}".encode())
-    rebuild_index(root)
+    refresh_index(root, changed_paths=changed_paths)
 
 
 def _set_run(run_id: str, **updates: object) -> DmsRunState:

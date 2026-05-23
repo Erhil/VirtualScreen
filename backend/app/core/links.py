@@ -30,6 +30,14 @@ class PageLink:
     order: int
 
 
+LinkLookups = tuple[
+    dict[str, PageData],
+    dict[str, PageData],
+    dict[str, PageData],
+    dict[str, PageData],
+]
+
+
 WIKI_LINK_RE = re.compile(r"(!)?\[\[([^\]]+)]]")
 MARKDOWN_LINK_RE = re.compile(r"(!)?\[([^\]]*)]\(([^)]+)\)")
 IMAGE_EXTENSIONS = {".gif", ".jpeg", ".jpg", ".png", ".svg"}
@@ -139,8 +147,35 @@ def _path_lookup(pages: list[PageData]) -> dict[str, PageData]:
     return lookup
 
 
-def _resolve_page(source_path: str, target: str, pages: list[PageData]) -> PageData | None:
-    lookup = _path_lookup(pages)
+def _title_lookups(
+    pages: list[PageData],
+) -> tuple[dict[str, PageData], dict[str, PageData], dict[str, PageData]]:
+    stem_titles: dict[str, PageData] = {}
+    titles: dict[str, PageData] = {}
+    aliases: dict[str, PageData] = {}
+    for page in pages:
+        title = page.title.lower()
+        if PurePosixPath(page.path).stem.lower() == title:
+            stem_titles.setdefault(title, page)
+        titles.setdefault(title, page)
+        for alias in page.aliases:
+            aliases.setdefault(alias.lower(), page)
+    return stem_titles, titles, aliases
+
+
+def build_link_lookups(pages: list[PageData]) -> LinkLookups:
+    stem_title_lookup, title_lookup, alias_lookup = _title_lookups(pages)
+    return _path_lookup(pages), stem_title_lookup, title_lookup, alias_lookup
+
+
+def _resolve_page(
+    source_path: str,
+    target: str,
+    path_lookup: dict[str, PageData],
+    stem_title_lookup: dict[str, PageData],
+    title_lookup: dict[str, PageData],
+    alias_lookup: dict[str, PageData],
+) -> PageData | None:
     candidates = [_relative_candidate(source_path, target)]
     try:
         candidates.append(normalize_relative_path(target.lstrip("/")))
@@ -148,27 +183,16 @@ def _resolve_page(source_path: str, target: str, pages: list[PageData]) -> PageD
         pass
 
     for candidate in candidates:
-        page = lookup.get(candidate.lower())
+        page = path_lookup.get(candidate.lower())
         if page:
             return page
 
     target_lower = target.lower()
-    for page in pages:
-        if (
-            page.title.lower() == target_lower
-            and PurePosixPath(page.path).stem.lower() == target_lower
-        ):
-            return page
-
-    for page in pages:
-        if page.title.lower() == target_lower:
-            return page
-
-    for page in pages:
-        if any(alias.lower() == target_lower for alias in page.aliases):
-            return page
-
-    return None
+    return (
+        stem_title_lookup.get(target_lower)
+        or title_lookup.get(target_lower)
+        or alias_lookup.get(target_lower)
+    )
 
 
 def resolve_links(
@@ -176,12 +200,23 @@ def resolve_links(
     source_path: str,
     links: list[RawPageLink],
     pages: list[PageData],
+    lookups: LinkLookups | None = None,
 ) -> list[PageLink]:
     resolved_links: list[PageLink] = []
+    path_lookup, stem_title_lookup, title_lookup, alias_lookup = (
+        lookups or build_link_lookups(pages)
+    )
 
     for link in links:
         target, _ = _split_target(link.raw_target)
-        page = _resolve_page(source_path, target, pages)
+        page = _resolve_page(
+            source_path,
+            target,
+            path_lookup,
+            stem_title_lookup,
+            title_lookup,
+            alias_lookup,
+        )
         resolved_links.append(
             PageLink(
                 source_path=link.source_path,

@@ -5,6 +5,7 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings, get_settings
+from app.core.index import rebuild_index
 from app.main import create_app
 
 
@@ -228,3 +229,51 @@ def test_unsupported_binary_file_returns_415(tmp_path: Path) -> None:
     response = client.get("/api/world/file", params={"path": "roll.bin"})
 
     assert response.status_code == 415
+
+
+def test_world_tree_uses_indexed_metadata_without_reparsing_files(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    world = tmp_path / "world"
+    world.mkdir()
+    (world / "README.md").write_text("---\ntitle: Indexed Home\n---\n# Home\n", encoding="utf-8")
+    rebuild_index(world)
+    client = make_client(world)
+
+    monkeypatch.setattr(
+        "app.api.routes.world.parse_page",
+        lambda _root, _path: (_ for _ in ()).throw(AssertionError("tree reparsed file")),
+    )
+    response = client.get("/api/world/tree")
+
+    assert response.status_code == 200
+    child = response.json()["children"][0]
+    assert child["path"] == "README.md"
+    assert child["title"] == "Indexed Home"
+
+
+def test_world_tree_falls_back_to_parse_page_for_unindexed_file(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    from app.api.routes import world as world_routes
+
+    world = tmp_path / "world"
+    world.mkdir()
+    (world / "README.md").write_text("# Home\n", encoding="utf-8")
+    rebuild_index(world)
+    (world / "new.md").write_text("# New File\n", encoding="utf-8")
+    client = make_client(world)
+    calls: list[str] = []
+    original_parse_page = world_routes.parse_page
+
+    def counting_parse_page(root: Path, path: Path):
+        calls.append(path.relative_to(root).as_posix())
+        return original_parse_page(root, path)
+
+    monkeypatch.setattr("app.api.routes.world.parse_page", counting_parse_page)
+    response = client.get("/api/world/tree")
+
+    assert response.status_code == 200
+    assert calls == ["new.md"]

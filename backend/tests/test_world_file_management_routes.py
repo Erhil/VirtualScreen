@@ -5,6 +5,7 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.core.config import Settings, get_settings
+from app.core.index import rebuild_index
 from app.main import create_app
 
 
@@ -427,6 +428,37 @@ def test_moves_file_path_and_updates_index(tmp_path: Path) -> None:
     assert (world / "Archive" / "moved.md").exists()
     search_response = client.get("/api/search", params={"q": "Move"})
     assert [result["path"] for result in search_response.json()] == ["Archive/moved.md"]
+
+
+def test_move_and_trash_paths_do_not_run_full_index_scan(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    world = tmp_path / "world"
+    (world / "Inbox").mkdir(parents=True)
+    (world / "Archive").mkdir()
+    (world / "Inbox" / "move-me.md").write_text("# Move Me\n", encoding="utf-8")
+    (world / "trash-me.md").write_text("# Trash Me\n", encoding="utf-8")
+    rebuild_index(world)
+    client = make_client(world)
+    monkeypatch.setattr(
+        "app.core.index.scan_pages",
+        lambda _root: (_ for _ in ()).throw(AssertionError("full scan should not run")),
+    )
+
+    move_response = client.post(
+        "/api/world/path/move",
+        json={"path": "Inbox/move-me.md", "new_path": "Archive/moved.md"},
+    )
+    trash_response = client.post("/api/world/path/trash", json={"path": "trash-me.md"})
+
+    assert move_response.status_code == 200
+    assert trash_response.status_code == 200
+    move_results = client.get("/api/search", params={"q": "Move"}).json()
+    assert [result["path"] for result in move_results] == ["Archive/moved.md"]
+    assert "trash-me.md" not in [
+        result["path"] for result in client.get("/api/search", params={"q": "Trash"}).json()
+    ]
 
 
 def test_moves_folder_path_recursively_and_updates_index(tmp_path: Path) -> None:

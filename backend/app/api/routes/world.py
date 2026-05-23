@@ -21,8 +21,8 @@ from app.core.file_safety import (
     sha256_hex,
     trash_file,
 )
-from app.core.index import rebuild_index
-from app.core.pages import MARKDOWN_EXTENSIONS, parse_page
+from app.core.index import list_indexed_pages, refresh_index
+from app.core.pages import MARKDOWN_EXTENSIONS, PageData, parse_page
 from app.core.paths import (
     WorldPathError,
     ensure_no_reserved_path_parts,
@@ -419,7 +419,32 @@ def _read_text_file(path: Path) -> tuple[bytes, str]:
     return content.encode("utf-8"), content
 
 
-def _entry_for_path(path: Path, root: Path) -> WorldEntry:
+def _fresh_indexed_page(
+    path: Path,
+    relative_path: str,
+    indexed_pages: dict[str, PageData] | None,
+) -> PageData | None:
+    if indexed_pages is None:
+        return None
+    page = indexed_pages.get(relative_path)
+    if page is None:
+        return None
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    if page.size != stat.st_size:
+        return None
+    if page.modified_at != datetime.fromtimestamp(stat.st_mtime, tz=UTC):
+        return None
+    return page
+
+
+def _entry_for_path(
+    path: Path,
+    root: Path,
+    indexed_pages: dict[str, PageData] | None = None,
+) -> WorldEntry:
     relative_path = "" if path == root else path.relative_to(root).as_posix()
     if path.is_dir():
         sorted_children = sorted(
@@ -433,13 +458,13 @@ def _entry_for_path(path: Path, root: Path) -> WorldEntry:
             if _is_link_or_reparse_point(child):
                 continue
             try:
-                children.append(_entry_for_path(child, root))
+                children.append(_entry_for_path(child, root, indexed_pages))
             except OSError:
                 continue
         return WorldEntry(name=path.name, path=relative_path, kind="directory", children=children)
 
     extension = path.suffix.lower().lstrip(".") or None
-    page = parse_page(root, path)
+    page = _fresh_indexed_page(path, relative_path, indexed_pages) or parse_page(root, path)
     if path.suffix.lower() in MARKDOWN_EXTENSIONS or page.metadata:
         return WorldEntry(
             name=path.name,
@@ -531,7 +556,8 @@ def world_tree(settings: SettingsDep) -> WorldEntry:
     if not root.exists():
         return WorldEntry(name=root.name, path="", kind="directory", children=[])
 
-    return _entry_for_path(root, root)
+    indexed_pages = {page.path: page for page in list_indexed_pages(root)}
+    return _entry_for_path(root, root, indexed_pages)
 
 
 @router.get("/file", response_model=WorldFile)
@@ -576,7 +602,7 @@ def create_world_file(
         ) from exc
 
     atomic_write_bytes(target_path, next_bytes)
-    result = rebuild_index(root)
+    result = refresh_index(root, changed_paths=[target_path.relative_to(root).as_posix()])
     queue_world_event(
         background_tasks,
         result,
@@ -596,7 +622,7 @@ def create_world_folder(
     root = settings.resolved_world_root
     relative_path, target_path = _validate_folder_target(root, payload.path)
     target_path.mkdir()
-    result = rebuild_index(root)
+    result = refresh_index(root, changed_paths=[])
     queue_world_event(
         background_tasks,
         result,
@@ -625,7 +651,7 @@ def move_world_path(
 
     replace_with_retries(source_path, target_path)
     affected_paths = _descendant_file_paths(root, target_path)
-    result = rebuild_index(root)
+    result = refresh_index(root, changed_paths=affected_paths, deleted_paths=source_paths)
     queue_world_event(
         background_tasks,
         result,
@@ -664,7 +690,7 @@ def duplicate_world_path(
     else:
         shutil.copy2(source_path, target_path)
     affected_paths = _descendant_file_paths(root, target_path)
-    result = rebuild_index(root)
+    result = refresh_index(root, changed_paths=affected_paths)
     queue_world_event(
         background_tasks,
         result,
@@ -693,7 +719,7 @@ def trash_world_path(
     kind: Literal["file", "directory"] = "directory" if path.is_dir() else "file"
 
     trashed_path = trash_file(root, path)
-    result = rebuild_index(root)
+    result = refresh_index(root, deleted_paths=deleted_paths)
     queue_world_event(
         background_tasks,
         result,
@@ -744,7 +770,7 @@ def save_world_file(
 
     backup_path = backup_file(root, file_path)
     atomic_write_bytes(file_path, next_bytes)
-    result = rebuild_index(root)
+    result = refresh_index(root, changed_paths=[file_path.relative_to(root).as_posix()])
     queue_world_event(
         background_tasks,
         result,
@@ -787,7 +813,11 @@ def rename_world_file(
         payload.new_path,
     )
     replace_with_retries(file_path, target_path)
-    result = rebuild_index(root)
+    result = refresh_index(
+        root,
+        changed_paths=[target_path.relative_to(root).as_posix()],
+        deleted_paths=[relative_path],
+    )
     queue_world_event(
         background_tasks,
         result,
@@ -816,7 +846,7 @@ def trash_world_file(
     )
 
     trashed_path = trash_file(root, file_path)
-    result = rebuild_index(root)
+    result = refresh_index(root, deleted_paths=[relative_path])
     queue_world_event(
         background_tasks,
         result,
@@ -874,7 +904,7 @@ def restore_world_trash(
     restore_path.parent.mkdir(parents=True, exist_ok=True)
     replace_with_retries(trashed_path, restore_path)
     _cleanup_empty_trash_dirs(root, trashed_path)
-    result = rebuild_index(root)
+    result = refresh_index(root, changed_paths=[restore_relative_path])
     queue_world_event(
         background_tasks,
         result,
@@ -898,7 +928,7 @@ def delete_world_trash(
     else:
         trashed_path.unlink()
     _cleanup_empty_trash_dirs(root, trashed_path)
-    result = rebuild_index(root)
+    result = refresh_index(root, changed_paths=[], deleted_paths=[])
     queue_world_event(
         background_tasks,
         result,

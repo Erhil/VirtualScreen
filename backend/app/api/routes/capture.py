@@ -7,7 +7,7 @@ from pydantic import BaseModel
 from app.core.capture import CaptureResult, CaptureToday, append_capture, today_capture
 from app.core.config import Settings, get_settings
 from app.core.events import queue_world_event
-from app.core.index import rebuild_index
+from app.core.index import refresh_index
 
 router = APIRouter()
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -45,7 +45,7 @@ def capture(
 
     root = settings.resolved_world_root
     result = append_capture(root, payload.category.value, payload.text)
-    rebuild_result = rebuild_index(root)
+    rebuild_result = refresh_index(root, changed_paths=[result.path])
     queue_world_event(
         background_tasks,
         rebuild_result,

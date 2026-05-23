@@ -4,7 +4,13 @@ from pathlib import Path
 
 from app.core import pages as page_core
 from app.core.database import database_path, initialize_database
-from app.core.index import list_indexed_pages, rebuild_index
+from app.core.index import (
+    ensure_page_indexed,
+    list_indexed_links,
+    list_indexed_pages,
+    rebuild_index,
+    refresh_index,
+)
 from app.core.search import search_index
 
 
@@ -186,3 +192,110 @@ def test_rebuild_index_caps_large_text_and_sidecar_metadata_reads(
     assert indexed["Media/map.png"].title == "map"
     assert indexed["Media/map.png"].metadata == {}
     assert search_results == []
+
+
+def test_refresh_index_inserts_changed_page_without_scanning_world(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    world = tmp_path / "world"
+    world.mkdir()
+    rebuild_index(world)
+    (world / "new.md").write_text("# New Note\n\nFind needle.", encoding="utf-8")
+    monkeypatch.setattr(
+        "app.core.index.scan_pages",
+        lambda _root: (_ for _ in ()).throw(AssertionError("full scan should not run")),
+    )
+
+    result = refresh_index(world, changed_paths=["new.md"])
+    pages = {page.path: page for page in list_indexed_pages(world)}
+    search_results = search_index(world, "needle")
+
+    assert result.pages_indexed == 1
+    assert pages["new.md"].title == "New Note"
+    assert [item.path for item in search_results] == ["new.md"]
+
+
+def test_refresh_index_updates_page_and_rebuilds_links_from_indexed_pages(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    world = tmp_path / "world"
+    world.mkdir()
+    (world / "source.md").write_text("[Target](target.md)\n", encoding="utf-8")
+    (world / "target.md").write_text("# Target\n", encoding="utf-8")
+    rebuild_index(world)
+    (world / "target.md").write_text("# Renamed Target\nfresh-needle\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "app.core.index.scan_pages",
+        lambda _root: (_ for _ in ()).throw(AssertionError("full scan should not run")),
+    )
+
+    refresh_index(world, changed_paths=["target.md"])
+    pages = {page.path: page for page in list_indexed_pages(world)}
+    links = list_indexed_links(world, "source.md")
+    search_results = search_index(world, "fresh-needle")
+
+    assert pages["target.md"].title == "Renamed Target"
+    assert links[0].target_title == "Renamed Target"
+    assert [item.path for item in search_results] == ["target.md"]
+
+
+def test_refresh_index_deletes_removed_page_and_rebuilds_links_from_indexed_pages(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    world = tmp_path / "world"
+    world.mkdir()
+    (world / "source.md").write_text("[Target](target.md)\n", encoding="utf-8")
+    (world / "target.md").write_text("# Target\n", encoding="utf-8")
+    rebuild_index(world)
+    (world / "target.md").unlink()
+    monkeypatch.setattr(
+        "app.core.index.scan_pages",
+        lambda _root: (_ for _ in ()).throw(AssertionError("full scan should not run")),
+    )
+
+    refresh_index(world, deleted_paths=["target.md"])
+    pages = {page.path: page for page in list_indexed_pages(world)}
+    links = list_indexed_links(world, "source.md")
+    search_results = search_index(world, "Target")
+
+    assert "target.md" not in pages
+    assert links[0].target_path is None
+    assert "target.md" not in [item.path for item in search_results]
+
+
+def test_ensure_page_indexed_refreshes_stale_page_without_full_rebuild(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    world = tmp_path / "world"
+    world.mkdir()
+    note = world / "note.md"
+    note.write_text("# Old\n", encoding="utf-8")
+    rebuild_index(world)
+    note.write_text("# New\n", encoding="utf-8")
+    monkeypatch.setattr(
+        "app.core.index.scan_pages",
+        lambda _root: (_ for _ in ()).throw(AssertionError("full scan should not run")),
+    )
+
+    indexed = ensure_page_indexed(world, note)
+
+    assert indexed.title == "New"
+
+
+def test_empty_index_does_not_rebuild_after_rebuilt_marker(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    world = tmp_path / "world"
+    world.mkdir()
+    rebuild_index(world)
+    monkeypatch.setattr(
+        "app.core.index.scan_pages",
+        lambda _root: (_ for _ in ()).throw(AssertionError("full scan should not run")),
+    )
+
+    assert list_indexed_pages(world) == []

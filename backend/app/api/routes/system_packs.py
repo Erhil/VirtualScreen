@@ -7,7 +7,7 @@ from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Request
 
 from app.core.config import Settings, get_settings
 from app.core.events import queue_world_event
-from app.core.index import rebuild_index
+from app.core.index import refresh_index
 from app.core.system_packs import (
     MAX_ZIP_BYTES,
     SystemPackError,
@@ -129,7 +129,7 @@ async def import_system_pack_route(
         raise HTTPException(status_code=exc.status_code, detail=str(exc)) from exc
 
     if result.imported:
-        rebuild_result = rebuild_index(settings.resolved_world_root)
+        rebuild_result = refresh_index(settings.resolved_world_root, changed_paths=result.paths)
         queue_world_event(
             background_tasks,
             rebuild_result,
