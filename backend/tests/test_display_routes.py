@@ -299,14 +299,12 @@ def test_public_screen_routes_only_expose_current_display_content(tmp_path: Path
 
     assert client.get("/api/screen/world/file", params={"path": "README.md"}).status_code == 200
     assert client.get("/api/screen/page/links", params={"path": "README.md"}).status_code == 200
-    assert (
-        client.get("/api/screen/world/media", params={"path": "Media/map.svg"}).status_code
-        == 200
-    )
-    assert (
-        client.get("/api/screen/world/media", params={"path": "Media/map.mp4"}).status_code
-        == 200
-    )
+    svg_response = client.get("/api/screen/world/media", params={"path": "Media/map.svg"})
+    video_response = client.get("/api/screen/world/media", params={"path": "Media/map.mp4"})
+    assert svg_response.status_code == 200
+    assert svg_response.headers["x-content-type-options"] == "nosniff"
+    assert "sandbox" in svg_response.headers["content-security-policy"]
+    assert video_response.status_code == 200
 
     assert client.get("/api/screen/world/file", params={"path": "Handout.md"}).status_code == 403
     assert client.get("/api/screen/page/links", params={"path": "Handout.md"}).status_code == 403

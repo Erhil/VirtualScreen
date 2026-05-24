@@ -264,6 +264,32 @@ test("Ctrl+S saves focused editor content and dirty tab close requires confirmat
   await expect(page.getByRole("tab", { name: /Sample World Guide/ })).toBeHidden();
 });
 
+test("middle-click dirty tab close uses the same discard confirmation", async ({ page }) => {
+  await page.goto("/");
+  await openWorldFile(page, /Sample World Guide/);
+  await enterEditMode(page);
+  await fillCodeEditor(page, "Markdown editor", "# Dirty Middle Click\n\nKeep this draft.");
+
+  const tab = page.getByRole("tab", { name: /Sample World Guide \*/ });
+  await expect(tab).toBeVisible();
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("without saving changes");
+    await dialog.dismiss();
+  });
+  await tab.click({ button: "middle" });
+  await expect(page.getByRole("tab", { name: /Sample World Guide \*/ })).toBeVisible();
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toContainText(
+    "Dirty Middle Click"
+  );
+
+  page.once("dialog", async (dialog) => {
+    expect(dialog.message()).toContain("without saving changes");
+    await dialog.accept();
+  });
+  await tab.click({ button: "middle" });
+  await expect(page.getByRole("tab", { name: /Sample World Guide/ })).toBeHidden();
+});
+
 async function openSettings(page: Page) {
   await page.getByRole("button", { name: "Settings" }).click();
   const dialog = page.getByRole("dialog", { name: "Settings" });
@@ -385,6 +411,20 @@ test("Search Escape closes the dialog and restores focus to Search", async ({ pa
 
   await input.fill("Ilyra");
   await page.keyboard.press("Escape");
+
+  await expect(dialog).toHaveCount(0);
+  await expect(searchButton).toBeFocused();
+});
+
+test("Search close button restores focus to Search", async ({ page }) => {
+  await page.goto("/");
+
+  const searchButton = page.getByRole("button", { name: "Search" });
+  await searchButton.click();
+  const dialog = page.getByRole("dialog", { name: "Global Search" });
+  await expect(dialog.getByRole("searchbox", { name: "Search World" })).toBeFocused();
+
+  await dialog.getByRole("button", { name: "Close Search" }).click();
 
   await expect(dialog).toHaveCount(0);
   await expect(searchButton).toBeFocused();
@@ -567,6 +607,41 @@ test("tab strip exposes horizontal overflow without clipping the active tab", as
     element.scrollLeft = element.scrollWidth;
   });
   await expect(page.getByRole("tab", { name: /Overflow Tab 12/ })).toBeVisible();
+});
+
+test("large worlds keep tree filtering search and opening usable", async ({ page, request }) => {
+  const largeRoot = resolve(e2eWorld, "Large World");
+  for (let folderIndex = 1; folderIndex <= 32; folderIndex += 1) {
+    const folder = resolve(largeRoot, `Folder ${String(folderIndex).padStart(2, "0")}`);
+    mkdirSync(folder, { recursive: true });
+    for (let noteIndex = 1; noteIndex <= 25; noteIndex += 1) {
+      const noteName = `note-${String(noteIndex).padStart(2, "0")}.md`;
+      writeFileSync(
+        resolve(folder, noteName),
+        `# Large Note ${folderIndex}-${noteIndex}\n\nBackground fixture ${folderIndex}-${noteIndex}.\n`,
+        "utf-8"
+      );
+    }
+  }
+  writeFileSync(
+    resolve(largeRoot, "Folder 32", "zz-target-large-world.md"),
+    "# Large World Target\n\ncrimson-index-needle\n",
+    "utf-8"
+  );
+  await request.post("/api/index/rebuild");
+
+  await page.goto("/");
+  await page.getByLabel("Filter world tree").fill("zz-target-large-world");
+  const target = worldTree(page).getByRole("button", { name: /zz-target-large-world/ });
+  await expect(target).toBeVisible();
+  await target.click();
+  await expect(page.getByRole("heading", { name: "Large World Target" })).toBeVisible();
+
+  const searchButton = page.getByRole("button", { name: "Search" });
+  await searchButton.click();
+  const dialog = page.getByRole("dialog", { name: "Global Search" });
+  await dialog.getByRole("searchbox", { name: "Search World" }).fill("crimson-index-needle");
+  await expect(dialog.getByRole("button", { name: /Large World Target/ })).toBeVisible();
 });
 
 test("world selector does not expose duplicate recent and library labels", async ({ page }) => {

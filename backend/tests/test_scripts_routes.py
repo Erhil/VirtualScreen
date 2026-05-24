@@ -29,6 +29,8 @@ def make_client(
         world_root=world,
     )
     client = TestClient(app)
+    if token and token.strip():
+        client.headers.update({"x-virtualscreen-token": token})
     if auto_trust:
         trust_response = client.post("/api/scripts/trust")
         assert trust_response.status_code == 200
@@ -96,6 +98,9 @@ def test_dms_subprocess_environment_does_not_inherit_unrelated_secrets(
     monkeypatch,
 ) -> None:
     monkeypatch.setenv("UNRELATED_SECRET_TOKEN", "do-not-leak")
+    monkeypatch.setenv("VIRTUALSCREEN_ACCESS_TOKEN", "access-secret")
+    monkeypatch.setenv("VIRTUALSCREEN_LLM_API_KEY", "llm-secret")
+    monkeypatch.setenv("VIRTUALSCREEN_CUSTOM_SECRET", "custom-secret")
     world = make_world(tmp_path)
     write_script(
         world,
@@ -104,20 +109,26 @@ def test_dms_subprocess_environment_does_not_inherit_unrelated_secrets(
             [
                 "import os",
                 "secret = os.environ.get('UNRELATED_SECRET_TOKEN', 'missing')",
+                "access = os.environ.get('VIRTUALSCREEN_ACCESS_TOKEN', 'missing')",
+                "llm = os.environ.get('VIRTUALSCREEN_LLM_API_KEY', 'missing')",
+                "custom = os.environ.get('VIRTUALSCREEN_CUSTOM_SECRET', 'missing')",
                 "run_id = 'set' if os.environ.get('VIRTUALSCREEN_DMS_RUN_ID') else 'missing'",
-                "render_md(f'{secret}|{run_id}')",
+                "world = 'set' if os.environ.get('VIRTUALSCREEN_WORLD_ROOT') else 'missing'",
+                "form = 'set' if os.environ.get('VIRTUALSCREEN_DMS_FORM_VALUES') else 'missing'",
+                "render_md(f'{secret}|{access}|{llm}|{custom}|{run_id}|{world}|{form}')",
             ]
         ),
     )
-    client = make_client(world)
+    client = make_client(world, token="access-secret")
 
     started = client.post("/api/scripts/run", json={"path": "Scripts/env.dms"})
     run = wait_for_run(client, started.json()["run_id"])
 
     assert run["status"] == "success"
-    assert run["outputs"][0]["content"] == "missing|set"
-    assert "do-not-leak" not in run["stdout"]
-    assert "do-not-leak" not in run["stderr"]
+    assert run["outputs"][0]["content"] == "missing|missing|missing|missing|set|set|set"
+    for secret in ["do-not-leak", "access-secret", "llm-secret", "custom-secret"]:
+        assert secret not in run["stdout"]
+        assert secret not in run["stderr"]
 
 
 def test_lists_dms_scripts_and_rejects_unsafe_run_paths(tmp_path: Path) -> None:

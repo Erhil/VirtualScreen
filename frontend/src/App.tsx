@@ -3604,7 +3604,7 @@ function SettingsDialog({
   availableLanguages: AppConfig["available_languages"];
   language: UiLanguage;
   onClose: () => void;
-  onImportComplete: () => Promise<void>;
+  onImportComplete: (summary: SystemPackImportResponse) => Promise<void>;
   onLanguageChange: (language: UiLanguage) => void;
   open: boolean;
   t: Translator;
@@ -3723,7 +3723,7 @@ function SettingsDialog({
         file: packState.file,
         decisions: packState.decisions
       });
-      await onImportComplete();
+      await onImportComplete(summary);
       setPackState((state) => ({
         ...state,
         summary,
@@ -9829,7 +9829,10 @@ export function App() {
       }
       const shortcut = Boolean(event.ctrlKey || event.metaKey);
       const key = event.key.toLowerCase();
-      if (!shortcut || (key !== "s" && event.code !== "KeyS" && event.key !== "\\")) {
+      const saveShortcut = shortcut && (key === "s" || event.code === "KeyS");
+      const splitShortcut = shortcut && event.key === "\\";
+      const editorEscape = !shortcut && event.key === "Escape";
+      if (!saveShortcut && !splitShortcut && !editorEscape) {
         return;
       }
       const target = event.target instanceof HTMLElement ? event.target : null;
@@ -10376,6 +10379,7 @@ export function App() {
       return;
     }
     event.preventDefault();
+    event.stopPropagation();
     const sourcePath = worldTreeDragPath ?? event.dataTransfer.getData("text/plain");
     handleWorldTreeDragEnd();
     if (!sourcePath || sourcePath === targetEntry.path || isDescendantPath(targetEntry.path, sourcePath)) {
@@ -10394,6 +10398,7 @@ export function App() {
     markLocalWrite([sourcePath, targetPath]);
     try {
       const moved = await moveWorldPath({ path: sourcePath, new_path: targetPath });
+      markLocalWrite([moved.path, ...moved.affected_paths, ...moved.deleted_paths]);
       await refreshWorldStructure([sourcePath, moved.path, ...moved.affected_paths]);
       applyMovedPathToWorkspaceState(sourcePath, moved.path);
       setExpandedPaths((paths) => revealWorldTreePaths(paths, [moved.path]));
@@ -12081,6 +12086,7 @@ export function App() {
         path: state.path,
         new_path: newPath
       });
+      markLocalWrite([moved.path, ...moved.affected_paths, ...moved.deleted_paths]);
       await refreshWorldStructure([state.path, moved.path, ...moved.affected_paths]);
       applyMovedPathToWorkspaceState(state.path, moved.path);
       setExpandedPaths((paths) => revealWorldTreePaths(paths, [moved.path]));
@@ -12110,6 +12116,7 @@ export function App() {
     markLocalWrite([state.path]);
     try {
       const trashed = await trashWorldPath({ path: state.path });
+      markLocalWrite(trashed.deleted_paths);
       await refreshWorldStructure([state.path, ...trashed.deleted_paths]);
       applyTrashedPathToWorkspaceState(state.path);
       setWorldTreeStatus(`Moved ${state.path} to trash.`);
@@ -12751,6 +12758,7 @@ export function App() {
         text: submittedDraft.text
       });
       const nextPages = await refreshWorldStructure([response.path]);
+      setExpandedPaths((paths) => revealWorldTreePaths(paths, [response.path]));
       const logTab = captureLogTab(response.path, nextPages);
       const openLogTab = tabState.tabs.find((tab) => tab.path === response.path);
       const logDraft = editorDrafts[response.path];
@@ -14065,8 +14073,14 @@ export function App() {
         availableLanguages={availableLanguageOptions}
         language={uiLanguage}
         onClose={closeSettingsDialog}
-        onImportComplete={async () => {
-          await refreshWorldStructure([]);
+        onImportComplete={async (summary) => {
+          const importedPaths = summary.files
+            .filter((file) => ["imported", "overwritten", "renamed"].includes(file.status))
+            .map((file) => file.target_path);
+          await refreshWorldStructure(importedPaths);
+          if (importedPaths.length > 0) {
+            setExpandedPaths((paths) => revealWorldTreePaths(paths, importedPaths));
+          }
           setSearchRevision((revision) => revision + 1);
         }}
         onLanguageChange={handleLanguageChange}

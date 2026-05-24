@@ -393,6 +393,25 @@ def test_restore_collision_requires_alternate_path(tmp_path: Path) -> None:
     assert (world / "restored-copy.md").read_text(encoding="utf-8") == "# Restore Me\n"
 
 
+def test_restore_rejects_unsafe_target_path(tmp_path: Path) -> None:
+    world = tmp_path / "world"
+    world.mkdir()
+    (world / "restore-me.md").write_text("# Restore Me\n", encoding="utf-8")
+    client = make_client(world)
+    trashed_path = client.post(
+        "/api/world/file/trash",
+        json={"path": "restore-me.md", **file_preconditions(client, "restore-me.md")},
+    ).json()["trashed_path"]
+
+    response = client.post(
+        "/api/world/trash/restore",
+        json={"trashed_path": trashed_path, "restore_path": "../escape.md"},
+    )
+
+    assert response.status_code == 400
+    assert not (world / "restore-me.md").exists()
+
+
 def test_permanently_deletes_trash_entry(tmp_path: Path) -> None:
     world = tmp_path / "world"
     world.mkdir()
@@ -543,6 +562,96 @@ def test_move_path_rejects_unsafe_missing_duplicate_and_self_descendant(
         ).status_code
         == 400
     )
+
+
+def test_move_path_returns_controlled_error_when_source_disappears(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    world = tmp_path / "world"
+    (world / "Source").mkdir(parents=True)
+    (world / "Target").mkdir()
+    source = world / "Source" / "note.md"
+    source.write_text("# Note\n", encoding="utf-8")
+    client = make_client(world)
+
+    def remove_then_replace(source_path: Path, target_path: Path) -> None:
+        source_path.unlink()
+        source_path.replace(target_path)
+
+    monkeypatch.setattr("app.api.routes.world.replace_with_retries", remove_then_replace)
+
+    response = client.post(
+        "/api/world/path/move",
+        json={"path": "Source/note.md", "new_path": "Target/note.md"},
+    )
+
+    assert response.status_code == 404
+
+
+def test_file_rename_and_restore_return_controlled_errors_when_source_disappears(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    world = tmp_path / "world"
+    world.mkdir()
+    note = world / "note.md"
+    note.write_text("# Note\n", encoding="utf-8")
+    client = make_client(world)
+
+    def remove_then_replace(source_path: Path, target_path: Path) -> None:
+        source_path.unlink()
+        source_path.replace(target_path)
+
+    monkeypatch.setattr("app.api.routes.world.replace_with_retries", remove_then_replace)
+    preconditions = file_preconditions(client, "note.md")
+
+    rename_response = client.post(
+        "/api/world/file/rename",
+        json={"path": "note.md", "new_path": "renamed.md", **preconditions},
+    )
+
+    assert rename_response.status_code == 404
+
+    trash_root = world / ".virtualscreen" / "trash" / "20260523-000000"
+    trash_root.mkdir(parents=True)
+    trashed = trash_root / "note.md"
+    trashed.write_text("# Trashed\n", encoding="utf-8")
+
+    restore_response = client.post(
+        "/api/world/trash/restore",
+        json={"trashed_path": ".virtualscreen/trash/20260523-000000/note.md"},
+    )
+
+    assert restore_response.status_code == 404
+
+
+def test_path_and_file_trash_return_controlled_errors_when_source_disappears(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    world = tmp_path / "world"
+    world.mkdir()
+    first = world / "first.md"
+    second = world / "second.md"
+    first.write_text("# First\n", encoding="utf-8")
+    second.write_text("# Second\n", encoding="utf-8")
+    client = make_client(world)
+
+    def missing_trash(_root: Path, path: Path) -> Path:
+        path.unlink()
+        raise FileNotFoundError(path)
+
+    monkeypatch.setattr("app.api.routes.world.trash_file", missing_trash)
+
+    path_response = client.post("/api/world/path/trash", json={"path": "first.md"})
+    file_response = client.post(
+        "/api/world/file/trash",
+        json={"path": "second.md", **file_preconditions(client, "second.md")},
+    )
+
+    assert path_response.status_code == 404
+    assert file_response.status_code == 404
 
 
 def test_duplicates_file_path_and_updates_index(tmp_path: Path) -> None:

@@ -1,6 +1,9 @@
 import json
+import os
 import sqlite3
 from pathlib import Path
+
+import pytest
 
 from app.core import pages as page_core
 from app.core.database import database_path, initialize_database
@@ -12,6 +15,13 @@ from app.core.index import (
     refresh_index,
 )
 from app.core.search import search_index
+
+
+def make_symlink(source: Path, link: Path, *, target_is_directory: bool = False) -> None:
+    try:
+        os.symlink(source, link, target_is_directory=target_is_directory)
+    except (OSError, NotImplementedError) as exc:
+        pytest.skip(f"Symlinks are not available in this environment: {exc}")
 
 
 def test_schema_initialization_creates_database_and_tables(tmp_path: Path) -> None:
@@ -264,6 +274,38 @@ def test_refresh_index_deletes_removed_page_and_rebuilds_links_from_indexed_page
     assert "target.md" not in pages
     assert links[0].target_path is None
     assert "target.md" not in [item.path for item in search_results]
+
+
+def test_refresh_index_folder_change_skips_symlinked_files(tmp_path: Path) -> None:
+    world = tmp_path / "world"
+    outside = tmp_path / "outside"
+    (world / "Folder").mkdir(parents=True)
+    outside.mkdir()
+    (world / "Folder" / "good.md").write_text("# Good\n", encoding="utf-8")
+    (outside / "secret.md").write_text("# Secret\nhidden-needle\n", encoding="utf-8")
+    make_symlink(outside / "secret.md", world / "Folder" / "linked-secret.md")
+    rebuild_index(world)
+
+    refresh_index(world, changed_paths=["Folder"])
+
+    paths = [page.path for page in list_indexed_pages(world)]
+    assert paths == ["Folder/good.md"]
+    assert search_index(world, "hidden-needle") == []
+
+
+def test_refresh_index_direct_change_skips_symlinked_file(tmp_path: Path) -> None:
+    world = tmp_path / "world"
+    outside = tmp_path / "outside"
+    world.mkdir()
+    outside.mkdir()
+    (outside / "secret.md").write_text("# Secret\nhidden-needle\n", encoding="utf-8")
+    make_symlink(outside / "secret.md", world / "linked-secret.md")
+    rebuild_index(world)
+
+    refresh_index(world, changed_paths=["linked-secret.md"])
+
+    assert list_indexed_pages(world) == []
+    assert search_index(world, "hidden-needle") == []
 
 
 def test_ensure_page_indexed_refreshes_stale_page_without_full_rebuild(

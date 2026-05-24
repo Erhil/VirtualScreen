@@ -233,6 +233,8 @@ def _normalized_existing_changed_paths(root: Path, paths: list[str]) -> list[str
             file_path = resolve_under_root(root, relative_path)
         except WorldPathError:
             continue
+        if _has_link_or_reparse_part(root, file_path):
+            continue
         if not file_path.exists():
             continue
         if file_path.is_dir():
@@ -240,6 +242,8 @@ def _normalized_existing_changed_paths(root: Path, paths: list[str]) -> list[str
                 file_path.rglob("*"),
                 key=lambda item: item.relative_to(root).as_posix().lower(),
             ):
+                if _has_link_or_reparse_part(root, child):
+                    continue
                 if not child.is_file():
                     continue
                 child_relative_path = normalize_relative_path(

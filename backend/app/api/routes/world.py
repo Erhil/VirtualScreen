@@ -379,6 +379,30 @@ def _validate_path_operation_target(
     return relative_path, target_path
 
 
+def _replace_management_path(source_path: Path, target_path: Path) -> None:
+    if not source_path.exists():
+        raise HTTPException(status_code=404, detail="World path was not found.")
+    if target_path.exists():
+        raise HTTPException(status_code=409, detail="World target path already exists.")
+    try:
+        replace_with_retries(source_path, target_path)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="World path was not found.") from exc
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail="World target path already exists.") from exc
+
+
+def _trash_management_path(root: Path, path: Path) -> Path:
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="World path was not found.")
+    try:
+        return trash_file(root, path)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="World path was not found.") from exc
+    except FileExistsError as exc:
+        raise HTTPException(status_code=409, detail="World trash target already exists.") from exc
+
+
 def _default_duplicate_path(source_path: Path) -> Path:
     parent = source_path.parent
     stem = source_path.stem if source_path.is_file() else source_path.name
@@ -649,7 +673,7 @@ def move_world_path(
         payload.new_path,
     )
 
-    replace_with_retries(source_path, target_path)
+    _replace_management_path(source_path, target_path)
     affected_paths = _descendant_file_paths(root, target_path)
     result = refresh_index(root, changed_paths=affected_paths, deleted_paths=source_paths)
     queue_world_event(
@@ -718,7 +742,7 @@ def trash_world_path(
     deleted_paths = _descendant_file_paths(root, path)
     kind: Literal["file", "directory"] = "directory" if path.is_dir() else "file"
 
-    trashed_path = trash_file(root, path)
+    trashed_path = _trash_management_path(root, path)
     result = refresh_index(root, deleted_paths=deleted_paths)
     queue_world_event(
         background_tasks,
@@ -812,7 +836,7 @@ def rename_world_file(
         file_path,
         payload.new_path,
     )
-    replace_with_retries(file_path, target_path)
+    _replace_management_path(file_path, target_path)
     result = refresh_index(
         root,
         changed_paths=[target_path.relative_to(root).as_posix()],
@@ -845,7 +869,7 @@ def trash_world_file(
         payload.expected_hash,
     )
 
-    trashed_path = trash_file(root, file_path)
+    trashed_path = _trash_management_path(root, file_path)
     result = refresh_index(root, deleted_paths=[relative_path])
     queue_world_event(
         background_tasks,
@@ -890,9 +914,9 @@ def restore_world_trash(
         root,
         payload.trashed_path,
     )
-    restore_relative_path = normalize_relative_path(payload.restore_path or original_path)
-    _reject_internal_path(restore_relative_path)
     try:
+        restore_relative_path = normalize_relative_path(payload.restore_path or original_path)
+        _reject_internal_path(restore_relative_path)
         restore_path = resolve_under_root(root, restore_relative_path)
     except WorldPathError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -902,7 +926,7 @@ def restore_world_trash(
         raise HTTPException(status_code=400, detail="World restore parent was not found.")
 
     restore_path.parent.mkdir(parents=True, exist_ok=True)
-    replace_with_retries(trashed_path, restore_path)
+    _replace_management_path(trashed_path, restore_path)
     _cleanup_empty_trash_dirs(root, trashed_path)
     result = refresh_index(root, changed_paths=[restore_relative_path])
     queue_world_event(
