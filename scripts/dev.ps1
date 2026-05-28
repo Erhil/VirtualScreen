@@ -12,8 +12,14 @@ function Get-FreePort {
   param([int]$PreferredPort)
 
   $port = $PreferredPort
-  while (Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue) {
-    $port += 1
+  try {
+    while (Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue) {
+      $port += 1
+    }
+  }
+  catch {
+    Write-Warning "Could not inspect listening ports. Falling back to preferred port $PreferredPort."
+    return $PreferredPort
   }
 
   return $port
@@ -82,13 +88,19 @@ if ([string]::IsNullOrWhiteSpace($accessToken)) {
   $generatedAccessToken = $true
 }
 
-$lanAddress = Get-NetIPAddress -AddressFamily IPv4 |
-  Where-Object {
-    $_.IPAddress -notlike "127.*" -and
-    $_.IPAddress -notlike "169.254.*" -and
-    $_.PrefixOrigin -ne "WellKnown"
-  } |
-  Select-Object -First 1 -ExpandProperty IPAddress
+$lanAddress = $null
+try {
+  $lanAddress = Get-NetIPAddress -AddressFamily IPv4 |
+    Where-Object {
+      $_.IPAddress -notlike "127.*" -and
+      $_.IPAddress -notlike "169.254.*" -and
+      $_.PrefixOrigin -ne "WellKnown"
+    } |
+    Select-Object -First 1 -ExpandProperty IPAddress
+}
+catch {
+  Write-Warning "Could not discover a LAN address. Localhost startup will continue."
+}
 
 $previousAccessToken = $env:VIRTUALSCREEN_ACCESS_TOKEN
 $previousWorldRoot = $env:VIRTUALSCREEN_WORLD_ROOT

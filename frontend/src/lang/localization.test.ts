@@ -28,7 +28,16 @@ describe("localization catalogs", () => {
     const ru = readCatalog("ru");
 
     expect(Object.keys(ru).sort()).toEqual(Object.keys(en).sort());
-    expect(Object.keys(en).sort()).toEqual(Object.keys(FALLBACK_CATALOG).sort());
+    expect(Object.keys(en)).toEqual(expect.arrayContaining(Object.keys(FALLBACK_CATALOG)));
+  });
+
+  it("keeps the bundled fallback catalog intentionally tiny", () => {
+    const en = readCatalog("en");
+
+    expect(Object.keys(FALLBACK_CATALOG).length).toBeLessThan(20);
+    for (const key of Object.keys(FALLBACK_CATALOG)) {
+      expect(en[key], key).toBeTruthy();
+    }
   });
 
   it("lists fallback UI languages used when the backend config is unavailable", () => {

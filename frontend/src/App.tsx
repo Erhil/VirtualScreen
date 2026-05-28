@@ -14,6 +14,21 @@ import {
 } from "react";
 
 import { CodeEditor } from "./CodeEditor";
+import { ContextHelpDialog } from "./components/ContextHelpDialog";
+import {
+  DmsFormDialog,
+  DmsOutputSaveDialog,
+  DmsTrustDialog,
+  type DmsFormDialogState,
+  type DmsOutputSaveDialogState,
+  type DmsTrustDialogState
+} from "./components/DmsDialogs";
+import {
+  MetadataTool,
+  type LinksLoadState,
+  type MetadataEditState,
+  type PageLoadState
+} from "./components/MetadataTool";
 import { MapCanvas, type MapCanvasTool } from "./MapCanvas";
 import { UnlockScreen } from "./UnlockScreen";
 import { WorldPathPicker } from "./WorldPathPicker";
@@ -155,7 +170,6 @@ import {
   type WorldLibraryEntry,
   type WorldFile,
   type WorldLibraryState,
-  type WorldMediaKind,
   type WorkspaceLayout,
   type WorkspacePaneId,
   type WorkspaceState,
@@ -379,14 +393,11 @@ import {
   sortFastSlots,
   visibleFastSlots
 } from "./lib/fastSlots";
-import { buildMetadataViewModel, treeEntryLabel } from "./lib/metadata";
+import { treeEntryLabel } from "./lib/metadata";
 import {
-  addMetadataFieldRow,
   isMetadataFormDirty,
   metadataFormFromPage,
   metadataPayloadFromForm,
-  removeMetadataFieldRow,
-  updateMetadataFieldRow,
   validateMetadataForm,
   type MetadataFormState
 } from "./lib/metadataEditor";
@@ -394,8 +405,12 @@ import {
   activateTab,
   closeTab,
   dirtyTabCloseMessage,
+  mediaKindForEntry,
   openTab,
+  openTabToWorkspaceTab,
   shouldConfirmDirtyTabClose,
+  workspaceTabFromPath,
+  workspaceTabToOpenTab,
   type OpenTab,
   type TabState
 } from "./lib/tabs";
@@ -425,9 +440,7 @@ import {
   isScriptRunAvailable,
   isTemporaryDmsPath,
   normalizeDmsFormSchema,
-  shouldPersistTab,
-  type DmsFormField,
-  type DmsFormValues
+  shouldPersistTab
 } from "./lib/scripts";
 import {
   buildLlmContextPreview,
@@ -490,16 +503,6 @@ type FileLoadState =
   | { status: "loading" }
   | { status: "ready"; file: WorldFile }
   | { status: "removed"; message: string }
-  | { status: "error"; message: string };
-type PageLoadState =
-  | { status: "idle" }
-  | { status: "loading" }
-  | { status: "ready"; page: PageDetail }
-  | { status: "error"; message: string };
-type LinksLoadState =
-  | { status: "idle" }
-  | { status: "loading" }
-  | { status: "ready"; outgoing: PageLink[]; backlinks: PageLink[] }
   | { status: "error"; message: string };
 type WorkspaceDialogState =
   | { kind: "closed" }
@@ -668,29 +671,6 @@ type PeekState =
       fileState: FileLoadState;
       linksState: LinksLoadState;
     };
-type DmsFormDialogState =
-  | { open: false }
-  | {
-      open: true;
-      run: DmsRunState;
-      fields: DmsFormField[];
-      values: DmsFormValues;
-    };
-type DmsTrustDialogState =
-  | { open: false }
-  | {
-      open: true;
-      path: string;
-    };
-type DmsOutputSaveDialogState =
-  | { open: false }
-  | {
-      open: true;
-      file: WorldFile;
-      path: string;
-      status: "idle" | "submitting";
-      error: string | null;
-    };
 type FileDialogState =
   | { kind: "closed" }
   | {
@@ -760,17 +740,6 @@ type WorldCreateDialogState =
       status: "idle" | "submitting";
       error: string | null;
     };
-type MetadataEditState =
-  | { mode: "view" }
-  | {
-      mode: "edit";
-      form: MetadataFormState;
-      status: "idle" | "saving" | "conflict" | "error";
-      message: string | null;
-      expectedModifiedAt: string;
-      expectedHash: string;
-    };
-
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
@@ -1383,19 +1352,6 @@ function parseCardJson(
   }
 }
 
-const TEXT_EXTENSIONS: Record<string, WorldMediaKind> = {
-  cs: "card",
-  csv: "csv",
-  dms: "script",
-  markdown: "markdown",
-  md: "markdown",
-  txt: "text"
-};
-
-const IMAGE_EXTENSIONS = new Set(["gif", "jpeg", "jpg", "png", "svg"]);
-const PDF_EXTENSIONS = new Set(["pdf"]);
-const VIDEO_EXTENSIONS = new Set(["mp4"]);
-
 function normalizeDialogPath(path: string): string {
   return path.trim().replace(/\\/g, "/");
 }
@@ -1414,64 +1370,6 @@ function buildEditorCompletions(
   audioTracks: AudioTrack[]
 ): CodeEditorCompletion[] {
   return buildEditorCompletionItems({ pages, tree, audioTracks });
-}
-
-function mediaKindForEntry(entry: WorldEntry): OpenTab["mediaKind"] {
-  const extension = (entry.extension ?? "").toLowerCase();
-  if (IMAGE_EXTENSIONS.has(extension)) {
-    return "image";
-  }
-  if (PDF_EXTENSIONS.has(extension)) {
-    return "pdf";
-  }
-  if (VIDEO_EXTENSIONS.has(extension)) {
-    return "video";
-  }
-
-  return TEXT_EXTENSIONS[extension] ?? "unsupported";
-}
-
-function mediaKindForPath(path: string): OpenTab["mediaKind"] {
-  const extension = path.split(".").at(-1)?.toLowerCase() ?? "";
-  if (IMAGE_EXTENSIONS.has(extension)) {
-    return "image";
-  }
-  if (PDF_EXTENSIONS.has(extension)) {
-    return "pdf";
-  }
-  if (VIDEO_EXTENSIONS.has(extension)) {
-    return "video";
-  }
-  return TEXT_EXTENSIONS[extension] ?? "unsupported";
-}
-
-function workspaceTabFromPath(path: string, pages: PageSummary[]): WorkspaceTab {
-  const page = pages.find((pageItem) => pageItem.path === path);
-  const name = path.split("/").at(-1) || path;
-  return {
-    path,
-    name,
-    title: page?.title ?? null,
-    mediaKind: mediaKindForPath(path)
-  };
-}
-
-function workspaceTabToOpenTab(tab: WorkspaceTab): OpenTab {
-  return {
-    path: tab.path,
-    name: tab.name,
-    title: tab.title,
-    mediaKind: tab.mediaKind
-  };
-}
-
-function openTabToWorkspaceTab(tab: OpenTab): WorkspaceTab {
-  return {
-    path: tab.path,
-    name: tab.name,
-    title: tab.title ?? null,
-    mediaKind: tab.mediaKind
-  };
 }
 
 function managedTypeForFile(file: WorldFile): ManagedFileType | null {
@@ -2868,266 +2766,6 @@ function FileViewer({
   return <TextViewer file={loadState.file} />;
 }
 
-function MetadataEditForm({
-  contentDirty,
-  fileReady,
-  page,
-  state,
-  onCancel,
-  onChange,
-  onReload,
-  onSave,
-  onRevert
-}: {
-  contentDirty: boolean;
-  fileReady: boolean;
-  page: PageDetail;
-  state: Extract<MetadataEditState, { mode: "edit" }>;
-  onCancel: () => void;
-  onChange: (form: MetadataFormState) => void;
-  onReload: () => void;
-  onSave: () => void;
-  onRevert: () => void;
-}) {
-  const validation = validateMetadataForm(state.form);
-  const dirty = isMetadataFormDirty(state.form, page);
-  const saving = state.status === "saving";
-  const disabled = saving || !fileReady || contentDirty;
-
-  return (
-    <form
-      className="metadata-form"
-      onSubmit={(event) => {
-        event.preventDefault();
-        onSave();
-      }}
-    >
-      <label>
-        Title
-        <input
-          aria-label="Metadata title"
-          onChange={(event) => onChange({ ...state.form, title: event.target.value })}
-          value={state.form.title}
-        />
-      </label>
-      <label>
-        Type
-        <input
-          aria-label="Metadata type"
-          onChange={(event) => onChange({ ...state.form, type: event.target.value })}
-          value={state.form.type}
-        />
-      </label>
-      <label>
-        Tags
-        <input
-          aria-label="Metadata tags"
-          onChange={(event) => onChange({ ...state.form, tagsText: event.target.value })}
-          value={state.form.tagsText}
-        />
-      </label>
-      <label>
-        Aliases
-        <input
-          aria-label="Metadata aliases"
-          onChange={(event) => onChange({ ...state.form, aliasesText: event.target.value })}
-          value={state.form.aliasesText}
-        />
-      </label>
-      <section className="metadata-fields" aria-label="Custom Fields">
-        <h3>Custom Fields</h3>
-        {state.form.fields.map((field, index) => (
-          <div className="metadata-field-row" key={`field-${index}`}>
-            <input
-              aria-label={`Field ${index + 1} key`}
-              onChange={(event) =>
-                onChange(updateMetadataFieldRow(state.form, index, { key: event.target.value }))
-              }
-              placeholder="Key"
-              value={field.key}
-            />
-            <input
-              aria-label={`Field ${index + 1} value`}
-              onChange={(event) =>
-                onChange(updateMetadataFieldRow(state.form, index, { value: event.target.value }))
-              }
-              placeholder="Value"
-              value={field.value}
-            />
-            <button
-              aria-label={`Remove field ${index + 1}`}
-              onClick={() => onChange(removeMetadataFieldRow(state.form, index))}
-              type="button"
-            >
-              Remove
-            </button>
-          </div>
-        ))}
-        <button onClick={() => onChange(addMetadataFieldRow(state.form))} type="button">
-          Add Field
-        </button>
-      </section>
-      {(validation || state.message || contentDirty) && (
-        <p className={`metadata-form-message metadata-form-message-${state.status}`}>
-          {contentDirty
-            ? "Save or revert content before editing metadata."
-            : validation ?? state.message}
-        </p>
-      )}
-      <div className="metadata-form-actions">
-        <button disabled={disabled || !dirty || Boolean(validation)} type="submit">
-          {saving ? "Saving..." : "Save Metadata"}
-        </button>
-        <button disabled={saving} onClick={onRevert} type="button">
-          Revert
-        </button>
-        {state.status === "conflict" && (
-          <button disabled={saving} onClick={onReload} type="button">
-            Reload metadata
-          </button>
-        )}
-        <button disabled={saving} onClick={onCancel} type="button">
-          Cancel
-        </button>
-      </div>
-    </form>
-  );
-}
-
-function MetadataTool({
-  tab,
-  pageState,
-  linksState,
-  pages,
-  editState,
-  fileReady,
-  contentDirty,
-  onOpenOutgoing,
-  onOpenBacklink,
-  onStartEdit,
-  onChangeEdit,
-  onCancelEdit,
-  onRevertEdit,
-  onSaveEdit,
-  onReloadEdit,
-  t
-}: {
-  tab: OpenTab | null;
-  pageState: PageLoadState;
-  linksState: LinksLoadState;
-  pages: PageSummary[];
-  editState: MetadataEditState;
-  fileReady: boolean;
-  contentDirty: boolean;
-  onOpenOutgoing: (link: PageLink) => void;
-  onOpenBacklink: (link: PageLink) => void;
-  onStartEdit: () => void;
-  onChangeEdit: (form: MetadataFormState) => void;
-  onCancelEdit: () => void;
-  onRevertEdit: () => void;
-  onSaveEdit: () => void;
-  onReloadEdit: () => void;
-  t: Translator;
-}) {
-  if (pageState.status === "loading" || pageState.status === "idle") {
-    return (
-      <section className="metadata-tool" aria-label={t("metadata.title")} data-help-context="metadata">
-        {tab ? <p>{t("metadata.loading")}</p> : <p>{t("metadata.selectFile")}</p>}
-      </section>
-    );
-  }
-
-  if (pageState.status === "error") {
-    return (
-      <section className="metadata-tool" aria-label={t("metadata.title")} data-help-context="metadata">
-        <div className="metadata-empty">
-          <h3>{t("metadata.loadError")}</h3>
-          <p>{pageState.message}</p>
-        </div>
-      </section>
-    );
-  }
-
-  const entries = buildMetadataViewModel(pageState.page);
-  const outgoing = linksState.status === "ready" ? linksState.outgoing : [];
-  const backlinks = linksState.status === "ready" ? linksState.backlinks : [];
-  const linksError = linksState.status === "error" ? linksState.message : null;
-
-  return (
-    <section className="metadata-tool" aria-label={t("metadata.title")} data-help-context="metadata">
-      <div className="metadata-heading">
-        {editState.mode === "view" && (
-          <button
-            disabled={!fileReady || contentDirty}
-            onClick={onStartEdit}
-            type="button"
-          >
-            {t("metadata.edit")}
-          </button>
-        )}
-      </div>
-      {editState.mode === "edit" ? (
-        <MetadataEditForm
-          contentDirty={contentDirty}
-          fileReady={fileReady}
-          onCancel={onCancelEdit}
-          onChange={onChangeEdit}
-          onReload={onReloadEdit}
-          onRevert={onRevertEdit}
-          onSave={onSaveEdit}
-          page={pageState.page}
-          state={editState}
-        />
-      ) : (
-        <>
-          <dl>
-            {entries.map((entry) => (
-              <div className="metadata-row" key={entry.label}>
-                <dt>{entry.label}</dt>
-                <dd>{entry.value}</dd>
-              </div>
-            ))}
-          </dl>
-          <section className="link-section" aria-label={t("metadata.outgoingLinks")}>
-            <h3>{t("metadata.outgoingLinks")}</h3>
-            {linksError && <p>{linksError}</p>}
-            {linksState.status === "loading" && <p>{t("metadata.loadingLinks")}</p>}
-            {linksState.status !== "loading" && outgoing.length === 0 && <p>{t("app.none")}</p>}
-            {outgoing.map((link, index) => (
-              <button
-                className="panel-link"
-                disabled={!link.resolved}
-                key={`${link.source_path}-${link.raw_target}-${link.link_type}-${index}`}
-                onClick={() => onOpenOutgoing(link)}
-                type="button"
-              >
-                {link.target_kind === "markdown" ? link.target_title ?? link.label : link.label}
-              </button>
-            ))}
-          </section>
-          <section className="link-section" aria-label={t("metadata.backlinks")}>
-            <h3>{t("metadata.backlinks")}</h3>
-            {linksState.status === "loading" && <p>{t("metadata.loadingBacklinks")}</p>}
-            {linksState.status !== "loading" && backlinks.length === 0 && <p>{t("app.none")}</p>}
-            {backlinks.map((link) => {
-              const sourcePage = pages.find((page) => page.path === link.source_path);
-              return (
-                <button
-                  className="panel-link"
-                  key={`${link.source_path}-${link.raw_target}`}
-                  onClick={() => onOpenBacklink(link)}
-                  type="button"
-                >
-                  {sourcePage?.title ?? link.source_path}
-                </button>
-              );
-            })}
-          </section>
-        </>
-      )}
-    </section>
-  );
-}
 function WorldTree({
   dragPath,
   dropPath,
@@ -3905,75 +3543,6 @@ function SettingsDialog({
             {t("app.close")}
           </button>
         </div>
-      </section>
-    </div>
-  );
-}
-
-function ContextHelpDialog({
-  onClose,
-  open,
-  t,
-  topic
-}: {
-  onClose: () => void;
-  open: boolean;
-  t: Translator;
-  topic: ContextHelpTopic | null;
-}) {
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    function handleKeyDown(event: KeyboardEvent) {
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        onClose();
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown, true);
-    return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [onClose, open]);
-
-  if (!open || !topic) {
-    return null;
-  }
-
-  const shortcuts = topic.shortcutKeys
-    .map((key) => t(key))
-    .filter((value) => value && !value.startsWith("[["));
-
-  return (
-    <div className="dialog-overlay" onMouseDown={onClose} role="presentation">
-      <section
-        aria-label={t("help.open")}
-        className="file-dialog context-help-dialog"
-        data-context-help-dialog="true"
-        onMouseDown={(event) => event.stopPropagation()}
-        role="dialog"
-      >
-        <div className="dialog-header">
-          <h2>{t(topic.titleKey)}</h2>
-          <button aria-label={t("help.close")} autoFocus onClick={onClose} type="button">
-            x
-          </button>
-        </div>
-        <ul className="context-help-list">
-          {topic.bodyKeys.map((key) => (
-            <li key={key}>{t(key)}</li>
-          ))}
-        </ul>
-        {shortcuts.length > 0 && (
-          <section className="context-help-shortcuts" aria-label={t("help.shortcuts")}>
-            <h3>{t("help.shortcuts")}</h3>
-            <ul>
-              {shortcuts.map((shortcut) => (
-                <li key={shortcut}>{shortcut}</li>
-              ))}
-            </ul>
-          </section>
-        )}
       </section>
     </div>
   );
@@ -8654,216 +8223,6 @@ function FileManagementDialog({
             </button>
             <button disabled={submitting} type="submit">
               {submitting ? "Working..." : submitLabel}
-            </button>
-          </div>
-        </form>
-      </section>
-    </div>
-  );
-}
-
-function DmsTrustDialog({
-  onCancel,
-  onConfirm,
-  state,
-  t
-}: {
-  onCancel: () => void;
-  onConfirm: () => void;
-  state: DmsTrustDialogState;
-  t: Translator;
-}) {
-  if (!state.open) {
-    return null;
-  }
-
-  return (
-    <div className="dialog-overlay" onMouseDown={onCancel} role="presentation">
-      <section
-        aria-label={t("scripts.trustTitle")}
-        className="file-dialog dms-trust-dialog"
-        data-help-context="document-dms"
-        onMouseDown={(event) => event.stopPropagation()}
-        role="dialog"
-      >
-        <div className="dialog-header">
-          <h2>{t("scripts.trustTitle")}</h2>
-          <button aria-label={t("app.cancel")} onClick={onCancel} type="button">
-            x
-          </button>
-        </div>
-        <p>{t("scripts.trustWarning")}</p>
-        <div className="form-field">
-          <span>{t("scripts.trustPath")}</span>
-          <code>{state.path}</code>
-        </div>
-        <div className="dialog-actions">
-          <button onClick={onCancel} type="button">
-            {t("app.cancel")}
-          </button>
-          <button onClick={onConfirm} type="button">
-            {t("scripts.trustConfirm")}
-          </button>
-        </div>
-      </section>
-    </div>
-  );
-}
-
-function DmsFormDialog({
-  fileOptions,
-  onChange,
-  onClose,
-  onSubmit,
-  state,
-  t
-}: {
-  fileOptions: string[];
-  onChange: (name: string, value: string | number | boolean) => void;
-  onClose: () => void;
-  onSubmit: () => void;
-  state: DmsFormDialogState;
-  t: Translator;
-}) {
-  if (!state.open) {
-    return null;
-  }
-
-  return (
-    <div className="dialog-overlay" role="presentation">
-      <section
-        aria-label={t("scripts.formDialog")}
-        className="file-dialog"
-        data-help-context="document-dms"
-        role="dialog"
-      >
-        <div className="dialog-header">
-          <h2>{t("scripts.formTitle")}</h2>
-          <button aria-label={t("scripts.closeFormDialog")} onClick={onClose} type="button">
-            x
-          </button>
-        </div>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSubmit();
-          }}
-        >
-          {state.fields.map((field) => (
-            <label key={field.name}>
-              {field.label}
-              {field.input_type === "boolean" ? (
-                <input
-                  checked={Boolean(state.values[field.name])}
-                  onChange={(event) => onChange(field.name, event.target.checked)}
-                  type="checkbox"
-                />
-              ) : field.input_type === "select" ? (
-                <select
-                  onChange={(event) => onChange(field.name, event.target.value)}
-                  value={String(state.values[field.name] ?? "")}
-                >
-                  {field.options.map((option) => (
-                    <option key={option} value={option}>
-                      {option}
-                    </option>
-                  ))}
-                </select>
-              ) : field.input_type === "file" ? (
-                <>
-                  <input
-                    list={`dms-file-options-${field.name}`}
-                    onChange={(event) => onChange(field.name, event.target.value)}
-                    type="text"
-                    value={String(state.values[field.name] ?? "")}
-                  />
-                  <datalist id={`dms-file-options-${field.name}`}>
-                    {fileOptions.map((path) => (
-                      <option key={path} value={path} />
-                    ))}
-                  </datalist>
-                </>
-              ) : (
-                <input
-                  onChange={(event) =>
-                    onChange(
-                      field.name,
-                      field.input_type === "number"
-                        ? Number(event.target.value)
-                        : event.target.value
-                    )
-                  }
-                  type={field.input_type === "number" ? "number" : "text"}
-                  value={String(state.values[field.name] ?? "")}
-                />
-              )}
-            </label>
-          ))}
-          <div className="dialog-actions">
-            <button type="button" onClick={onClose}>
-              {t("app.cancel")}
-            </button>
-            <button type="submit">{t("app.continue")}</button>
-          </div>
-        </form>
-      </section>
-    </div>
-  );
-}
-
-function DmsOutputSaveDialog({
-  onChange,
-  onClose,
-  onSubmit,
-  state,
-  t
-}: {
-  onChange: (path: string) => void;
-  onClose: () => void;
-  onSubmit: () => void;
-  state: DmsOutputSaveDialogState;
-  t: Translator;
-}) {
-  if (!state.open) {
-    return null;
-  }
-  const submitting = state.status === "submitting";
-
-  return (
-    <div className="dialog-overlay" role="presentation">
-      <section
-        aria-label={t("scripts.saveOutputDialog")}
-        className="file-dialog"
-        data-help-context="document-dms"
-        role="dialog"
-      >
-        <div className="dialog-header">
-          <h2>{t("scripts.saveOutputTitle")}</h2>
-          <button aria-label={t("scripts.closeSaveOutputDialog")} onClick={onClose} type="button">
-            x
-          </button>
-        </div>
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSubmit();
-          }}
-        >
-          <label>
-            {t("scripts.outputWorldPath")}
-            <input
-              onChange={(event) => onChange(event.target.value)}
-              type="text"
-              value={state.path}
-            />
-          </label>
-          {state.error && <p className="dialog-error">{state.error}</p>}
-          <div className="dialog-actions">
-            <button disabled={submitting} onClick={onClose} type="button">
-              {t("app.cancel")}
-            </button>
-            <button disabled={submitting} type="submit">
-              {submitting ? t("app.saving") : t("app.save")}
             </button>
           </div>
         </form>

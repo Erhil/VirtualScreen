@@ -20,8 +20,8 @@ from app.core.index import (
     list_indexed_links,
     list_indexed_pages,
     media_kind_for_extension,
-    refresh_index,
     refresh_index_for_disk_changes,
+    refresh_index_for_paths,
 )
 from app.core.links import PageLink
 from app.core.pages import (
@@ -289,7 +289,7 @@ def update_page_metadata(
                 fields=normalized_metadata["fields"],
             ).encode("utf-8"),
         )
-    result = refresh_index(root, changed_paths=[file_path.relative_to(root).as_posix()])
+    result = refresh_index_for_paths(root, changed_paths=[file_path.relative_to(root).as_posix()])
     queue_world_event(
         background_tasks,
         result,

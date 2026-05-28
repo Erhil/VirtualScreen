@@ -4,8 +4,13 @@ import {
   activateTab,
   closeTab,
   dirtyTabCloseMessage,
+  mediaKindForEntry,
+  mediaKindForPath,
   shouldConfirmDirtyTabClose,
   openTab,
+  openTabToWorkspaceTab,
+  workspaceTabFromPath,
+  workspaceTabToOpenTab,
   type OpenTab
 } from "./tabs";
 
@@ -57,5 +62,41 @@ describe("tab helpers", () => {
     expect(dirtyTabCloseMessage(second)).toBe(
       "Close random-events.csv without saving changes?"
     );
+  });
+
+  it("maps world paths and entries to workspace tabs", () => {
+    expect(mediaKindForPath("Cards/Hero.cs")).toBe("card");
+    expect(mediaKindForPath("Media/map.svg")).toBe("image");
+    expect(mediaKindForEntry({
+      name: "map.svg",
+      path: "Media/map.svg",
+      kind: "file",
+      extension: "svg",
+      children: []
+    })).toBe("image");
+
+    const workspaceTab = workspaceTabFromPath("Cards/Hero.cs", [
+      {
+        path: "Cards/Hero.cs",
+        name: "Hero.cs",
+        extension: "cs",
+        title: "Hero",
+        page_type: "card",
+        tags: [],
+        aliases: [],
+        size: 100,
+        modified_at: "2026-01-01T00:00:00Z",
+        hash: "abc"
+      }
+    ]);
+    expect(workspaceTab).toMatchObject({
+      path: "Cards/Hero.cs",
+      name: "Hero.cs",
+      title: "Hero",
+      mediaKind: "card"
+    });
+    const open = workspaceTabToOpenTab(workspaceTab);
+    expect(open).toMatchObject({ path: "Cards/Hero.cs", mediaKind: "card" });
+    expect(openTabToWorkspaceTab(open)).toEqual(workspaceTab);
   });
 });

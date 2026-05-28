@@ -579,7 +579,7 @@ def test_move_path_returns_controlled_error_when_source_disappears(
         source_path.unlink()
         source_path.replace(target_path)
 
-    monkeypatch.setattr("app.api.routes.world.replace_with_retries", remove_then_replace)
+    monkeypatch.setattr("app.core.world_operations.replace_with_retries", remove_then_replace)
 
     response = client.post(
         "/api/world/path/move",
@@ -603,7 +603,7 @@ def test_file_rename_and_restore_return_controlled_errors_when_source_disappears
         source_path.unlink()
         source_path.replace(target_path)
 
-    monkeypatch.setattr("app.api.routes.world.replace_with_retries", remove_then_replace)
+    monkeypatch.setattr("app.core.world_operations.replace_with_retries", remove_then_replace)
     preconditions = file_preconditions(client, "note.md")
 
     rename_response = client.post(
@@ -642,7 +642,7 @@ def test_path_and_file_trash_return_controlled_errors_when_source_disappears(
         path.unlink()
         raise FileNotFoundError(path)
 
-    monkeypatch.setattr("app.api.routes.world.trash_file", missing_trash)
+    monkeypatch.setattr("app.core.world_operations.trash_file", missing_trash)
 
     path_response = client.post("/api/world/path/trash", json={"path": "first.md"})
     file_response = client.post(

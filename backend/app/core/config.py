@@ -54,10 +54,6 @@ class Settings(BaseSettings):
             return cwd_path
         return (Path(__file__).resolve().parents[3] / expanded).resolve()
 
-    @property
-    def llm_enabled(self) -> bool:
-        return bool(self.llm_base_url.strip() and self.llm_model.strip())
-
 
 @lru_cache
 def get_settings() -> Settings:

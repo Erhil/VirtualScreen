@@ -368,6 +368,12 @@ def refresh_index(
     changed_paths: list[str] | None = None,
     deleted_paths: list[str] | None = None,
 ) -> RebuildResult:
+    """Refresh only known changed/deleted paths.
+
+    Passing no path lists intentionally requests a full rebuild. Normal world
+    mutations should prefer refresh_index_for_paths so that call sites read as
+    targeted updates.
+    """
     root = root.expanduser().resolve()
     if changed_paths is None and deleted_paths is None:
         return rebuild_index(root)
@@ -401,6 +407,15 @@ def refresh_index(
         links_indexed=link_count,
         rebuilt_at=rebuilt_at,
     )
+
+
+def refresh_index_for_paths(
+    root: Path,
+    *,
+    changed_paths: list[str] | None = None,
+    deleted_paths: list[str] | None = None,
+) -> RebuildResult:
+    return refresh_index(root, changed_paths=changed_paths or [], deleted_paths=deleted_paths or [])
 
 
 def refresh_index_for_disk_changes(root: Path) -> RebuildResult:

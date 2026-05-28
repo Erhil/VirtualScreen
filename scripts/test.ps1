@@ -8,14 +8,24 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 $normalizedRoot = [System.IO.Path]::GetFullPath($root)
+$testTemp = Join-Path $root ".virtualscreen\tmp"
+New-Item -ItemType Directory -Force -Path $testTemp | Out-Null
+$env:TMP = $testTemp
+$env:TEMP = $testTemp
 
 $stageResults = @()
 
 function Get-DescendantProcessIds {
   param([int]$RootProcessId)
 
-  $children = Get-CimInstance Win32_Process | Where-Object {
-    $_.ParentProcessId -eq $RootProcessId
+  try {
+    $children = Get-CimInstance Win32_Process | Where-Object {
+      $_.ParentProcessId -eq $RootProcessId
+    }
+  }
+  catch {
+    Write-Warning "Could not inspect child processes for PID $RootProcessId. Continuing cleanup best-effort."
+    return @()
   }
 
   foreach ($child in $children) {
@@ -27,10 +37,25 @@ function Get-DescendantProcessIds {
 function Stop-TestPortListeners {
   $testPorts = @(5174, 8010)
   foreach ($port in $testPorts) {
-    $connections = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue
+    try {
+      $connections = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue
+    }
+    catch {
+      Write-Warning "Could not inspect listeners on port $port. Continuing without port cleanup."
+      continue
+    }
     $owners = @($connections | Select-Object -ExpandProperty OwningProcess -Unique)
     foreach ($processId in $owners) {
-      $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
+      try {
+        $processInfo = Get-CimInstance Win32_Process -Filter "ProcessId = $processId" -ErrorAction SilentlyContinue
+      }
+      catch {
+        $processInfo = $null
+        Write-Warning "Port $port is occupied by PID $processId, but its command line could not be inspected. Leaving it running."
+      }
+      if (-not $processInfo) {
+        continue
+      }
       $commandLine = if ($processInfo) { $processInfo.CommandLine } else { "" }
       $isExpectedTestServer =
         -not [string]::IsNullOrWhiteSpace($commandLine) -and

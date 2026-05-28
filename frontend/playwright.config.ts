@@ -1,6 +1,5 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const backendPort = 8010;
 const frontendPort = 5174;
 const isCi = Boolean(process.env.CI);
 
@@ -8,6 +7,7 @@ export default defineConfig({
   testDir: "./e2e",
   timeout: isCi ? 90_000 : 60_000,
   workers: 1,
+  globalTeardown: "./e2e/teardown-e2e.mjs",
   expect: {
     timeout: isCi ? 10_000 : 5_000
   },
@@ -23,23 +23,8 @@ export default defineConfig({
   ],
   webServer: [
     {
-      command: `..\\.venv\\Scripts\\python -m uvicorn app.main:app --app-dir ..\\backend --host 127.0.0.1 --port ${backendPort}`,
-      env: {
-        ...process.env,
-        VIRTUALSCREEN_WORLD_ROOT: "../.virtualscreen/e2e-worlds/E2E World",
-        VIRTUALSCREEN_WORLDS_ROOT: "../.virtualscreen/e2e-worlds",
-        VIRTUALSCREEN_WATCH_WORLD: "true"
-      },
-      reuseExistingServer: false,
-      timeout: 120_000,
-      url: `http://127.0.0.1:${backendPort}/api/health`
-    },
-    {
-      command: `npm run dev -- --host 127.0.0.1 --port ${frontendPort}`,
-      env: {
-        ...process.env,
-        VIRTUALSCREEN_API_TARGET: `http://127.0.0.1:${backendPort}`
-      },
+      command: "node ./e2e/serve-e2e.mjs",
+      env: { ...process.env },
       reuseExistingServer: false,
       timeout: 120_000,
       url: `http://127.0.0.1:${frontendPort}`
