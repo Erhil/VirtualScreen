@@ -1,8 +1,3 @@
-export type HealthResponse = {
-  status: string;
-  service: string;
-};
-
 export type UiLanguage = string;
 
 export type AppConfig = {
@@ -60,11 +55,6 @@ export type DiceRollResponse = {
   total: number;
   detail: string;
   rolled_at: string;
-};
-
-export type WorldInfo = {
-  root: string;
-  exists: boolean;
 };
 
 export type WorldLibraryEntry = {
@@ -220,24 +210,6 @@ export type CreateWorldFolderRequest = {
   path: string;
 };
 
-export type RenameWorldFileRequest = {
-  path: string;
-  new_path: string;
-  expected_modified_at: string;
-  expected_hash: string;
-};
-
-export type TrashWorldFileRequest = {
-  path: string;
-  expected_modified_at: string;
-  expected_hash: string;
-};
-
-export type TrashWorldFileResponse = {
-  path: string;
-  trashed_path: string;
-};
-
 export type MoveWorldPathRequest = {
   path: string;
   new_path: string;
@@ -369,12 +341,6 @@ export type DisplayState = {
   fullscreen: DisplayItem | null;
   popups: DisplayPopup[];
   updated_at: string;
-};
-
-export type RebuildIndexResponse = {
-  pages_indexed: number;
-  links_indexed: number;
-  rebuilt_at: string;
 };
 
 export type LlmConfigResponse = {
@@ -592,32 +558,6 @@ export type FastSlot = {
   action: FastSlotAction;
 };
 
-export type ScenarioInput = {
-  name: string;
-  label: string;
-  input_type: "text" | "number" | "boolean" | "select";
-  required: boolean;
-  default: string | number | boolean | null;
-  options: string[];
-};
-
-export type ScenarioSummary = {
-  id: string;
-  name: string;
-  description: string | null;
-  inputs: ScenarioInput[];
-};
-
-export type ScenarioRunResult = {
-  run_id: string;
-  scenario_id: string;
-  status: "success" | "error" | "timeout";
-  output_kind: "markdown" | "json" | "text";
-  output: string;
-  stderr: string;
-  created_at: string;
-};
-
 export type DmsScriptSummary = {
   path: string;
   name: string;
@@ -718,10 +658,6 @@ async function sendFormData<T>(path: string, body: FormData): Promise<T> {
   return response.json() as Promise<T>;
 }
 
-export function fetchHealth(): Promise<HealthResponse> {
-  return getJson<HealthResponse>("/api/health");
-}
-
 export function fetchAppConfig(): Promise<AppConfig> {
   return getJson<AppConfig>("/api/app/config");
 }
@@ -765,20 +701,8 @@ export function loginAuth(token: string): Promise<AuthStatus> {
   return sendJson<AuthStatus>("/api/auth/login", "POST", { token });
 }
 
-export function logoutAuth(): Promise<AuthStatus> {
-  return sendJson<AuthStatus>("/api/auth/logout", "POST");
-}
-
-export function fetchWorldInfo(): Promise<WorldInfo> {
-  return getJson<WorldInfo>("/api/world/info");
-}
-
 export function fetchWorlds(): Promise<WorldLibraryState> {
   return getJson<WorldLibraryState>("/api/worlds");
-}
-
-export function fetchCurrentWorld(): Promise<WorldLibraryState> {
-  return getJson<WorldLibraryState>("/api/worlds/current");
 }
 
 export function openWorld(id: string): Promise<WorldLibraryState> {
@@ -787,10 +711,6 @@ export function openWorld(id: string): Promise<WorldLibraryState> {
 
 export function createWorld(name: string): Promise<WorldLibraryState> {
   return sendJson<WorldLibraryState>("/api/worlds", "POST", { name });
-}
-
-export function saveRecentWorlds(recent: string[]): Promise<WorldLibraryState> {
-  return sendJson<WorldLibraryState>("/api/worlds/recent", "PUT", { recent });
 }
 
 export function fetchWorldTree(): Promise<WorldEntry> {
@@ -883,16 +803,6 @@ export function createWorldFolder(payload: CreateWorldFolderRequest): Promise<Wo
   return sendJson<WorldEntry>("/api/world/folder", "POST", payload);
 }
 
-export function renameWorldFile(payload: RenameWorldFileRequest): Promise<WorldFile> {
-  return sendJson<WorldFile>("/api/world/file/rename", "POST", payload);
-}
-
-export function trashWorldFile(
-  payload: TrashWorldFileRequest
-): Promise<TrashWorldFileResponse> {
-  return sendJson<TrashWorldFileResponse>("/api/world/file/trash", "POST", payload);
-}
-
 export function moveWorldPath(
   payload: MoveWorldPathRequest
 ): Promise<WorldPathOperationResponse> {
@@ -958,25 +868,6 @@ export function fetchPageBacklinks(path: string): Promise<PageLink[]> {
   return getJson<PageLink[]>(`/api/page/backlinks?path=${encodeURIComponent(path)}`);
 }
 
-export function fetchScenarios(): Promise<ScenarioSummary[]> {
-  return getJson<ScenarioSummary[]>("/api/scenarios");
-}
-
-export function runScenario(
-  scenarioId: string,
-  inputs: Record<string, string | number | boolean>
-): Promise<ScenarioRunResult> {
-  return sendJson<ScenarioRunResult>(
-    `/api/scenarios/${encodeURIComponent(scenarioId)}/run`,
-    "POST",
-    { inputs }
-  );
-}
-
-export function fetchScenarioRuns(): Promise<ScenarioRunResult[]> {
-  return getJson<ScenarioRunResult[]>("/api/scenarios/runs");
-}
-
 export function fetchScripts(): Promise<DmsScriptSummary[]> {
   return getJson<DmsScriptSummary[]>("/api/scripts");
 }
@@ -1013,10 +904,6 @@ export function cancelDmsRun(runId: string): Promise<DmsRunState> {
     `/api/scripts/runs/${encodeURIComponent(runId)}/cancel`,
     "POST"
   );
-}
-
-export function rebuildIndex(): Promise<RebuildIndexResponse> {
-  return sendJson<RebuildIndexResponse>("/api/index/rebuild", "POST");
 }
 
 export function fetchLlmConfig(): Promise<LlmConfigResponse> {
@@ -1146,10 +1033,6 @@ export function saveTableSnapshot(
   return sendJson<TableSnapshotDetail>("/api/table-snapshots", "POST", payload);
 }
 
-export function fetchTableSnapshot(snapshotId: string): Promise<TableSnapshotDetail> {
-  return getJson<TableSnapshotDetail>(`/api/table-snapshots/${encodeURIComponent(snapshotId)}`);
-}
-
 export function restoreTableSnapshot(
   snapshotId: string
 ): Promise<RestoreTableSnapshotResponse> {
@@ -1233,20 +1116,9 @@ export function buildScreenMediaUrl(path: string): string {
   return `/api/screen/world/media?path=${encodeURIComponent(path)}`;
 }
 
-export function buildDisplayBackgroundUrl(cacheKey?: string | null): string {
-  if (!cacheKey) {
-    return "/api/display/background";
-  }
-  return `/api/display/background?v=${encodeURIComponent(cacheKey)}`;
-}
-
 export function buildScreenDisplayBackgroundUrl(cacheKey?: string | null): string {
   if (!cacheKey) {
     return "/api/screen/display/background";
   }
   return `/api/screen/display/background?v=${encodeURIComponent(cacheKey)}`;
-}
-
-export function describeHealth(response: HealthResponse): string {
-  return `${response.service}:${response.status}`;
 }

@@ -1,7 +1,6 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import {
-  buildDisplayBackgroundUrl,
   buildMediaUrl,
   buildScreenDisplayBackgroundUrl,
   buildScreenMediaUrl,
@@ -19,7 +18,6 @@ import {
   createWorldFolder,
   createWorldFile,
   deleteTrash,
-  describeHealth,
   duplicateWorldPath,
   fetchFastSlots,
   fetchCardTemplates,
@@ -35,15 +33,12 @@ import {
   fetchPageBacklinks,
   fetchPageLinks,
   fetchPages,
-  rebuildIndex,
   recordRecent,
   moveWorldPath,
-  renameWorldFile,
   restoreTrash,
   saveFavorites,
   saveHpTracker,
   saveRecentFiles,
-  saveRecentWorlds,
   saveWorldFile,
   saveWorkspaceLayout,
   saveWorkspaceTabs,
@@ -52,7 +47,6 @@ import {
   fetchAudioPlaylists,
   fetchPdfBookmarks,
   fetchCaptureToday,
-  fetchTableSnapshot,
   fetchTableSnapshots,
   fetchWorldFile,
   fetchWorldTree,
@@ -62,10 +56,7 @@ import {
   openDisplayPopup,
   rotateDisplayFullscreen,
   loginAuth,
-  logoutAuth,
   renameWorkspace,
-  fetchScenarios,
-  fetchScenarioRuns,
   fetchScripts,
   fetchDmsTrust,
   fetchDmsRun,
@@ -75,7 +66,6 @@ import {
   fetchLlmConfig,
   generateLlm,
   cancelDmsRun,
-  runScenario,
   runDmsScript,
   submitDmsForm,
   saveFastSlots,
@@ -88,7 +78,6 @@ import {
   setDisplayFullscreen,
   setDisplayPopupVisible,
   showActiveOnDisplay,
-  trashWorldFile,
   trashWorldPath,
   updatePageMetadata,
   type DmsEffect,
@@ -117,14 +106,6 @@ function mockJsonResponse(body: unknown, ok = true, status = 200) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-});
-
-describe("describeHealth", () => {
-  it("formats backend health for compact display", () => {
-    expect(describeHealth({ service: "virtualscreen-api", status: "ok" })).toBe(
-      "virtualscreen-api:ok"
-    );
-  });
 });
 
 describe("API types", () => {
@@ -259,7 +240,7 @@ describe("world API helpers", () => {
     });
   });
 
-  it("fetches auth status and logs in/out", async () => {
+  it("fetches auth status and logs in", async () => {
     const fetchMock = vi.fn(() =>
       mockJsonResponse({ enabled: true, authenticated: true })
     );
@@ -267,16 +248,12 @@ describe("world API helpers", () => {
 
     await fetchAuthStatus();
     await loginAuth("secret");
-    await logoutAuth();
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/auth/status");
     expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/auth/login", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ token: "secret" })
-    });
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/auth/logout", {
-      method: "POST"
     });
   });
 
@@ -349,26 +326,6 @@ describe("world API helpers", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "New Campaign" })
-    });
-  });
-
-  it("saves recent world ids", async () => {
-    const fetchMock = vi.fn(() =>
-      mockJsonResponse({
-        worlds_root: "D:/Worlds",
-        current: null,
-        worlds: [],
-        recent: []
-      })
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    await saveRecentWorlds(["A", "B"]);
-
-    expect(fetchMock).toHaveBeenCalledWith("/api/worlds/recent", {
-      method: "PUT",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ recent: ["A", "B"] })
     });
   });
 
@@ -499,68 +456,6 @@ describe("world API helpers", () => {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: "Session Notes.md", file_type: "markdown" })
-    });
-  });
-
-  it("renames a managed world file with conflict preconditions", async () => {
-    const renamedFile = {
-      path: "Renamed Home.md",
-      name: "Renamed Home.md",
-      extension: "md",
-      media_kind: "markdown",
-      content_type: "text/markdown",
-      size: 16,
-      modified_at: "2026-05-05T09:02:00Z",
-      hash: "new-hash",
-      content: "# Home\n"
-    };
-    const fetchMock = vi.fn(() => mockJsonResponse(renamedFile));
-    vi.stubGlobal("fetch", fetchMock);
-
-    const response = await renameWorldFile({
-      path: "README.md",
-      new_path: "Renamed Home.md",
-      expected_modified_at: "2026-05-05T09:01:00Z",
-      expected_hash: "old-hash"
-    });
-
-    expect(response.path).toBe("Renamed Home.md");
-    expect(fetchMock).toHaveBeenCalledWith("/api/world/file/rename", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        path: "README.md",
-        new_path: "Renamed Home.md",
-        expected_modified_at: "2026-05-05T09:01:00Z",
-        expected_hash: "old-hash"
-      })
-    });
-  });
-
-  it("moves a managed world file to trash", async () => {
-    const fetchMock = vi.fn(() =>
-      mockJsonResponse({
-        path: "events.csv",
-        trashed_path: ".virtualscreen/trash/20260505-090200/events.csv"
-      })
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const response = await trashWorldFile({
-      path: "events.csv",
-      expected_modified_at: "2026-05-05T09:01:00Z",
-      expected_hash: "old-hash"
-    });
-
-    expect(response.trashed_path).toContain("events.csv");
-    expect(fetchMock).toHaveBeenCalledWith("/api/world/file/trash", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        path: "events.csv",
-        expected_modified_at: "2026-05-05T09:01:00Z",
-        expected_hash: "old-hash"
-      })
     });
   });
 
@@ -697,10 +592,6 @@ describe("world API helpers", () => {
   });
 
   it("builds display background URLs with optional cache busting", () => {
-    expect(buildDisplayBackgroundUrl()).toBe("/api/display/background");
-    expect(buildDisplayBackgroundUrl("2026-05-08T12:00:00Z")).toBe(
-      "/api/display/background?v=2026-05-08T12%3A00%3A00Z"
-    );
     expect(buildScreenDisplayBackgroundUrl()).toBe("/api/screen/display/background");
     expect(buildScreenDisplayBackgroundUrl("2026-05-08T12:00:00Z")).toBe(
       "/api/screen/display/background?v=2026-05-08T12%3A00%3A00Z"
@@ -1051,22 +942,6 @@ describe("world API helpers", () => {
     );
   });
 
-  it("rebuilds the search index", async () => {
-    const fetchMock = vi.fn(() =>
-      mockJsonResponse({
-        pages_indexed: 2,
-        links_indexed: 3,
-        rebuilt_at: "2026-05-06T12:00:00Z"
-      })
-    );
-    vi.stubGlobal("fetch", fetchMock);
-
-    const result = await rebuildIndex();
-
-    expect(result.pages_indexed).toBe(2);
-    expect(fetchMock).toHaveBeenCalledWith("/api/index/rebuild", { method: "POST" });
-  });
-
   it("searches the world with encoded filters", async () => {
     const fetchMock = vi.fn(() =>
       mockJsonResponse([
@@ -1410,53 +1285,6 @@ describe("world API helpers", () => {
     await expect(rollDice("nope")).rejects.toThrow("Dice expression must look like 1d20+3.");
   });
 
-  it("discovers and runs Python scenarios", async () => {
-    const scenarios = [
-      {
-        id: "create-npc",
-        name: "Create NPC",
-        description: "Generate NPC",
-        inputs: [
-          {
-            name: "name",
-            label: "Name",
-            input_type: "text",
-            required: true,
-            default: null,
-            options: []
-          }
-        ]
-      }
-    ];
-    const run = {
-      run_id: "run-1",
-      scenario_id: "create-npc",
-      status: "success",
-      output_kind: "markdown",
-      output: "# Ilyra\n",
-      stderr: "",
-      created_at: "2026-05-09T12:00:00Z"
-    };
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce(mockJsonResponse(scenarios))
-      .mockResolvedValueOnce(mockJsonResponse(run))
-      .mockResolvedValueOnce(mockJsonResponse([run]));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await expect(fetchScenarios()).resolves.toEqual(scenarios);
-    await expect(runScenario("create-npc", { name: "Ilyra" })).resolves.toEqual(run);
-    await expect(fetchScenarioRuns()).resolves.toEqual([run]);
-
-    expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/scenarios");
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/scenarios/create-npc/run", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ inputs: { name: "Ilyra" } })
-    });
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/scenarios/runs");
-  });
-
   it("fetches and persists shared workspace state", async () => {
     const layout: WorkspaceLayout = {
       mode: "single",
@@ -1578,7 +1406,6 @@ describe("world API helpers", () => {
       .fn()
       .mockResolvedValueOnce(mockJsonResponse([summary]))
       .mockResolvedValueOnce(mockJsonResponse(snapshot))
-      .mockResolvedValueOnce(mockJsonResponse(snapshot))
       .mockResolvedValueOnce(mockJsonResponse(restored))
       .mockResolvedValueOnce(mockJsonResponse({ deleted: true }));
     vi.stubGlobal("fetch", fetchMock);
@@ -1587,7 +1414,6 @@ describe("world API helpers", () => {
     await expect(saveTableSnapshot({ name: "Before combat", state })).resolves.toEqual(
       snapshot
     );
-    await expect(fetchTableSnapshot("snapshot-1")).resolves.toEqual(snapshot);
     await expect(restoreTableSnapshot("snapshot-1")).resolves.toEqual(restored);
     await expect(deleteTableSnapshot("snapshot-1")).resolves.toEqual({ deleted: true });
 
@@ -1597,11 +1423,10 @@ describe("world API helpers", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "Before combat", state })
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/table-snapshots/snapshot-1");
-    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/table-snapshots/snapshot-1/restore", {
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/table-snapshots/snapshot-1/restore", {
       method: "POST"
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(5, "/api/table-snapshots/snapshot-1", {
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/table-snapshots/snapshot-1", {
       method: "DELETE"
     });
   });
