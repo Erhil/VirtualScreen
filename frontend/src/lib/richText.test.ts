@@ -27,6 +27,18 @@ const videoLink: PageLink = {
   resolved: true
 };
 
+const pdfPageLink: PageLink = {
+  source_path: "README.md",
+  raw_target: "Docs/Campaign.pdf#page=42",
+  label: "Ambush map",
+  link_type: "markdown",
+  target_path: "Docs/Campaign.pdf",
+  target_title: "Campaign",
+  target_kind: "pdf",
+  heading: "page=42",
+  resolved: true
+};
+
 describe("rich text rendering", () => {
   it("renders inline and block LaTeX with KaTeX markup", () => {
     const html = renderRichMarkdown("Inline $x^2$.\n\n$$d20 + 4$$", [], "README.md");
@@ -57,6 +69,13 @@ describe("rich text rendering", () => {
 
     expect(html).toContain('data-world-link-index="0"');
     expect(html).toContain("Captain Ilyra");
+  });
+
+  it("renders resolved PDF page links as openable world anchors", () => {
+    const html = renderRichMarkdown("[Ambush map](Docs/Campaign.pdf#page=42)", [pdfPageLink], "README.md");
+
+    expect(html).toContain('data-world-link-index="0"');
+    expect(html).toContain("Ambush map");
   });
 
   it("renders dice roll markdown links as safe roll anchors", () => {

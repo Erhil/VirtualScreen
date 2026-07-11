@@ -8,7 +8,9 @@ $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
 Set-Location $root
 $normalizedRoot = [System.IO.Path]::GetFullPath($root)
-$testTemp = Join-Path $root ".virtualscreen\tmp"
+$testTempBase = Join-Path $root ".virtualscreen\tmp"
+New-Item -ItemType Directory -Force -Path $testTempBase | Out-Null
+$testTemp = Join-Path $testTempBase ("test-run-{0}-{1}" -f $PID, [System.Guid]::NewGuid().ToString("N"))
 New-Item -ItemType Directory -Force -Path $testTemp | Out-Null
 $env:TMP = $testTemp
 $env:TEMP = $testTemp
@@ -145,7 +147,20 @@ Invoke-Stage "Release hygiene" {
 }
 
 Invoke-Stage "Backend pytest" {
-  Invoke-Native { .\.venv\Scripts\python -m pytest backend }
+  $previousAccessToken = $env:VIRTUALSCREEN_ACCESS_TOKEN
+  $hadAccessToken = Test-Path Env:\VIRTUALSCREEN_ACCESS_TOKEN
+  $env:VIRTUALSCREEN_ACCESS_TOKEN = " "
+  try {
+    Invoke-Native { .\.venv\Scripts\python -m pytest backend }
+  }
+  finally {
+    if ($hadAccessToken) {
+      $env:VIRTUALSCREEN_ACCESS_TOKEN = $previousAccessToken
+    }
+    else {
+      Remove-Item Env:\VIRTUALSCREEN_ACCESS_TOKEN -ErrorAction SilentlyContinue
+    }
+  }
 }
 
 Invoke-Stage "Backend Ruff" {

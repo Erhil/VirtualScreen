@@ -20,12 +20,14 @@ import {
   isImageMapCandidate,
   isMapPresenting,
   isUsableMapImageSize,
+  inverseRotateMapPoint,
   mapFogClassName,
   mapFogOverlayOpacity,
   mapFogMaskOperations,
   mapFogRevealRects,
   mapSummary,
   nextMapState,
+  nextRotation,
   normalizedMapGridLines,
   normalizeMapPolygon,
   normalizeMapRect,
@@ -34,6 +36,7 @@ import {
   shouldAdoptMapState,
   loadMapPreset,
   saveMapPreset,
+  rotateMap,
   setMapFog,
   setMapGrid,
   setMapSource,
@@ -91,6 +94,7 @@ describe("map helpers", () => {
     await addMapReveal({ x: 0.1, y: 0.2, width: 0.3, height: 0.4 });
     await addMapPin({ x: 0.4, y: 0.6, label: "Gate", visibility: "dm" });
     await presentMap();
+    await rotateMap();
     await stopMap();
     await fetchMapPresets();
     await saveMapPreset("Dungeon Level 1", loadedState);
@@ -137,21 +141,36 @@ describe("map helpers", () => {
     expect(fetchMock).toHaveBeenNthCalledWith(9, "/api/map/present", {
       method: "POST"
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(10, "/api/map/stop", {
+    expect(fetchMock).toHaveBeenNthCalledWith(10, "/api/map/rotate", {
       method: "POST"
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(11, "/api/map/presets");
-    expect(fetchMock).toHaveBeenNthCalledWith(12, "/api/map/presets", {
+    expect(fetchMock).toHaveBeenNthCalledWith(11, "/api/map/stop", {
+      method: "POST"
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(12, "/api/map/presets");
+    expect(fetchMock).toHaveBeenNthCalledWith(13, "/api/map/presets", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ name: "Dungeon Level 1", state: loadedState })
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(13, "/api/map/presets/preset-1/load", {
+    expect(fetchMock).toHaveBeenNthCalledWith(14, "/api/map/presets/preset-1/load", {
       method: "POST"
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(14, "/api/map/presets/preset-1", {
+    expect(fetchMock).toHaveBeenNthCalledWith(15, "/api/map/presets/preset-1", {
       method: "DELETE"
     });
+  });
+
+  it("normalizes quarter rotations and inverse-rotates map pointer points", () => {
+    expect(nextRotation(0)).toBe(90);
+    expect(nextRotation(270)).toBe(0);
+    expect(nextRotation(45)).toBe(90);
+
+    const point = { x: 0.25, y: 0.75 };
+    expect(inverseRotateMapPoint(point, 0)).toEqual(point);
+    expect(inverseRotateMapPoint(point, 90)).toEqual({ x: 0.75, y: 0.75 });
+    expect(inverseRotateMapPoint(point, 180)).toEqual({ x: 0.75, y: 0.25 });
+    expect(inverseRotateMapPoint(point, 270)).toEqual({ x: 0.25, y: 0.25 });
   });
 
   it("builds protected and public map media URLs", () => {

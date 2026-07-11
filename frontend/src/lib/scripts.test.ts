@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   buildDmsFormDefaults,
   buildDmsOutputSavePayload,
+  DMS_COMMAND_REFERENCE,
   defaultDmsOutputSavePath,
   dmsOutputToWorldFile,
   isScriptRunAvailable,
@@ -83,5 +84,35 @@ describe("DMS script helpers", () => {
       file_type: "markdown",
       content: "# Saved"
     });
+  });
+
+  it("documents every public DMS helper in the command reference", () => {
+    const documentedCommands = new Set(DMS_COMMAND_REFERENCE.map((entry) => entry.name));
+
+    expect([...documentedCommands].sort()).toEqual([
+      "append_note",
+      "audio_play",
+      "card_template",
+      "choose_file",
+      "create_card",
+      "create_note",
+      "form",
+      "map_fog",
+      "map_load",
+      "map_present",
+      "map_preset",
+      "map_stop",
+      "render_md",
+      "roll",
+      "screen_fs",
+      "screen_pu",
+      "table"
+    ]);
+    for (const entry of DMS_COMMAND_REFERENCE) {
+      expect(entry.signature).toContain(entry.name);
+      expect(entry.descriptionKey).toBeTruthy();
+      expect(entry.effectKey).toBeTruthy();
+      expect(entry.example).toBeTruthy();
+    }
   });
 });

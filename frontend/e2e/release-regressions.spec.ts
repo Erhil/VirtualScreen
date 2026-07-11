@@ -439,12 +439,12 @@ test("DMS run flow has a trust gate and labels scripts as DMS", async ({ page })
     .getByRole("button", { name: "Run Active Script", exact: true })
     .click();
 
-  const trust = page.getByRole("dialog", { name: "Trust DMS Script" });
+  const trust = page.getByRole("dialog", { name: "Trust DMS Scripts" });
   await expect(trust).toBeVisible();
   await expect(trust).toContainText("Scripts/trust_gate.dms");
   await expect(trust).toContainText(/trusted local Python/i);
   await expect(page.getByRole("heading", { name: "Trusted Gate Output" })).toHaveCount(0);
-  await trust.getByRole("button", { name: "Run Trusted Script" }).click();
+  await trust.getByRole("button", { name: "Trust and Run Script" }).click();
   await expect(page.getByRole("heading", { name: "Trusted Gate Output" })).toBeVisible();
 
   await openWorldFile(page, /trust_gate\.dms/, "Scripts");

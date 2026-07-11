@@ -38,6 +38,7 @@ from app.core.map import (
     present_map,
     public_map_state,
     queue_map_event,
+    rotate_map,
     save_map_preset,
     screen_map_event_hub,
     set_map_fog,
@@ -381,6 +382,19 @@ def map_present(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     display_state = clear_fullscreen(settings.resolved_world_root)
     queue_display_event(background_tasks, display_state)
+    _queue(background_tasks, state, settings)
+    return _response(state)
+
+
+@router.post("/api/map/rotate")
+def map_rotate(
+    background_tasks: BackgroundTasks,
+    settings: SettingsDep,
+) -> dict[str, object]:
+    try:
+        state = rotate_map(settings.resolved_world_root)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
     _queue(background_tasks, state, settings)
     return _response(state)
 

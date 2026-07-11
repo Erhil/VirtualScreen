@@ -46,7 +46,7 @@ def make_client(
     if api_key is not None:
         monkeypatch.setenv("VIRTUALSCREEN_LLM_API_KEY", api_key)
     if token is None:
-        monkeypatch.delenv("VIRTUALSCREEN_ACCESS_TOKEN", raising=False)
+        monkeypatch.setenv("VIRTUALSCREEN_ACCESS_TOKEN", " ")
     else:
         monkeypatch.setenv("VIRTUALSCREEN_ACCESS_TOKEN", token)
     get_settings.cache_clear()

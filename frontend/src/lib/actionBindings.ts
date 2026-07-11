@@ -12,6 +12,7 @@ export type ActionBinding = {
 };
 
 export type KeyboardShortcutEventLike = {
+  code?: string;
   key: string;
   ctrlKey?: boolean;
   altKey?: boolean;
@@ -31,7 +32,10 @@ const RESERVED_KEYS = new Set(["R", "W", "L", "T", "N"]);
 const EDITABLE_TAGS = new Set(["input", "textarea", "select"]);
 const CODE_EDITOR_CLASS_MARKERS = ["cm-content", "cm-editor", "CodeMirror"];
 
-function normalizeKey(key: string): string {
+function normalizeKey(key: string, code?: string): string {
+  if (code && /^Key[A-Z]$/.test(code) && !/^[a-z]$/i.test(key)) {
+    return code.slice(3);
+  }
   if (key.length === 1) {
     return key.toUpperCase();
   }
@@ -57,7 +61,7 @@ function hasModifier(shortcut: string): boolean {
 }
 
 export function canonicalShortcutFromEvent(event: KeyboardShortcutEventLike): string {
-  const key = normalizeKey(event.key);
+  const key = normalizeKey(event.key, event.code);
   if (["Control", "Ctrl", "Alt", "Shift", "Meta"].includes(key)) {
     return "";
   }

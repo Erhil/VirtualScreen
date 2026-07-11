@@ -18,6 +18,7 @@ from app.api.routes import (
     llm,
     map,
     pages,
+    pdf_bookmarks,
     prep_health,
     scenarios,
     scripts,
@@ -74,6 +75,7 @@ def create_app() -> FastAPI:
     app.include_router(llm.router, prefix="/api", tags=["llm"])
     app.include_router(map.router, tags=["map"])
     app.include_router(pages.router, prefix="/api", tags=["pages"])
+    app.include_router(pdf_bookmarks.router, prefix="/api", tags=["pdf-bookmarks"])
     app.include_router(prep_health.router, prefix="/api", tags=["prep-health"])
     app.include_router(scenarios.router, prefix="/api", tags=["scenarios"])
     app.include_router(scripts.router, prefix="/api", tags=["scripts"])

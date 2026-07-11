@@ -14,6 +14,7 @@ const GROUP_LABELS: Record<SearchResult["media_kind"], string> = {
   script: "Scripts",
   text: "Text",
   video: "Video",
+  folder: "Folders",
   unsupported: "Unsupported"
 };
 
@@ -25,6 +26,7 @@ const GROUP_ORDER: SearchResult["media_kind"][] = [
   "image",
   "pdf",
   "video",
+  "folder",
   "text",
   "unsupported"
 ];

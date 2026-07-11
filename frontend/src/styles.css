@@ -33,10 +33,43 @@ select {
 
 .app-shell {
   display: grid;
-  grid-template-columns: minmax(260px, 320px) minmax(0, 1fr);
+  grid-template-columns: minmax(220px, var(--tree-panel-width, 320px)) 6px minmax(0, 1fr);
   height: 100vh;
   min-height: 0;
   overflow: hidden;
+}
+
+.icon {
+  display: block;
+  height: 16px;
+  width: 16px;
+}
+
+.icon-button {
+  align-items: center;
+  display: inline-flex;
+  justify-content: center;
+  min-height: 28px;
+  min-width: 28px;
+  padding: 4px;
+}
+
+.tree-resizer,
+.tools-resizer,
+.workspace-pane-resizer {
+  touch-action: none;
+}
+
+.tree-resizer {
+  background: #c9c1b1;
+  cursor: col-resize;
+  min-height: 100vh;
+}
+
+.tree-resizer:hover,
+.tree-resizer:focus-visible {
+  background: #b98935;
+  outline: none;
 }
 
 .side-panel {
@@ -481,9 +514,9 @@ select {
   border-bottom: 1px solid #c9c1b1;
   display: flex;
   gap: 4px;
-  min-height: 42px;
+  min-height: 34px;
   overflow-x: auto;
-  padding: 0 10px;
+  padding: 0 8px;
 }
 
 .workspace-controls {
@@ -492,9 +525,9 @@ select {
   border-bottom: 1px solid #c9c1b1;
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
-  min-height: 40px;
-  padding: 6px 10px;
+  gap: 4px;
+  min-height: 34px;
+  padding: 3px 8px;
 }
 
 .workspace-controls label {
@@ -522,8 +555,8 @@ select {
   border-radius: 5px;
   color: #3d352e;
   cursor: pointer;
-  min-height: 28px;
-  padding: 3px 8px;
+  min-height: 26px;
+  padding: 2px 7px;
 }
 
 .workspace-controls button:disabled {
@@ -565,14 +598,14 @@ select {
   border: 1px solid #bfb5a5;
   color: #2f2822;
   cursor: pointer;
-  min-height: 32px;
+  min-height: 28px;
 }
 
 .tab-button {
   border-radius: 6px 0 0 6px;
-  max-width: 220px;
+  max-width: 190px;
   overflow: hidden;
-  padding: 6px 12px;
+  padding: 4px 10px;
   text-overflow: ellipsis;
   white-space: nowrap;
 }
@@ -586,7 +619,7 @@ select {
 .close-tab {
   border-left: 0;
   border-radius: 0 6px 6px 0;
-  padding: 0 10px;
+  padding: 0 6px;
 }
 
 .tab-strip-count {
@@ -612,6 +645,24 @@ select {
 
 .content-layout.with-tools {
   grid-template-columns: minmax(0, 1fr) 7px minmax(260px, var(--tools-panel-width, 340px));
+}
+
+.content-layout.tools-hidden {
+  grid-template-columns: minmax(0, 1fr);
+  position: relative;
+}
+
+.tools-restore-button {
+  background: #3d352e;
+  border: 1px solid #b98935;
+  border-radius: 6px 0 0 6px;
+  color: #fffaf0;
+  cursor: pointer;
+  padding: 6px 8px;
+  position: absolute;
+  right: 0;
+  top: 8px;
+  z-index: 10;
 }
 
 .viewer-surface {
@@ -680,6 +731,130 @@ select {
   font-style: normal;
   margin-left: auto;
   padding: 2px 7px;
+}
+
+.folder-kanban {
+  display: grid;
+  gap: 12px;
+  min-height: 0;
+}
+
+.folder-kanban-header {
+  align-items: end;
+  display: grid;
+  gap: 10px;
+  grid-template-columns: minmax(220px, 1fr) auto minmax(220px, auto);
+}
+
+.folder-kanban-header h2 {
+  margin: 0;
+}
+
+.folder-kanban-header p {
+  color: #63594d;
+  font-size: 13px;
+  margin: 2px 0 0;
+}
+
+.folder-kanban-add-column input {
+  max-width: 180px;
+}
+
+.folder-kanban-status {
+  color: #365423;
+  margin: 0;
+}
+
+.folder-kanban-error {
+  color: #9b3f2f;
+  font-weight: 700;
+  margin: 0;
+}
+
+.folder-kanban-board {
+  align-items: stretch;
+  display: grid;
+  gap: 12px;
+  grid-auto-columns: minmax(220px, 280px);
+  grid-auto-flow: column;
+  min-height: 0;
+  overflow-x: auto;
+  padding-bottom: 8px;
+}
+
+.folder-kanban-column {
+  background: #eee8dc;
+  border: 1px solid #c9c1b1;
+  border-radius: 6px;
+  display: grid;
+  gap: 8px;
+  grid-template-rows: auto minmax(120px, 1fr) auto;
+  min-height: 320px;
+  padding: 10px;
+}
+
+.folder-kanban-column h3 {
+  align-items: center;
+  display: flex;
+  font-size: 14px;
+  gap: 8px;
+  justify-content: space-between;
+  margin: 0;
+}
+
+.folder-kanban-column h3 small {
+  background: #d8cfbf;
+  border-radius: 999px;
+  color: #514638;
+  min-width: 24px;
+  padding: 2px 6px;
+  text-align: center;
+}
+
+.folder-kanban-cards {
+  display: grid;
+  align-content: start;
+  gap: 8px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.folder-kanban-card {
+  background: #fffaf0;
+  border: 1px solid #c9c1b1;
+  border-radius: 6px;
+  color: #241f1b;
+  cursor: pointer;
+  display: grid;
+  gap: 3px;
+  padding: 8px;
+  text-align: left;
+}
+
+.folder-kanban-card:hover,
+.folder-kanban-card:focus-visible {
+  border-color: #a88245;
+  outline: none;
+}
+
+.folder-kanban-card small {
+  color: #7b6e60;
+  font-size: 11px;
+}
+
+.folder-kanban-card span {
+  color: #63594d;
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.folder-kanban-new-card {
+  display: grid;
+  gap: 6px;
+}
+
+.folder-kanban-new-card input {
+  min-width: 0;
 }
 
 .workspace-pane-resizer {
@@ -2040,6 +2215,7 @@ select {
   overflow: auto;
   padding: 6px;
   white-space: pre-wrap;
+  overflow-wrap: anywhere;
 }
 
 .assistant-save-grid {
@@ -2105,8 +2281,29 @@ select {
 
 .script-command-list {
   display: grid;
-  gap: 3px;
+  gap: 6px;
   margin-top: 5px;
+}
+
+.script-command-entry {
+  background: #fffaf0;
+  border: 1px solid #d1c6b5;
+  border-radius: 5px;
+  display: grid;
+  gap: 3px;
+  padding: 5px 6px;
+}
+
+.script-command-entry p {
+  font-size: 12px;
+  margin: 0;
+}
+
+.script-command-entry small {
+  color: #6f6255;
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
 }
 
 .script-command-list code {
@@ -2115,10 +2312,10 @@ select {
   border-radius: 4px;
   display: block;
   font-size: 11px;
-  overflow: hidden;
+  overflow: visible;
+  overflow-wrap: anywhere;
   padding: 3px 5px;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  white-space: pre-wrap;
 }
 
 .scenario-output pre {
@@ -2128,7 +2325,9 @@ select {
   margin: 0;
   max-height: 180px;
   overflow: auto;
+  overflow-wrap: anywhere;
   padding: 6px;
+  white-space: pre-wrap;
 }
 
 .metadata-tool {
@@ -2306,6 +2505,22 @@ select {
   margin: 0 0 12px;
 }
 
+.markdown-viewer pre,
+.screen-markdown pre {
+  max-width: 100%;
+  overflow-x: auto;
+  overflow-wrap: anywhere;
+  white-space: pre-wrap;
+}
+
+.markdown-viewer code,
+.rich-inline code,
+.screen-markdown code,
+.context-help-dialog code {
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
 .markdown-viewer .math-block {
   margin: 14px 0;
   overflow-x: auto;
@@ -2398,6 +2613,7 @@ td {
   border-radius: 6px;
   margin: 0;
   overflow: auto;
+  overflow-wrap: anywhere;
   padding: 16px;
   white-space: pre-wrap;
 }
@@ -2412,17 +2628,124 @@ td {
   background: #fffaf0;
   border: 1px solid #c9c1b1;
   border-radius: 6px;
+  display: flex;
+  flex-direction: column;
   height: min(78vh, 920px);
   min-height: 520px;
   overflow: hidden;
   width: 100%;
 }
 
-.pdf-viewer iframe {
+.pdf-toolbar {
+  align-items: center;
+  background: #efe6d3;
+  border-bottom: 1px solid #c9c1b1;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-height: 38px;
+  padding: 5px 8px;
+}
+
+.pdf-page-control {
+  align-items: center;
+  display: inline-flex;
+  gap: 4px;
+  min-width: 0;
+}
+
+.pdf-page-control input {
+  min-height: 28px;
+  padding: 2px 4px;
+  text-align: center;
+  width: 48px;
+}
+
+.pdf-body {
+  display: grid;
+  flex: 1;
+  grid-template-columns: minmax(180px, 240px) minmax(0, 1fr);
+  min-height: 0;
+}
+
+.pdf-body:has(.pdf-stage:first-child) {
+  grid-template-columns: minmax(0, 1fr);
+}
+
+.pdf-bookmarks {
+  background: #f7efdF;
+  border-right: 1px solid #c9c1b1;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+
+.pdf-bookmark-add {
+  display: grid;
+  gap: 6px;
+}
+
+.pdf-bookmark-add input {
+  min-width: 0;
+}
+
+.pdf-bookmarks ul {
+  display: grid;
+  gap: 8px;
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+
+.pdf-bookmarks li {
+  border: 1px solid #d5c9b4;
+  border-radius: 6px;
+  display: grid;
+  gap: 6px;
+  padding: 6px;
+}
+
+.pdf-bookmark-jump {
+  background: transparent;
   border: 0;
+  color: inherit;
+  cursor: pointer;
+  display: grid;
+  gap: 2px;
+  padding: 0;
+  text-align: left;
+}
+
+.pdf-bookmark-jump span,
+.pdf-status {
+  color: #6d6257;
+  font-size: 0.78rem;
+}
+
+.pdf-bookmark-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pdf-stage {
+  align-items: flex-start;
+  background: #6f6a62;
+  display: flex;
+  justify-content: center;
+  min-height: 0;
+  overflow: auto;
+  padding: 16px;
+}
+
+.pdf-canvas {
+  background: #fff;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.28);
   display: block;
-  height: 100%;
-  width: 100%;
+  max-width: none;
 }
 
 .screen-tool {
@@ -3121,6 +3444,7 @@ td {
 }
 
 .prep-health-summary,
+.prep-health-summary-actions,
 .prep-health-issue > div:first-child,
 .prep-health-actions,
 .prep-health-filters {
@@ -3131,6 +3455,11 @@ td {
 
 .prep-health-summary {
   justify-content: space-between;
+}
+
+.prep-health-summary-actions {
+  flex-wrap: wrap;
+  justify-content: flex-end;
 }
 
 .prep-health-summary > div {
@@ -3151,6 +3480,7 @@ td {
 
 .prep-health-filters button,
 .prep-health-actions button,
+.prep-health-summary-actions button,
 .prep-health-summary button {
   background: #fffaf0;
   border: 1px solid #b7ad9c;
@@ -3488,6 +3818,49 @@ td {
 .screen-fullscreen iframe {
   background: #f7f2e8;
   border: 0;
+}
+
+.screen-rotated-content {
+  display: grid;
+  height: 100vh;
+  overflow: hidden;
+  place-items: center;
+  width: 100vw;
+}
+
+.screen-rotated-content > * {
+  max-height: 100vh;
+  max-width: 100vw;
+}
+
+.screen-rotated-90 > * {
+  transform: rotate(90deg);
+}
+
+.screen-rotated-180 > * {
+  transform: rotate(180deg);
+}
+
+.screen-rotated-270 > * {
+  transform: rotate(270deg);
+}
+
+.screen-fullscreen .screen-rotated-90 > img,
+.screen-fullscreen .screen-rotated-90 > video,
+.screen-fullscreen .screen-rotated-90 > iframe,
+.screen-fullscreen .screen-rotated-90 > .screen-markdown,
+.screen-fullscreen .screen-rotated-90 > .screen-card,
+.screen-fullscreen .screen-rotated-90 > .screen-table-wrap,
+.screen-fullscreen .screen-rotated-90 > .screen-text,
+.screen-fullscreen .screen-rotated-270 > img,
+.screen-fullscreen .screen-rotated-270 > video,
+.screen-fullscreen .screen-rotated-270 > iframe,
+.screen-fullscreen .screen-rotated-270 > .screen-markdown,
+.screen-fullscreen .screen-rotated-270 > .screen-card,
+.screen-fullscreen .screen-rotated-270 > .screen-table-wrap,
+.screen-fullscreen .screen-rotated-270 > .screen-text {
+  height: 100vw;
+  width: 100vh;
 }
 
 .map-canvas {
@@ -4046,6 +4419,10 @@ td {
     height: auto;
     min-height: 100vh;
     overflow: visible;
+  }
+
+  .tree-resizer {
+    display: none;
   }
 
   .side-panel {

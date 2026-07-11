@@ -18,7 +18,7 @@ from app.core.index import (
 )
 from app.core.map import map_image_path
 from app.core.paths import WorldPathError, normalize_relative_path, resolve_under_root
-from app.core.scripts import list_dms_scripts
+from app.core.scripts import is_dms_trusted, list_dms_scripts
 
 PrepHealthSeverity = Literal["error", "warning"]
 PrepHealthIssueKind = Literal[
@@ -26,6 +26,7 @@ PrepHealthIssueKind = Literal[
     "missing_embed",
     "missing_dms_reference",
     "dms_parse_error",
+    "untrusted_dms",
 ]
 PrepHealthStatus = Literal["ok", "warning", "error"]
 
@@ -199,7 +200,30 @@ def build_prep_health_report(root: Path) -> PrepHealthReport:
             )
         )
 
-    for script in list_dms_scripts(root):
+    scripts = list_dms_scripts(root)
+    if scripts and not is_dms_trusted(root):
+        for script in scripts:
+            issues.append(
+                PrepHealthIssue(
+                    id=_issue_id(
+                        kind="untrusted_dms",
+                        source_path=script.path,
+                        raw_target="",
+                        command=None,
+                    ),
+                    severity="warning",
+                    kind="untrusted_dms",
+                    source_path=script.path,
+                    source_title=script.title or _script_title(script.path),
+                    source_kind="script",
+                    raw_target="",
+                    label=None,
+                    command=None,
+                    message="DMS scripts are not trusted in this world.",
+                )
+            )
+
+    for script in scripts:
         script_path = resolve_under_root(root, script.path)
         try:
             source = script_path.read_text(encoding="utf-8")

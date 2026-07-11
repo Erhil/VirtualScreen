@@ -12,11 +12,13 @@ import {
   clampMapViewport,
   fitMapImageToStage,
   isUsableMapImageSize,
+  inverseRotateMapPoint,
   mapFogClassName,
   mapFogMaskOperations,
   normalizeMapPoint,
   normalizeMapPolygon,
   normalizeMapRect,
+  normalizeRotation,
   type MapPoint,
   type MapRevealPayload,
   type MapRectRevealPayload,
@@ -119,7 +121,11 @@ type MeasurementPreview = {
   end: MapPoint;
 };
 
-function eventToMapPoint(event: ReactPointerEvent, world: HTMLDivElement | null): MapPoint | null {
+function eventToMapPoint(
+  event: ReactPointerEvent,
+  world: HTMLDivElement | null,
+  rotation: number
+): MapPoint | null {
   if (!world) {
     return null;
   }
@@ -129,10 +135,11 @@ function eventToMapPoint(event: ReactPointerEvent, world: HTMLDivElement | null)
     return null;
   }
 
-  return normalizeMapPoint({
+  const visualPoint = normalizeMapPoint({
     x: (event.clientX - rect.left) / rect.width,
     y: (event.clientY - rect.top) / rect.height
   });
+  return inverseRotateMapPoint(visualPoint, rotation);
 }
 
 function parseLength(value: string | null): number | null {
@@ -310,6 +317,7 @@ export function MapCanvas({
   const isRectFogTool = tool === "reveal" || tool === "hide";
   const isPolygonFogTool = tool === "reveal-polygon" || tool === "hide-polygon";
   const imageUrl = state.image_path ? mediaUrlBuilder(state.image_path) : "";
+  const rotation = normalizeRotation(state.rotation);
   const fittedSize = useMemo(() => fitMapImageToStage(stageSize, imageSize), [stageSize, imageSize]);
   const imageReady = imageStatus === "ready" && isUsableMapImageSize(fittedSize);
   const interactive =
@@ -410,7 +418,8 @@ export function MapCanvas({
     state.updated_at,
     state.viewport.center_x,
     state.viewport.center_y,
-    state.viewport.zoom
+    state.viewport.zoom,
+    rotation
   ]);
 
   function emitViewportPreview(nextViewport: MapViewport) {
@@ -451,7 +460,7 @@ export function MapCanvas({
     }
     event.currentTarget.focus({ preventScroll: true });
 
-    const point = eventToMapPoint(event, worldRef.current);
+    const point = eventToMapPoint(event, worldRef.current, rotation);
     if (!point) {
       return;
     }
@@ -501,7 +510,7 @@ export function MapCanvas({
     }
 
     if (drag.kind === "reveal") {
-      const point = eventToMapPoint(event, worldRef.current);
+      const point = eventToMapPoint(event, worldRef.current, rotation);
       if (point) {
         updatePreviewReveal(normalizeMapRect(drag.start, point));
       }
@@ -509,7 +518,7 @@ export function MapCanvas({
     }
 
     if (drag.kind === "measure") {
-      const point = eventToMapPoint(event, worldRef.current);
+      const point = eventToMapPoint(event, worldRef.current, rotation);
       if (point) {
         updatePreviewMeasurement({ start: drag.start, end: point });
       }
@@ -603,7 +612,7 @@ export function MapCanvas({
     height: `${fittedSize.height}px`,
     left: "50%",
     top: "50%",
-    transform: `translate(-${viewport.center_x * 100}%, -${viewport.center_y * 100}%) scale(${viewport.zoom})`,
+    transform: `translate(-${viewport.center_x * 100}%, -${viewport.center_y * 100}%) scale(${viewport.zoom}) rotate(${rotation}deg)`,
     transformOrigin: `${viewport.center_x * 100}% ${viewport.center_y * 100}%`,
     width: `${fittedSize.width}px`
   };

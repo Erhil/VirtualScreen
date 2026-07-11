@@ -72,6 +72,20 @@ function treeFile(page: Page, text: string) {
   return page.locator(".file-item").filter({ hasText: text }).first();
 }
 
+async function openTreeFile(page: Page, folder: string, text: string) {
+  const file = treeFile(page, text);
+  if (
+    !(await file
+      .waitFor({ state: "visible", timeout: 750 })
+      .then(() => true)
+      .catch(() => false))
+  ) {
+    await page.getByRole("navigation", { name: "World files" }).getByRole("button", { name: folder, exact: true }).click();
+  }
+  await expect(file).toBeVisible();
+  await file.click();
+}
+
 test("Dice tool rolls expressions, common dice, and invalid input @smoke", async ({ page }) => {
   await page.goto("/");
   await openTool(page, "Dice");
@@ -121,11 +135,11 @@ test("roll links work in Markdown CSV and cards but not on the player screen @sm
   await expect(page.locator(".dice-tool")).toContainText("1d1+2");
   await expect(page.locator(".dice-tool").getByLabel("Result")).toContainText("3");
 
-  await treeFile(page, "dice-links.csv").click();
+  await openTreeFile(page, "Tables", "dice-links.csv");
   await page.getByRole("link", { name: "CSV Check" }).click();
   await expect(page.locator(".dice-history li").first()).toContainText("1d1+2");
 
-  await treeFile(page, "Dice Card").click();
+  await openTreeFile(page, "Cards", "Dice Card");
   await page.getByRole("link", { name: "Card Check" }).click();
   await expect(page.locator(".dice-history li").first()).toContainText("1d1+2");
 

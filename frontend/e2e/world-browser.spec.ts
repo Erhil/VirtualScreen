@@ -407,6 +407,14 @@ function worldTree(page: Page) {
   return page.getByRole("navigation", { name: "World files" });
 }
 
+async function ensureTreeFolderOpen(page: Page, folder: string) {
+  const folderButton = worldTree(page).getByRole("button", { name: folder, exact: true });
+  await expect(folderButton).toBeVisible();
+  if ((await folderButton.getAttribute("aria-expanded")) !== "true") {
+    await folderButton.click();
+  }
+}
+
 async function openPdfFixture(page: Page) {
   const pdfButton = worldTree(page).getByRole("button", { name: /session-handout/ });
   await expect(worldTree(page).getByRole("button", { name: "Docs", exact: true })).toBeVisible();
@@ -600,7 +608,7 @@ async function runActiveScript(page: Page) {
 }
 
 async function confirmDmsTrustIfVisible(page: Page, expectedPath?: string) {
-  const dialog = page.getByRole("dialog", { name: "Trust DMS Script" });
+  const dialog = page.getByRole("dialog", { name: "Trust DMS Scripts" });
   if (
     !(await dialog
       .waitFor({ state: "visible", timeout: 1000 })
@@ -613,7 +621,7 @@ async function confirmDmsTrustIfVisible(page: Page, expectedPath?: string) {
   if (expectedPath) {
     await expect(dialog.getByText(expectedPath, { exact: true })).toBeVisible();
   }
-  await dialog.getByRole("button", { name: "Run Trusted Script" }).click();
+  await dialog.getByRole("button", { name: "Trust and Run Script" }).click();
   await expect(dialog).toBeHidden();
 }
 
@@ -801,6 +809,8 @@ test("world tree displays sample world folders and files @smoke", async ({ page 
   await expect(worldTree(page).getByRole("button", { name: "NPCs", exact: true })).toBeVisible();
   await expect(worldTree(page).getByRole("button", { name: "Tables", exact: true })).toBeVisible();
   await expect(worldTree(page).getByRole("button", { name: "Media", exact: true })).toBeVisible();
+  await expect(worldTree(page).getByRole("button", { name: /Harbor Watch Contact/ })).toHaveCount(0);
+  await ensureTreeFolderOpen(page, "Cards");
   await expect(worldTree(page).getByRole("button", { name: /Harbor Watch Contact/ })).toBeVisible();
   await expect(worldTree(page).getByText(".music")).toHaveCount(0);
 });
@@ -1382,7 +1392,7 @@ test("DMS scripts run from editor and scripts tool @smoke", async ({ page }) => 
     .getByRole("region", { name: "Document status" })
     .getByRole("button", { name: "Run Active Script", exact: true })
     .click();
-  const trust = page.getByRole("dialog", { name: "Trust DMS Script" });
+  const trust = page.getByRole("dialog", { name: "Trust DMS Scripts" });
   await expect(trust).toBeVisible();
   await expect(trust).toContainText("DMS scripts are trusted local Python run by the backend.");
   await expect(trust.getByText("Scripts/hello_world1.dms", { exact: true })).toBeVisible();
@@ -1413,6 +1423,22 @@ test("DMS scripts run from editor and scripts tool @smoke", async ({ page }) => 
   const scripts = toolsPanel(page).getByRole("region", { name: "DMS Scripts" });
   await expect(scripts.getByText("Hello World")).toBeVisible();
   await expect(scripts.getByRole("button", { name: "Run Saved Script" }).first()).toBeVisible();
+});
+
+test("DMS command reference lists signatures examples and safety notes", async ({ page }) => {
+  await page.goto("/");
+
+  await openToolSection(page, "Scripts");
+  const scripts = toolsPanel(page).getByRole("region", { name: "DMS Scripts" });
+  await scripts.getByText("Command Reference", { exact: true }).click();
+
+  const screenCommand = scripts.locator(".script-command-entry", { hasText: 'screen_fs("README.md")' });
+  await expect(screenCommand).toContainText("Effect:");
+  await expect(screenCommand).toContainText("Example:");
+  await expect(
+    scripts.locator(".script-command-entry", { hasText: 'audio_play(".music/effects/file.mp3", bus="effect")' })
+  ).toBeVisible();
+  await expect(scripts.locator(".script-command-entry", { hasText: 'create_card("Cards/Mira.cs", card)' })).toBeVisible();
 });
 
 test("DMS scripts can control screen and audio", async ({ page, context }) => {
@@ -1474,7 +1500,7 @@ test("DMS script runs can be cancelled and show line-number errors", async ({ pa
   const latestRun = toolsPanel(page).getByRole("region", { name: "Latest Script Run" });
   await expect(latestRun.getByRole("button", { name: "Cancel" })).toBeVisible();
   await latestRun.getByRole("button", { name: "Cancel" }).click();
-  await expect(toolsPanel(page).getByText("Cancelled", { exact: true })).toBeVisible();
+  await expect(latestRun.getByText("Cancelled", { exact: true })).toBeVisible();
 
   await worldTree(page).getByRole("button", { name: /syntax_error\.dms/ }).click();
   await runActiveScript(page);
@@ -1703,6 +1729,20 @@ test("workspace split panes show two files and persist layout", async ({ page })
 test("tools panel can be resized and remembers local width", async ({ page }) => {
   await page.goto("/");
 
+  const treeBefore = await worldTree(page).boundingBox();
+  const treeResizer = page.getByRole("separator", { name: "Resize world tree" });
+  const treeResizerBox = await treeResizer.boundingBox();
+  expect(treeBefore).not.toBeNull();
+  expect(treeResizerBox).not.toBeNull();
+
+  await page.mouse.move((treeResizerBox?.x ?? 0) + 3, (treeResizerBox?.y ?? 0) + 20);
+  await page.mouse.down();
+  await page.mouse.move((treeResizerBox?.x ?? 0) + 90, (treeResizerBox?.y ?? 0) + 20);
+  await page.mouse.up();
+
+  const treeResized = await worldTree(page).boundingBox();
+  expect(treeResized?.width ?? 0).toBeGreaterThan((treeBefore?.width ?? 0) + 50);
+
   const before = await toolsPanel(page).boundingBox();
   const resizer = page.getByRole("separator", { name: "Resize tools panel" });
   const resizerBox = await resizer.boundingBox();
@@ -1718,8 +1758,20 @@ test("tools panel can be resized and remembers local width", async ({ page }) =>
   expect(resized?.width ?? 0).toBeGreaterThan((before?.width ?? 0) + 80);
 
   await page.reload();
+  const treeAfterReload = await worldTree(page).boundingBox();
+  expect(treeAfterReload?.width ?? 0).toBeGreaterThan((treeBefore?.width ?? 0) + 50);
+
   const afterReload = await toolsPanel(page).boundingBox();
   expect(afterReload?.width ?? 0).toBeGreaterThan((before?.width ?? 0) + 80);
+
+  await workspaceControls(page).getByRole("button", { name: "Hide tools panel" }).click();
+  await expect(page.getByRole("complementary", { name: "DM Tools" })).toHaveCount(0);
+  await expect(page.locator(".tools-restore-button")).toBeVisible();
+
+  await page.reload();
+  await expect(page.getByRole("complementary", { name: "DM Tools" })).toHaveCount(0);
+  await page.locator(".tools-restore-button").click();
+  await expect(toolsPanel(page)).toBeVisible();
 });
 
 test("edits metadata title and refreshes tab tree and search", async ({ page }) => {
@@ -2172,6 +2224,7 @@ test("player screen shows fullscreen media and DM-controlled popups @smoke", asy
   await controls.getByRole("button", { name: "Blank Screen" }).click();
   await expect(screen.getByText("Blank Screen")).toBeVisible();
 
+  await ensureTreeFolderOpen(page, "Media");
   await worldTree(page).getByRole("button", { name: "animated-map.gif" }).click();
   controls = await screenTool(page);
   await controls.getByRole("button", { name: "Show Active Fullscreen" }).click();
@@ -2193,6 +2246,7 @@ test("player screen shows fullscreen media and DM-controlled popups @smoke", asy
   await expect(homePopup).toBeVisible();
   await expect(homePopup).toHaveClass(/screen-popup-letter/);
 
+  await ensureTreeFolderOpen(page, "NPCs");
   await captainTreeButton(page).click();
   controls = await screenTool(page);
   await controls.getByLabel("Popup preset").selectOption("plain");
@@ -2384,6 +2438,7 @@ test("interactive map presents image maps with fog reveals and pins on player sc
   await screen.goto("/screen");
   await page.goto("/");
 
+  await ensureTreeFolderOpen(page, "Media");
   await worldTree(page).getByRole("button", { name: /sample-map/ }).click();
   const map = await mapTool(page);
   await map.getByRole("button", { name: "Use Active Image" }).click();
@@ -3086,8 +3141,11 @@ test("Prep Check reports broken links embeds cards and DMS references @smoke", a
   const dialog = page.getByRole("dialog", { name: "Prep Check" });
   await expect(dialog).toBeVisible();
   await dialog.getByRole("button", { name: "Run Check" }).click();
+  page.once("dialog", (systemDialog) => systemDialog.accept());
+  await dialog.getByRole("button", { name: "Trust all scripts" }).click();
 
-  await expect(dialog).toContainText("6 issues found.");
+  await expect(dialog).toContainText("DMS scripts are trusted for this world.");
+  await expect(dialog).toContainText("5 errors / 1 warning");
   await expect(dialog).toContainText("Missing Prep Target");
   await expect(dialog).toContainText("Missing embedded reference: Media/missing-prep.png");
   await expect(dialog).toContainText("Missing Card Prep");
@@ -3107,7 +3165,10 @@ test("Prep Check opens issue sources and drops fixed issues on rerun", async ({ 
   await workspaceControls(page).getByRole("button", { name: "Prep Check" }).click();
   const dialog = page.getByRole("dialog", { name: "Prep Check" });
   await dialog.getByRole("button", { name: "Run Check" }).click();
-  await expect(dialog).toContainText("2 issues found.");
+  page.once("dialog", (systemDialog) => systemDialog.accept());
+  await dialog.getByRole("button", { name: "Trust all scripts" }).click();
+  await expect(dialog).toContainText("DMS scripts are trusted for this world.");
+  await expect(dialog).toContainText("1 error / 1 warning");
 
   const issue = dialog.locator(".prep-health-issue", { hasText: "Missing Later" });
   await issue.getByRole("button", { name: "Open Source" }).click();
@@ -3115,7 +3176,7 @@ test("Prep Check opens issue sources and drops fixed issues on rerun", async ({ 
 
   writeFileSync(resolve(e2eWorld, "Missing Later.md"), "# Missing Later\n", "utf-8");
   await dialog.getByRole("button", { name: "Run Check" }).click();
-  await expect(dialog).toContainText("1 issue found.");
+  await expect(dialog).toContainText("1 warning");
   await dialog.getByRole("tab", { name: "Errors" }).click();
   await expect(dialog).toContainText("No issues in this filter.");
 });

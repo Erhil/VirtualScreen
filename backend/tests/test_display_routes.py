@@ -101,6 +101,26 @@ def test_fullscreen_popup_close_and_blank_round_trip(tmp_path: Path) -> None:
     assert clear_response.json()["popups"] == []
 
 
+def test_fullscreen_rotate_updates_shared_state(tmp_path: Path) -> None:
+    client = make_client(make_world(tmp_path))
+    client.headers.update({"X-VirtualScreen-Token": "dev"})
+
+    missing_response = client.post("/api/display/fullscreen/rotate")
+    assert missing_response.status_code == 409
+
+    fullscreen_response = client.put("/api/display/fullscreen", json={"path": "README.md"})
+    assert fullscreen_response.status_code == 200
+    assert fullscreen_response.json()["fullscreen"]["rotation"] == 0
+
+    first = client.post("/api/display/fullscreen/rotate")
+    second = client.post("/api/display/fullscreen/rotate")
+
+    assert first.status_code == 200
+    assert first.json()["fullscreen"]["rotation"] == 90
+    assert second.json()["fullscreen"]["rotation"] == 180
+    assert client.get("/api/screen/display/state").json()["fullscreen"]["rotation"] == 180
+
+
 def test_display_popup_presets_persist_to_public_screen_state(tmp_path: Path) -> None:
     client = make_client(make_world(tmp_path))
 

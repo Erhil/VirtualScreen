@@ -50,6 +50,7 @@ import {
   searchWorld,
   fetchAudioLibrary,
   fetchAudioPlaylists,
+  fetchPdfBookmarks,
   fetchCaptureToday,
   fetchTableSnapshot,
   fetchTableSnapshots,
@@ -59,12 +60,14 @@ import {
   deleteTableSnapshot,
   openWorld,
   openDisplayPopup,
+  rotateDisplayFullscreen,
   loginAuth,
   logoutAuth,
   renameWorkspace,
   fetchScenarios,
   fetchScenarioRuns,
   fetchScripts,
+  fetchDmsTrust,
   fetchDmsRun,
   acknowledgeDmsTrust,
   importSystemPack,
@@ -77,6 +80,7 @@ import {
   submitDmsForm,
   saveFastSlots,
   saveAudioPlaylists,
+  savePdfBookmarks,
   restoreTableSnapshot,
   saveTableSnapshot,
   activateWorkspace,
@@ -729,6 +733,7 @@ describe("world API helpers", () => {
 
     await expect(fetchDisplayState()).resolves.toEqual(state);
     await setDisplayFullscreen("Media/map.mp4");
+    await rotateDisplayFullscreen();
     await openDisplayPopup("Handout.md");
     await openDisplayPopup("Clue.md", "clue");
     await openDisplayPopup("Draft.md", "plain", false);
@@ -748,27 +753,30 @@ describe("world API helpers", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: "Media/map.mp4" })
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/display/popup", {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: "Handout.md", visible: true })
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/display/fullscreen/rotate", {
+      method: "POST"
     });
     expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/display/popup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ path: "Clue.md", preset: "clue", visible: true })
+      body: JSON.stringify({ path: "Handout.md", visible: true })
     });
     expect(fetchMock).toHaveBeenNthCalledWith(5, "/api/display/popup", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ path: "Clue.md", preset: "clue", visible: true })
+    });
+    expect(fetchMock).toHaveBeenNthCalledWith(6, "/api/display/popup", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: "Draft.md", preset: "plain", visible: false })
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(6, "/api/display/popup/popup-1", {
+    expect(fetchMock).toHaveBeenNthCalledWith(7, "/api/display/popup/popup-1", {
       method: "PUT",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ visible: true })
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(7, "/api/display/show-active", {
+    expect(fetchMock).toHaveBeenNthCalledWith(8, "/api/display/show-active", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
@@ -777,13 +785,13 @@ describe("world API helpers", () => {
         clear_existing: true
       })
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(8, "/api/display/popup/popup-1", {
+    expect(fetchMock).toHaveBeenNthCalledWith(9, "/api/display/popup/popup-1", {
       method: "DELETE"
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(9, "/api/display/popups", {
+    expect(fetchMock).toHaveBeenNthCalledWith(10, "/api/display/popups", {
       method: "DELETE"
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(10, "/api/display/blank", {
+    expect(fetchMock).toHaveBeenNthCalledWith(11, "/api/display/blank", {
       method: "POST"
     });
   });
@@ -1137,6 +1145,40 @@ describe("world API helpers", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ playlists })
     });
+  });
+
+  it("fetches and saves PDF bookmarks", async () => {
+    const bookmarks = [
+      {
+        id: "bandit-stat-block",
+        label: "Bandit stat block",
+        page: 42,
+        note: "Use for camp fight.",
+        created_at: "2026-06-13T12:00:00Z",
+        updated_at: "2026-06-13T12:05:00Z"
+      }
+    ];
+    const fetchMock = vi.fn(() => mockJsonResponse({ bookmarks }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    await expect(fetchPdfBookmarks("Docs/Campaign Guide.pdf")).resolves.toEqual({ bookmarks });
+    await expect(savePdfBookmarks("Docs/Campaign Guide.pdf", bookmarks)).resolves.toEqual({
+      bookmarks
+    });
+
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      1,
+      "/api/pdf/bookmarks?path=Docs%2FCampaign%20Guide.pdf"
+    );
+    expect(fetchMock).toHaveBeenNthCalledWith(
+      2,
+      "/api/pdf/bookmarks?path=Docs%2FCampaign%20Guide.pdf",
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ bookmarks })
+      }
+    );
   });
 
   it("fetches and saves fast slots", async () => {
@@ -1654,6 +1696,7 @@ describe("world API helpers", () => {
     const fetchMock = vi
       .fn()
       .mockResolvedValueOnce(mockJsonResponse(scripts))
+      .mockResolvedValueOnce(mockJsonResponse({ trusted: false }))
       .mockResolvedValueOnce(mockJsonResponse({ trusted: true }))
       .mockResolvedValueOnce(mockJsonResponse(run))
       .mockResolvedValueOnce(mockJsonResponse({ ...run, status: "success", form_request: null }))
@@ -1662,6 +1705,7 @@ describe("world API helpers", () => {
     vi.stubGlobal("fetch", fetchMock);
 
     await expect(fetchScripts()).resolves.toEqual(scripts);
+    await expect(fetchDmsTrust()).resolves.toEqual({ trusted: false });
     await expect(acknowledgeDmsTrust()).resolves.toEqual({ trusted: true });
     await expect(runDmsScript("Scripts/hello.dms")).resolves.toEqual(run);
     await expect(submitDmsForm("run-1", { name: "Ilyra" })).resolves.toMatchObject({
@@ -1671,19 +1715,20 @@ describe("world API helpers", () => {
     await expect(cancelDmsRun("run-1")).resolves.toMatchObject({ status: "cancelled" });
 
     expect(fetchMock).toHaveBeenNthCalledWith(1, "/api/scripts");
-    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/scripts/trust", { method: "POST" });
-    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/scripts/run", {
+    expect(fetchMock).toHaveBeenNthCalledWith(2, "/api/scripts/trust");
+    expect(fetchMock).toHaveBeenNthCalledWith(3, "/api/scripts/trust", { method: "POST" });
+    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/scripts/run", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ path: "Scripts/hello.dms" })
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(4, "/api/scripts/runs/run-1/form", {
+    expect(fetchMock).toHaveBeenNthCalledWith(5, "/api/scripts/runs/run-1/form", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ values: { name: "Ilyra" } })
     });
-    expect(fetchMock).toHaveBeenNthCalledWith(5, "/api/scripts/runs/run-1");
-    expect(fetchMock).toHaveBeenNthCalledWith(6, "/api/scripts/runs/run-1/cancel", {
+    expect(fetchMock).toHaveBeenNthCalledWith(6, "/api/scripts/runs/run-1");
+    expect(fetchMock).toHaveBeenNthCalledWith(7, "/api/scripts/runs/run-1/cancel", {
       method: "POST"
     });
   });

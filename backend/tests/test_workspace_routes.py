@@ -381,6 +381,39 @@ def test_workspace_accepts_pdf_tabs(tmp_path: Path) -> None:
     assert client.get("/api/workspace").json()["tabs"] == payload["tabs"]
 
 
+def test_workspace_accepts_folder_tabs_only_for_directories(tmp_path: Path) -> None:
+    world = make_world(tmp_path)
+    (world / "Notes").mkdir()
+    client = make_client(world)
+    client.headers.update({"X-VirtualScreen-Token": "dev"})
+    payload = {
+        "tabs": [tab("Notes", "Notes", "folder", "Notes")],
+        "activePath": "Notes",
+    }
+
+    response = client.put("/api/workspace/tabs", json=payload)
+
+    assert response.status_code == 200
+    assert client.get("/api/workspace").json()["tabs"] == payload["tabs"]
+
+    file_response = client.put(
+        "/api/workspace/tabs",
+        json={
+            "tabs": [tab("README.md", "README.md", "folder", "README")],
+            "activePath": "README.md",
+        },
+    )
+    wrong_kind_response = client.put(
+        "/api/workspace/tabs",
+        json={
+            "tabs": [tab("Notes", "Notes", "markdown", "Notes")],
+            "activePath": "Notes",
+        },
+    )
+    assert file_response.status_code == 400
+    assert wrong_kind_response.status_code == 400
+
+
 def test_recent_files_deduplicate_and_newest_wins(tmp_path: Path) -> None:
     client = make_client(make_world(tmp_path))
 

@@ -87,7 +87,11 @@ describe("localization catalogs", () => {
       "audio.summary.loaded",
       "audio.summary.playing",
       "audio.summary.quiet",
+      "audio.fadeIn",
+      "audio.fadeOut",
       "dice.ready",
+      "document.markdownShortcuts",
+      "document.defaultShortcuts",
       "hp.summary.noRows",
       "hp.summary.rows",
       "live.map.noMap",
@@ -127,6 +131,32 @@ describe("localization catalogs", () => {
     for (const key of keys.filter((item) => !["search.resultsGroup", "tools.sectionLabel"].includes(item))) {
       expect(ru[key], key).not.toBe(en[key]);
     }
+  });
+
+  it("does not leave known English UI fragments in Russian catalog values", () => {
+    const ru = readCatalog("ru");
+    const knownLeftovers = [
+      "Double-click preview",
+      "Ctrl+S saves",
+      "Open Source",
+      "Copy Target",
+      "Save / Clear",
+      "Fade In",
+      "Fade Out"
+    ];
+
+    for (const [key, value] of Object.entries(ru)) {
+      for (const fragment of knownLeftovers) {
+        expect(value, `${key} contains ${fragment}`).not.toContain(fragment);
+      }
+    }
+  });
+
+  it("uses clear Russian labels for audio fades", () => {
+    const ru = readCatalog("ru");
+
+    expect(ru["audio.fadeIn"]).toBe("Плавно включить");
+    expect(ru["audio.fadeOut"]).toBe("Плавно выключить");
   });
 });
 

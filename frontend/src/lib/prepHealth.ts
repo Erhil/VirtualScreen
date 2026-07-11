@@ -86,7 +86,10 @@ export function filterPrepHealthIssues(
   }
   if (filter === "dms") {
     return issues.filter(
-      (issue) => issue.kind === "missing_dms_reference" || issue.kind === "dms_parse_error"
+      (issue) =>
+        issue.kind === "missing_dms_reference" ||
+        issue.kind === "dms_parse_error" ||
+        issue.kind === "untrusted_dms"
     );
   }
   return issues;

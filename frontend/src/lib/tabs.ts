@@ -87,6 +87,9 @@ export function mediaKindForPath(path: string): OpenTab["mediaKind"] {
 }
 
 export function mediaKindForEntry(entry: WorldEntry): OpenTab["mediaKind"] {
+  if (entry.kind === "directory") {
+    return "folder";
+  }
   return mediaKindForPath(entry.extension ? `file.${entry.extension}` : entry.path);
 }
 

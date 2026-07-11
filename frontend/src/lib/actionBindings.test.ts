@@ -40,6 +40,7 @@ describe("action binding helpers", () => {
   it("canonicalizes keyboard-like events into stable shortcut strings", () => {
     expect(
       canonicalShortcutFromEvent({
+        code: "KeyM",
         key: "m",
         ctrlKey: true,
         shiftKey: true
@@ -47,6 +48,7 @@ describe("action binding helpers", () => {
     ).toBe("Ctrl+Shift+M");
     expect(
       canonicalShortcutFromEvent({
+        code: "Digit1",
         key: "1",
         altKey: true
       })
@@ -57,6 +59,14 @@ describe("action binding helpers", () => {
         ctrlKey: true
       })
     ).toBe("Ctrl+F5");
+    expect(
+      canonicalShortcutFromEvent({
+        code: "KeyM",
+        key: "ь",
+        ctrlKey: true,
+        shiftKey: true
+      })
+    ).toBe("Ctrl+Shift+M");
   });
 
   it("requires a modifier and rejects reserved browser shortcuts", () => {

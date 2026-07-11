@@ -11,7 +11,7 @@ from app.main import create_app
 
 @pytest.fixture(autouse=True)
 def clear_cached_settings(monkeypatch):
-    monkeypatch.delenv("VIRTUALSCREEN_ACCESS_TOKEN", raising=False)
+    monkeypatch.setenv("VIRTUALSCREEN_ACCESS_TOKEN", " ")
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
@@ -77,6 +77,32 @@ def test_map_source_accepts_existing_world_image(tmp_path: Path) -> None:
     assert body["image_path"] == "Media/map.svg"
     assert body["title"] == "map"
     assert body["presenting"] is False
+    assert body["rotation"] == 0
+
+
+def test_map_rotate_updates_state_public_screen_and_presets(tmp_path: Path) -> None:
+    client = make_client(make_world(tmp_path))
+    client.headers.update({"X-VirtualScreen-Token": "dev"})
+
+    missing_response = client.post("/api/map/rotate")
+    assert missing_response.status_code == 409
+
+    assert client.put("/api/map/source", json={"path": "Media/map.svg"}).status_code == 200
+    first = client.post("/api/map/rotate")
+    assert first.status_code == 200
+    assert first.json()["rotation"] == 90
+
+    assert client.post("/api/map/present").status_code == 200
+    screen_state = client.get("/api/screen/map/state").json()
+    assert screen_state["rotation"] == 90
+
+    preset = client.post("/api/map/presets", json={"name": "Rotated"}).json()
+    assert preset["state"]["rotation"] == 90
+
+    assert client.post("/api/map/rotate").json()["rotation"] == 180
+    loaded = client.post(f"/api/map/presets/{preset['id']}/load")
+    assert loaded.status_code == 200
+    assert loaded.json()["rotation"] == 90
 
 
 def test_map_source_rejects_unsafe_and_non_image_paths(tmp_path: Path) -> None:

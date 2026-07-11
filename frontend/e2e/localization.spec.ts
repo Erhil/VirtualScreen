@@ -56,12 +56,12 @@ test("Settings switches the UI language and persists it after reload @smoke", as
   await expect(page.getByRole("complementary", { name: "Инструменты ведущего" })).toBeVisible();
   await page.keyboard.press("Escape");
   await expect(page.getByRole("dialog", { name: "Настройки" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Настр." })).toBeFocused();
+  await expect(page.getByRole("button", { name: "Настройки" })).toBeFocused();
 
   await page.reload();
 
   await expect(page.getByRole("navigation", { name: "Файлы мира" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Настр." })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Настройки" })).toBeVisible();
 
   await page.evaluate(() => window.localStorage.removeItem("virtualscreen.uiLanguage"));
   await page.reload();
@@ -83,7 +83,7 @@ test("Russian shell labels fit supported desktop layouts", async ({ page }) => {
     await page.setViewportSize(viewport);
     await expect(page.getByRole("navigation", { name: "Файлы мира" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Открыть" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "Настр." })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Настройки" })).toBeVisible();
     await expect(page.getByRole("complementary", { name: "Инструменты ведущего" })).toBeVisible();
     const actionBoxes = await page.locator(".panel-actions-row .panel-action").evaluateAll((buttons) =>
       buttons.map((button) => {

@@ -1,4 +1,5 @@
 import type { ManagedPageMetadata, PageDetail } from "./api";
+import type { Translator } from "../lang";
 
 export type MetadataFieldRow = {
   key: string;
@@ -83,22 +84,22 @@ export function metadataPayloadFromForm(form: MetadataFormState): ManagedPageMet
   };
 }
 
-export function validateMetadataForm(form: MetadataFormState): string | null {
+export function validateMetadataForm(form: MetadataFormState, t?: Translator): string | null {
   if (!form.title.trim()) {
-    return "Title is required.";
+    return t?.("metadata.validation.titleRequired") ?? "Title is required.";
   }
 
   const seenKeys = new Set<string>();
   for (const row of form.fields) {
     const key = row.key.trim();
     if (!key && row.value.trim()) {
-      return "Custom field key is required.";
+      return t?.("metadata.validation.fieldKeyRequired") ?? "Custom field key is required.";
     }
     if (!key) {
       continue;
     }
     if (seenKeys.has(key)) {
-      return "Custom field keys must be unique.";
+      return t?.("metadata.validation.fieldKeysUnique") ?? "Custom field keys must be unique.";
     }
     seenKeys.add(key);
   }

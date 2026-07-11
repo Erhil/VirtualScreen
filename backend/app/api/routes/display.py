@@ -28,6 +28,7 @@ from app.core.display import (
     display_state_payload,
     load_display_state,
     queue_display_event,
+    rotate_fullscreen,
     screen_display_event_hub,
     screen_display_state_payload,
     set_fullscreen,
@@ -190,6 +191,19 @@ def display_fullscreen(
     queue_display_event(background_tasks, state)
     map_state = stop_map(settings.resolved_world_root)
     queue_map_event(background_tasks, map_state, settings.resolved_world_root)
+    return _display_response(state)
+
+
+@router.post("/api/display/fullscreen/rotate")
+def display_fullscreen_rotate(
+    background_tasks: BackgroundTasks,
+    settings: SettingsDep,
+) -> dict[str, object]:
+    try:
+        state = rotate_fullscreen(settings.resolved_world_root)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    queue_display_event(background_tasks, state)
     return _display_response(state)
 
 

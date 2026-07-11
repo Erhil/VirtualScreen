@@ -36,6 +36,19 @@ const dmsWarning: PrepHealthIssue = {
   message: "DMS parse error on line 3."
 };
 
+const dmsTrustWarning: PrepHealthIssue = {
+  id: "dms-trust:Scripts/intro.dms",
+  severity: "warning",
+  kind: "untrusted_dms",
+  source_path: "Scripts/intro.dms",
+  source_title: "Intro",
+  source_kind: "script",
+  raw_target: "",
+  label: null,
+  command: null,
+  message: "DMS scripts are not trusted in this world."
+};
+
 const embedError: PrepHealthIssue = {
   id: "embed:Notes/Side Quest.md:Old Map",
   severity: "error",
@@ -135,13 +148,13 @@ describe("prep health helpers", () => {
   });
 
   it("filters issues by all, severity, and audit kind", () => {
-    const issues = [linkError, dmsWarning, embedError];
+    const issues = [linkError, dmsWarning, dmsTrustWarning, embedError];
 
     expect(filterPrepHealthIssues(issues, "all")).toEqual(issues);
     expect(filterPrepHealthIssues(issues, "errors")).toEqual([linkError, embedError]);
-    expect(filterPrepHealthIssues(issues, "warnings")).toEqual([dmsWarning]);
+    expect(filterPrepHealthIssues(issues, "warnings")).toEqual([dmsWarning, dmsTrustWarning]);
     expect(filterPrepHealthIssues(issues, "links")).toEqual([linkError, embedError]);
-    expect(filterPrepHealthIssues(issues, "dms")).toEqual([dmsWarning]);
+    expect(filterPrepHealthIssues(issues, "dms")).toEqual([dmsWarning, dmsTrustWarning]);
   });
 
   it("sorts errors first, then source path", () => {

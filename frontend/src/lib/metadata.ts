@@ -1,4 +1,5 @@
 import type { PageDetail, WorldEntry } from "./api";
+import type { Translator } from "../lang";
 
 export type MetadataEntry = {
   label: string;
@@ -13,13 +14,13 @@ export function treeEntryLabel(entry: WorldEntry): { primary: string; secondary:
   return { primary: entry.name, secondary: null };
 }
 
-export function formatMetadataList(values: string[]): string {
-  return values.length > 0 ? values.join(", ") : "None";
+export function formatMetadataList(values: string[], t?: Translator): string {
+  return values.length > 0 ? values.join(", ") : t?.("app.none") ?? "None";
 }
 
-function formatValue(value: unknown): string {
+function formatValue(value: unknown, t?: Translator): string {
   if (value === null || value === undefined || value === "") {
-    return "None";
+    return t?.("app.none") ?? "None";
   }
   if (Array.isArray(value)) {
     return value.map(String).join(", ");
@@ -30,16 +31,16 @@ function formatValue(value: unknown): string {
   return String(value);
 }
 
-export function buildMetadataViewModel(page: PageDetail): MetadataEntry[] {
+export function buildMetadataViewModel(page: PageDetail, t?: Translator): MetadataEntry[] {
   const entries: MetadataEntry[] = [
-    { label: "Title", value: page.title },
-    { label: "Type", value: page.page_type ?? "None" },
-    { label: "Tags", value: formatMetadataList(page.tags) },
-    { label: "Aliases", value: formatMetadataList(page.aliases) }
+    { label: t?.("metadata.field.title") ?? "Title", value: page.title },
+    { label: t?.("metadata.field.type") ?? "Type", value: page.page_type ?? t?.("app.none") ?? "None" },
+    { label: t?.("metadata.field.tags") ?? "Tags", value: formatMetadataList(page.tags, t) },
+    { label: t?.("metadata.field.aliases") ?? "Aliases", value: formatMetadataList(page.aliases, t) }
   ];
 
   for (const [label, value] of Object.entries(page.fields)) {
-    entries.push({ label, value: formatValue(value) });
+    entries.push({ label, value: formatValue(value, t) });
   }
 
   return entries;

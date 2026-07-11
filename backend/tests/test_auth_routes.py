@@ -15,7 +15,7 @@ def clear_cached_settings():
 
 def make_client(tmp_path: Path, monkeypatch, token: str | None = None) -> TestClient:
     if token is None:
-        monkeypatch.delenv("VIRTUALSCREEN_ACCESS_TOKEN", raising=False)
+        monkeypatch.setenv("VIRTUALSCREEN_ACCESS_TOKEN", " ")
     else:
         monkeypatch.setenv("VIRTUALSCREEN_ACCESS_TOKEN", token)
     monkeypatch.setenv("VIRTUALSCREEN_WORLD_ROOT", str(tmp_path / "world"))

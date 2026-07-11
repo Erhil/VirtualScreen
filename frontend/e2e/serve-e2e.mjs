@@ -101,6 +101,7 @@ const backend = startChild(
     cwd: repoRoot,
     env: {
       ...process.env,
+      VIRTUALSCREEN_ACCESS_TOKEN: "",
       VIRTUALSCREEN_WORLD_ROOT: e2eWorldRoot,
       VIRTUALSCREEN_WORLDS_ROOT: e2eWorldsDir,
       VIRTUALSCREEN_WATCH_WORLD: "true"

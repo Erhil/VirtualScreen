@@ -22,7 +22,8 @@ export type PrepHealthIssueKind =
   | "broken_link"
   | "missing_embed"
   | "missing_dms_reference"
-  | "dms_parse_error";
+  | "dms_parse_error"
+  | "untrusted_dms";
 
 export type PrepHealthIssue = {
   id: string;
@@ -113,6 +114,7 @@ export type WorldMediaKind =
   | "image"
   | "pdf"
   | "video"
+  | "folder"
   | "unsupported";
 
 export type AudioBus = "ambient" | "music" | "effect";
@@ -171,6 +173,19 @@ export type AudioPlaylist = {
 
 export type AudioPlaylistsResponse = {
   playlists: AudioPlaylist[];
+};
+
+export type PdfBookmark = {
+  id: string;
+  label: string;
+  page: number;
+  note?: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PdfBookmarkState = {
+  bookmarks: PdfBookmark[];
 };
 
 export type WorldFile = {
@@ -338,6 +353,7 @@ export type DisplayItem = {
   title: string | null;
   name: string;
   media_kind: WorldMediaKind;
+  rotation?: 0 | 90 | 180 | 270;
 };
 
 export type DisplayPopupPreset = "plain" | "note" | "letter" | "portrait" | "clue";
@@ -807,6 +823,21 @@ export function saveAudioPlaylists(
   return sendJson<AudioPlaylistsResponse>("/api/audio/playlists", "PUT", { playlists });
 }
 
+export function fetchPdfBookmarks(path: string): Promise<PdfBookmarkState> {
+  return getJson<PdfBookmarkState>(`/api/pdf/bookmarks?path=${encodeURIComponent(path)}`);
+}
+
+export function savePdfBookmarks(
+  path: string,
+  bookmarks: PdfBookmark[]
+): Promise<PdfBookmarkState> {
+  return sendJson<PdfBookmarkState>(
+    `/api/pdf/bookmarks?path=${encodeURIComponent(path)}`,
+    "PUT",
+    { bookmarks }
+  );
+}
+
 export function fetchFastSlots(): Promise<FastSlot[]> {
   return getJson<FastSlot[]>("/api/fast-slots");
 }
@@ -950,6 +981,10 @@ export function fetchScripts(): Promise<DmsScriptSummary[]> {
   return getJson<DmsScriptSummary[]>("/api/scripts");
 }
 
+export function fetchDmsTrust(): Promise<{ trusted: boolean }> {
+  return getJson<{ trusted: boolean }>("/api/scripts/trust");
+}
+
 export function acknowledgeDmsTrust(): Promise<{ trusted: boolean }> {
   return sendJson<{ trusted: boolean }>("/api/scripts/trust", "POST");
 }
@@ -1021,6 +1056,10 @@ export function fetchScreenDisplayState(): Promise<DisplayState> {
 
 export function setDisplayFullscreen(path: string): Promise<DisplayState> {
   return sendJson<DisplayState>("/api/display/fullscreen", "PUT", { path });
+}
+
+export function rotateDisplayFullscreen(): Promise<DisplayState> {
+  return sendJson<DisplayState>("/api/display/fullscreen/rotate", "POST");
 }
 
 export function openDisplayPopup(

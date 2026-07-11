@@ -29,6 +29,8 @@ import {
   type MetadataEditState,
   type PageLoadState
 } from "./components/MetadataTool";
+import { IconButton } from "./components/IconButton";
+import { PdfViewer } from "./components/PdfViewer";
 import { MapCanvas, type MapCanvasTool } from "./MapCanvas";
 import { UnlockScreen } from "./UnlockScreen";
 import { WorldPathPicker } from "./WorldPathPicker";
@@ -91,6 +93,7 @@ import {
   fetchCardTemplates,
   fetchCaptureToday,
   fetchDisplayState,
+  fetchDmsTrust,
   fetchDmsRun,
   fetchFastSlots,
   fetchHpTracker,
@@ -120,6 +123,7 @@ import {
   renameWorkspace,
   restoreTableSnapshot,
   restoreTrash,
+  rotateDisplayFullscreen,
   rollDice,
   runDmsScript,
   saveFavorites,
@@ -369,6 +373,7 @@ import {
   normalizeMapPolygon,
   planViewportSync,
   presentMap,
+  rotateMap,
   saveMapPreset,
   setMapFog,
   setMapGrid,
@@ -384,6 +389,19 @@ import {
   type MapState,
   type MapViewport
 } from "./lib/map";
+import {
+  buildFolderKanbanColumns,
+  buildFolderKanbanEntities,
+  createKanbanCardContent,
+  findWorldEntry,
+  folderKanbanGroupOptions,
+  folderKanbanTab,
+  kanbanCardPath,
+  pageMetadataForKanbanMove,
+  serializeCardWithKanbanValue,
+  supportedFolderKanbanEntries,
+  type FolderKanbanEntity
+} from "./lib/folderKanban";
 import {
   buildFastSlotAction,
   clearFastSlot,
@@ -435,6 +453,7 @@ import {
   type DiceHistoryEntry
 } from "./lib/dice";
 import {
+  DMS_COMMAND_REFERENCE,
   buildDmsFormDefaults,
   dmsOutputToWorldFile,
   isScriptRunAvailable,
@@ -452,7 +471,12 @@ import {
   type LlmPromptOutputKind
 } from "./lib/llmForms";
 import {
+  DEFAULT_TREE_PANEL_WIDTH,
+  loadToolsPanelVisible,
+  loadTreePanelWidth,
   loadToolsPanelWidth,
+  saveToolsPanelVisible,
+  saveTreePanelWidth,
   saveToolsPanelWidth
 } from "./lib/panelWidth";
 import {
@@ -1354,14 +1378,6 @@ function parseCardJson(
 
 function normalizeDialogPath(path: string): string {
   return path.trim().replace(/\\/g, "/");
-}
-
-function collectDirectoryPaths(entry: WorldEntry): string[] {
-  if (entry.kind !== "directory") {
-    return [];
-  }
-
-  return [entry.path, ...entry.children.flatMap(collectDirectoryPaths)];
 }
 
 function buildEditorCompletions(
@@ -2474,7 +2490,8 @@ function DocumentChrome({
     dirty,
     mediaKind: file.media_kind,
     running: runningScript,
-    saving
+    saving,
+    t
   });
   const statusText =
     changedOnDisk
@@ -2567,7 +2584,9 @@ function FileViewer({
   onDraftContentChange,
   onOpenLink,
   onPickWorldPath,
-  onPeekLink
+  onPeekLink,
+  pdfTarget,
+  t
 }: {
   tab: OpenTab;
   loadState: FileLoadState;
@@ -2581,11 +2600,13 @@ function FileViewer({
   onOpenLink: (link: PageLink) => void;
   onPickWorldPath?: (filter: WorldPathPickerFilter, title: string, onSelect: (path: string) => void) => void;
   onPeekLink?: (link: PageLink) => void;
+  pdfTarget?: string | null;
+  t: Translator;
 }) {
   if (loadState.status === "removed") {
     return (
       <div className="empty-surface" data-help-context="document-empty">
-        <h2>File Removed</h2>
+        <h2>{t("document.fileRemoved")}</h2>
         <p>{loadState.message}</p>
       </div>
     );
@@ -2594,8 +2615,8 @@ function FileViewer({
   if (tab.mediaKind === "unsupported") {
     return (
       <div className="empty-surface" data-help-context="document-empty">
-        <h2>Unsupported File</h2>
-        <p>{tab.name} cannot be previewed yet.</p>
+        <h2>{t("document.unsupportedFile")}</h2>
+        <p>{t("document.unsupportedFileDetail", { name: tab.name })}</p>
       </div>
     );
   }
@@ -2617,21 +2638,17 @@ function FileViewer({
   }
 
   if (tab.mediaKind === "pdf") {
-    return (
-      <div className="pdf-viewer" data-help-context="document-media" tabIndex={0}>
-        <iframe aria-label={tab.name} src={buildMediaUrl(tab.path)} title={tab.name} />
-      </div>
-    );
+    return <PdfViewer name={tab.name} path={tab.path} target={pdfTarget} t={t} />;
   }
 
   if (loadState.status === "loading" || loadState.status === "idle") {
-    return <div className="empty-surface" data-help-context="document-empty">Loading {tab.name}...</div>;
+    return <div className="empty-surface" data-help-context="document-empty">{t("document.loadingFile", { name: tab.name })}</div>;
   }
 
   if (loadState.status === "error") {
     return (
       <div className="empty-surface" data-help-context="document-empty">
-        <h2>Could Not Open File</h2>
+        <h2>{t("document.couldNotOpen")}</h2>
         <p>{loadState.message}</p>
       </div>
     );
@@ -2764,6 +2781,303 @@ function FileViewer({
   }
 
   return <TextViewer file={loadState.file} />;
+}
+
+type FolderKanbanStatus =
+  | { status: "idle"; message: string | null }
+  | { status: "loading"; message: string | null }
+  | { status: "ready"; message: string | null }
+  | { status: "saving"; message: string | null }
+  | { status: "error"; message: string };
+
+function folderKanbanStorageKey(path: string): string {
+  return `virtualscreen.folderKanban.group.${path}`;
+}
+
+function loadFolderKanbanGroup(path: string): string {
+  try {
+    return window.localStorage.getItem(folderKanbanStorageKey(path)) || "Status";
+  } catch {
+    return "Status";
+  }
+}
+
+function saveFolderKanbanGroup(path: string, value: string) {
+  try {
+    window.localStorage.setItem(folderKanbanStorageKey(path), value);
+  } catch {
+  }
+}
+
+function FolderKanbanView({
+  dirtyPaths,
+  onChanged,
+  onOpenEntity,
+  tab,
+  t,
+  worldTree
+}: {
+  dirtyPaths: ReadonlySet<string>;
+  onChanged: (paths: string[]) => Promise<void>;
+  onOpenEntity: (path: string) => void;
+  tab: OpenTab;
+  t: Translator;
+  worldTree: WorldEntry | null;
+}) {
+  const [pageDetails, setPageDetails] = useState<PageDetail[]>([]);
+  const [groupBy, setGroupBy] = useState(() => loadFolderKanbanGroup(tab.path));
+  const [status, setStatus] = useState<FolderKanbanStatus>({ status: "idle", message: null });
+  const [extraColumns, setExtraColumns] = useState<string[]>([]);
+  const [newColumn, setNewColumn] = useState("");
+  const [cardNames, setCardNames] = useState<Record<string, string>>({});
+  const folder = useMemo(() => findWorldEntry(worldTree, tab.path), [tab.path, worldTree]);
+  const childEntries = useMemo(() => supportedFolderKanbanEntries(folder), [folder]);
+  const childPathKey = childEntries.map((entry) => entry.path).join("\u0000");
+
+  useEffect(() => {
+    setGroupBy(loadFolderKanbanGroup(tab.path));
+    setExtraColumns([]);
+    setCardNames({});
+  }, [tab.path]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!folder || folder.kind !== "directory") {
+      setPageDetails([]);
+      setStatus({ status: "error", message: t("kanban.folderMissing") });
+      return;
+    }
+    if (childEntries.length === 0) {
+      setPageDetails([]);
+      setStatus({ status: "ready", message: null });
+      return;
+    }
+    setStatus({ status: "loading", message: null });
+    Promise.all(childEntries.map((entry) => fetchPage(entry.path)))
+      .then((details) => {
+        if (cancelled) {
+          return;
+        }
+        setPageDetails(details);
+        setStatus({ status: "ready", message: null });
+      })
+      .catch((error: unknown) => {
+        if (cancelled) {
+          return;
+        }
+        setStatus({
+          status: "error",
+          message: error instanceof Error ? error.message : t("kanban.loadError")
+        });
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [childEntries.length, childPathKey, folder, t]);
+
+  const entities = useMemo(
+    () => buildFolderKanbanEntities(folder, pageDetails),
+    [folder, pageDetails]
+  );
+  const groupOptions = useMemo(() => {
+    const options = folderKanbanGroupOptions(entities);
+    return options.includes(groupBy) ? options : [...options, groupBy];
+  }, [entities, groupBy]);
+  const columns = useMemo(
+    () => buildFolderKanbanColumns(entities, groupBy, extraColumns),
+    [entities, extraColumns, groupBy]
+  );
+  const entitiesByPath = useMemo(
+    () => new Map(entities.map((entity) => [entity.path, entity])),
+    [entities]
+  );
+
+  function handleGroupChange(value: string) {
+    setGroupBy(value);
+    saveFolderKanbanGroup(tab.path, value);
+  }
+
+  function handleDragStart(event: DragEvent<HTMLElement>, entity: FolderKanbanEntity) {
+    event.dataTransfer.effectAllowed = "move";
+    event.dataTransfer.setData("text/plain", entity.path);
+  }
+
+  async function moveEntity(entity: FolderKanbanEntity, value: string) {
+    if (dirtyPaths.has(entity.path)) {
+      setStatus({ status: "error", message: t("kanban.dirtyBlocked", { name: entity.title }) });
+      return;
+    }
+    setStatus({ status: "saving", message: null });
+    try {
+      if (entity.mediaKind === "card") {
+        const file = await fetchWorldFile(entity.path);
+        const card = parseCard(file.content);
+        await saveWorldFile(entity.path, {
+          content: serializeCardWithKanbanValue(card, groupBy, value),
+          expected_hash: file.hash,
+          expected_modified_at: file.modified_at
+        });
+        const updatedPage = await fetchPage(entity.path);
+        setPageDetails((details) => details.map((detail) =>
+          detail.path === entity.path
+            ? updatedPage
+            : detail
+        ));
+      } else {
+        const page = await fetchPage(entity.path);
+        const updated = await updatePageMetadata(entity.path, {
+          metadata: pageMetadataForKanbanMove(page, groupBy, value),
+          expected_hash: page.hash,
+          expected_modified_at: page.modified_at
+        });
+        setPageDetails((details) => details.map((detail) =>
+          detail.path === entity.path ? updated.page : detail
+        ));
+      }
+      await onChanged([entity.path]);
+      setStatus({ status: "ready", message: t("kanban.moved", { name: entity.title }) });
+    } catch (error: unknown) {
+      setStatus({
+        status: "error",
+        message: error instanceof Error ? error.message : t("kanban.moveError")
+      });
+    }
+  }
+
+  function handleDrop(event: DragEvent<HTMLElement>, value: string) {
+    event.preventDefault();
+    const path = event.dataTransfer.getData("text/plain");
+    const entity = entitiesByPath.get(path);
+    if (!entity) {
+      return;
+    }
+    void moveEntity(entity, value);
+  }
+
+  function handleAddColumn() {
+    const value = newColumn.trim();
+    if (!value) {
+      return;
+    }
+    setExtraColumns((columns) => (columns.includes(value) ? columns : [...columns, value]));
+    setNewColumn("");
+  }
+
+  async function handleCreateCard(columnValue: string) {
+    const name = (cardNames[columnValue] ?? "").trim();
+    if (!name) {
+      setStatus({ status: "error", message: t("kanban.cardNameRequired") });
+      return;
+    }
+    const path = kanbanCardPath(tab.path, name);
+    setStatus({ status: "saving", message: null });
+    try {
+      const file = await createWorldFile({
+        path,
+        file_type: "card",
+        content: createKanbanCardContent(name, groupBy, columnValue)
+      });
+      await onChanged([file.path]);
+      const page = await fetchPage(file.path);
+      setPageDetails((details) => [...details, page]);
+      setCardNames((names) => ({ ...names, [columnValue]: "" }));
+      setStatus({ status: "ready", message: t("kanban.created", { path: file.path }) });
+    } catch (error: unknown) {
+      setStatus({
+        status: "error",
+        message: error instanceof Error ? error.message : t("kanban.createError")
+      });
+    }
+  }
+
+  return (
+    <section className="folder-kanban" data-help-context="document-folder">
+      <header className="folder-kanban-header">
+        <div>
+          <h2>{t("kanban.title", { folder: tab.title ?? tab.name })}</h2>
+          <p>{t("kanban.subtitle")}</p>
+        </div>
+        <label className="compact-inline-control">
+          {t("kanban.groupBy")}
+          <select onChange={(event) => handleGroupChange(event.target.value)} value={groupBy}>
+            {groupOptions.map((option) => (
+              <option key={option} value={option}>
+                {option === "type" ? t("kanban.type") : option}
+              </option>
+            ))}
+          </select>
+        </label>
+        <div className="inline-input-action folder-kanban-add-column">
+          <input
+            aria-label={t("kanban.newColumn")}
+            onChange={(event) => setNewColumn(event.target.value)}
+            placeholder={t("kanban.newColumn")}
+            value={newColumn}
+          />
+          <button onClick={handleAddColumn} type="button">
+            {t("kanban.addColumn")}
+          </button>
+        </div>
+      </header>
+      {status.message ? (
+        <p
+          className={status.status === "error" ? "folder-kanban-error" : "folder-kanban-status"}
+          role={status.status === "error" ? "alert" : "status"}
+        >
+          {status.message}
+        </p>
+      ) : null}
+      {status.status === "loading" ? <p>{t("kanban.loading")}</p> : null}
+      {status.status !== "loading" && entities.length === 0 ? (
+        <p>{t("kanban.empty")}</p>
+      ) : null}
+      <div className="folder-kanban-board">
+        {columns.map((column) => (
+          <section
+            aria-label={column.label}
+            className="folder-kanban-column"
+            key={column.value}
+            onDragOver={(event) => event.preventDefault()}
+            onDrop={(event) => handleDrop(event, column.value)}
+          >
+            <h3>
+              <span>{column.label}</span>
+              <small>{column.entities.length}</small>
+            </h3>
+            <div className="folder-kanban-cards">
+              {column.entities.map((entity) => (
+                <button
+                  className="folder-kanban-card"
+                  draggable
+                  key={entity.path}
+                  onClick={() => onOpenEntity(entity.path)}
+                  onDragStart={(event) => handleDragStart(event, entity)}
+                  type="button"
+                >
+                  <strong>{entity.title}</strong>
+                  <small>{entity.mediaKind.toUpperCase()}</small>
+                  <span>{entity.path}</span>
+                </button>
+              ))}
+            </div>
+            <div className="folder-kanban-new-card">
+              <input
+                aria-label={t("kanban.cardName")}
+                onChange={(event) =>
+                  setCardNames((names) => ({ ...names, [column.value]: event.target.value }))
+                }
+                placeholder={t("kanban.cardName")}
+                value={cardNames[column.value] ?? ""}
+              />
+              <button onClick={() => void handleCreateCard(column.value)} type="button">
+                {t("kanban.addCard")}
+              </button>
+            </div>
+          </section>
+        ))}
+      </div>
+    </section>
+  );
 }
 
 function WorldTree({
@@ -2949,6 +3263,7 @@ function WorldTreeContextMenu({
   onClose,
   onDuplicate,
   onOpen,
+  onOpenKanban,
   onOpenNewTab,
   onRename,
   onToggleFavorite,
@@ -2960,6 +3275,7 @@ function WorldTreeContextMenu({
   onClose: (restoreFocus?: boolean) => void;
   onDuplicate: (entry: WorldEntry) => void;
   onOpen: (entry: WorldEntry) => void;
+  onOpenKanban: (entry: WorldEntry) => void;
   onOpenNewTab: (entry: WorldEntry) => void;
   onRename: (entry: WorldEntry) => void;
   onToggleFavorite: (entry: WorldEntry) => void;
@@ -3028,6 +3344,17 @@ function WorldTreeContextMenu({
           {favorite ? t("world.menu.unfavorite") : t("world.menu.favorite")}
           </button>
         </>
+      )}
+      {entry.kind === "directory" && !isRoot && (
+        <button
+          onClick={() => {
+            onOpenKanban(entry);
+            onClose();
+          }}
+          type="button"
+        >
+          {t("world.menu.openKanban")}
+        </button>
       )}
       {!isRoot && (
         <>
@@ -3140,6 +3467,8 @@ function WorkspaceControls({
   searchButtonRef,
   onRename,
   onModeChange,
+  onToggleTools,
+  toolsVisible,
   t
 }: {
   currentId: string;
@@ -3158,6 +3487,8 @@ function WorkspaceControls({
   searchButtonRef: RefObject<HTMLButtonElement | null>;
   onRename: () => void;
   onModeChange: (mode: WorkspaceLayout["mode"]) => void;
+  onToggleTools: () => void;
+  toolsVisible: boolean;
   t: Translator;
 }) {
   return (
@@ -3210,21 +3541,24 @@ function WorkspaceControls({
       >
         {t("help.openShort")}
       </button>
+      <IconButton
+        label={toolsVisible ? t("tools.hidePanel") : t("tools.showPanel")}
+        name="tools"
+        onClick={onToggleTools}
+      />
       <div className="workspace-layout-toggle" role="group" aria-label={t("workspace.layout")}>
-        <button
+        <IconButton
           aria-pressed={layout.mode === "single"}
+          label={t("workspace.single")}
+          name="single"
           onClick={() => onModeChange("single")}
-          type="button"
-        >
-          {t("workspace.single")}
-        </button>
-        <button
+        />
+        <IconButton
           aria-pressed={layout.mode === "vertical_split"}
+          label={t("workspace.split")}
+          name="split"
           onClick={() => onModeChange("vertical_split")}
-          type="button"
-        >
-          {t("workspace.split")}
-        </button>
+        />
       </div>
     </section>
   );
@@ -3890,6 +4224,7 @@ function ScreenTool({
   onMapPinCreate,
   onMapPresent,
   onMapRevealCreate,
+  onMapRotate,
   onMapSavePreset,
   onMapStop,
   onMapUndoReveal,
@@ -3898,6 +4233,7 @@ function ScreenTool({
   onMapViewportPreview,
   onTabChange,
   onPickPath,
+  onRotatePrimary,
   tab,
   t
 }: {
@@ -3924,6 +4260,7 @@ function ScreenTool({
   onMapPinCreate: (point: MapPoint, label: string, visibility: MapPinVisibility) => void;
   onMapPresent: () => void;
   onMapRevealCreate: (reveal: MapRevealPayload) => void;
+  onMapRotate: () => void;
   onMapSavePreset: (name: string, state: MapState) => void;
   onMapStop: () => void;
   onMapUndoReveal: () => void;
@@ -3932,6 +4269,7 @@ function ScreenTool({
   onMapViewportPreview: (viewport: MapViewport) => void;
   onTabChange: (tab: ScreenToolTabId) => void;
   onPickPath: (filter: WorldPathPickerFilter, title: string, onSelect: (path: string) => void) => void;
+  onRotatePrimary: () => void;
   tab: ScreenToolTabId;
   t: Translator;
 }) {
@@ -4011,6 +4349,7 @@ function ScreenTool({
           onPickPath={onPickPath}
           onPresent={onMapPresent}
           onRevealCreate={onMapRevealCreate}
+          onRotate={onMapRotate}
           onSavePreset={onMapSavePreset}
           onStop={onMapStop}
           onUndoReveal={onMapUndoReveal}
@@ -4060,6 +4399,12 @@ function ScreenTool({
         <button className="button-danger-subtle" onClick={onClearPopups} type="button">
           {t("screen.clearPopups")}
         </button>
+        <IconButton
+          disabled={primaryMode === "blank"}
+          label={t("screen.rotate90")}
+          name="rotate"
+          onClick={onRotatePrimary}
+        />
         <a href="/screen" rel="noreferrer" target="_blank">
           {t("screen.openPlayer")}
         </a>
@@ -4114,6 +4459,7 @@ function MapTool({
   onPickPath,
   onPresent,
   onRevealCreate,
+  onRotate,
   onSavePreset,
   onStop,
   onUndoReveal,
@@ -4137,6 +4483,7 @@ function MapTool({
   onPickPath: (filter: WorldPathPickerFilter, title: string, onSelect: (path: string) => void) => void;
   onPresent: () => void;
   onRevealCreate: (reveal: MapRevealPayload) => void;
+  onRotate: () => void;
   onSavePreset: (name: string, state: MapState) => void;
   onStop: () => void;
   onUndoReveal: () => void;
@@ -4241,6 +4588,12 @@ function MapTool({
         <button disabled={!shownMap.presenting} onClick={onStop} type="button">
           {t("map.stop")}
         </button>
+        <IconButton
+          disabled={!shownMap.image_path}
+          label={t("map.rotate90")}
+          name="rotate"
+          onClick={onRotate}
+        />
       </div>
       <div className="map-tool-row">
         <label className="compact-inline-control">
@@ -5022,30 +5375,30 @@ function AudioTool({
               )}
               <div className="audio-player-row">
                 <div className="audio-bus-actions">
-                  <button
+                  <IconButton
                     disabled={!busState.track}
+                    label={busState.playing ? t("audio.pause") : t("audio.play")}
+                    name={busState.playing ? "pause" : "play"}
                     onClick={() => onPlayingChange(bus, !busState.playing)}
-                    type="button"
-                  >
-                    {busState.playing ? t("audio.pause") : t("audio.play")}
-                  </button>
-                  <button disabled={!busState.track} onClick={() => onStopBus(bus)} type="button">
-                    {t("audio.stop")}
-                  </button>
-                  <button
+                  />
+                  <IconButton
+                    disabled={!busState.track}
+                    label={t("audio.stop")}
+                    name="stop"
+                    onClick={() => onStopBus(bus)}
+                  />
+                  <IconButton
                     disabled={!busState.playlistMode}
+                    label={t("audio.prev")}
+                    name="previous"
                     onClick={() => onPreviousTrack(bus)}
-                    type="button"
-                  >
-                    {t("audio.prev")}
-                  </button>
-                  <button
+                  />
+                  <IconButton
                     disabled={!busState.playlistMode}
+                    label={t("audio.next")}
+                    name="next"
                     onClick={() => onNextTrack(bus)}
-                    type="button"
-                  >
-                    {t("audio.next")}
-                  </button>
+                  />
                   <button disabled={!busState.track} onClick={() => onFadeIn(bus)} type="button">
                     {t("audio.fadeIn")}
                   </button>
@@ -5191,7 +5544,8 @@ function LinkContextMenu({
   onOpenOtherPane,
   onPeek,
   onShowPopup,
-  onStagePopup
+  onStagePopup,
+  t
 }: {
   state: LinkContextMenuState;
   onClose: () => void;
@@ -5201,6 +5555,7 @@ function LinkContextMenu({
   onPeek: (link: PageLink) => void;
   onShowPopup: (link: PageLink) => void;
   onStagePopup: (link: PageLink) => void;
+  t: Translator;
 }) {
   if (!state.open) {
     return null;
@@ -5213,22 +5568,22 @@ function LinkContextMenu({
       style={{ left: state.x, top: state.y }}
     >
       <button disabled={disabled} onClick={() => { onOpen(state.link); onClose(); }} type="button">
-        Open
+        {t("search.open")}
       </button>
       <button disabled={disabled} onClick={() => { onOpenOtherPane(state.link); onClose(); }} type="button">
-        Open Other Pane
+        {t("search.otherPane")}
       </button>
       <button disabled={disabled} onClick={() => { onPeek(state.link); onClose(); }} type="button">
-        Peek
+        {t("search.peek")}
       </button>
       <button disabled={disabled} onClick={() => { onStagePopup(state.link); onClose(); }} type="button">
-        Stage on Screen
+        {t("search.stage")}
       </button>
       <button disabled={disabled} onClick={() => { onShowPopup(state.link); onClose(); }} type="button">
-        Show on Screen
+        {t("search.showOnScreen")}
       </button>
       <button onClick={() => { onCopyPath(state.link); onClose(); }} type="button">
-        Copy Path
+        {t("contextMenu.copyPath")}
       </button>
     </div>
   );
@@ -5241,7 +5596,8 @@ function PeekDialog({
   onContextLink,
   onDiceRoll,
   onOpenLink,
-  onPeekLink
+  onPeekLink,
+  t
 }: {
   state: PeekState;
   completions: CodeEditorCompletion[];
@@ -5250,6 +5606,7 @@ function PeekDialog({
   onDiceRoll?: (expression: string) => void;
   onOpenLink: (link: PageLink) => void;
   onPeekLink: (link: PageLink) => void;
+  t: Translator;
 }) {
   if (!state.open) {
     return null;
@@ -5257,14 +5614,14 @@ function PeekDialog({
   return (
     <div className="peek-overlay" role="presentation" onClick={onClose}>
       <section
-        aria-label={`Peek ${state.tab.title ?? state.tab.name}`}
+        aria-label={t("peek.title", { name: state.tab.title ?? state.tab.name })}
         className="peek-dialog"
         onClick={(event) => event.stopPropagation()}
         role="dialog"
       >
         <div className="dialog-header">
           <h2>{state.tab.title ?? state.tab.name}</h2>
-          <button aria-label="Close peek" onClick={onClose} type="button">
+          <button aria-label={t("peek.close")} onClick={onClose} type="button">
             x
           </button>
         </div>
@@ -5279,7 +5636,9 @@ function PeekDialog({
           onDraftContentChange={() => {}}
           onOpenLink={onOpenLink}
           onPeekLink={onPeekLink}
+          pdfTarget={null}
           tab={state.tab}
+          t={t}
         />
       </section>
     </div>
@@ -6565,20 +6924,19 @@ function ScriptsTool({
       <details className="script-reference">
         <summary>{t("scripts.commandReference")}</summary>
         <div className="script-command-list">
-          <code>{'form({"name": "text"})'}</code>
-          <code>{'choose_file("Pick a page")'}</code>
-          <code>{'roll("1d20+3")'}</code>
-          <code>{'table("Tables/random-events.csv")'}</code>
-          <code>{'screen_fs("README.md")'}</code>
-          <code>{'screen_pu("NPCs/Captain Ilyra.md")'}</code>
-          <code>{'audio_play(".music/effects/file.mp3")'}</code>
-          <code>{'map_preset("Session setup")'}</code>
-          <code>{'map_load("Media/sample-map.svg", present=True)'}</code>
-          <code>{'card_template("npc", "Captain Mira")'}</code>
-          <code>{'create_card("Cards/Mira.cs", card)'}</code>
-          <code>{'render_md("# Result")'}</code>
-          <code>{'create_note("Notes/new.md", "# New")'}</code>
-          <code>{'append_note("README.md", "\\nMore")'}</code>
+          {DMS_COMMAND_REFERENCE.map((entry) => (
+            <article className="script-command-entry" key={entry.name}>
+              <small>{t(entry.groupKey)}</small>
+              <code>{entry.signature}</code>
+              <p>{t(entry.descriptionKey)}</p>
+              <p>
+                <strong>{t("scripts.command.effectLabel")}</strong> {t(entry.effectKey)}
+              </p>
+              <p>
+                <strong>{t("scripts.command.exampleLabel")}</strong> <code>{entry.example}</code>
+              </p>
+            </article>
+          ))}
         </div>
       </details>
       {state.status === "ready" && state.scripts.length === 0 && <p>{t("scripts.none")}</p>}
@@ -6843,6 +7201,9 @@ const PREP_HEALTH_FILTERS: Array<{ id: PrepHealthFilter; label: string }> = [
 ];
 
 function prepHealthKindLabel(issue: PrepHealthIssue, t?: Translator): string {
+  if (issue.kind === "untrusted_dms") {
+    return t?.("prep.kind.untrustedDms") ?? "DMS not trusted";
+  }
   if (issue.kind === "missing_embed") {
     return t?.("prep.kind.missingEmbed") ?? "Missing embed";
   }
@@ -6862,6 +7223,7 @@ function PrepHealthDialog({
   onFilterChange,
   onOpenSource,
   onRun,
+  onTrustAllScripts,
   open,
   report,
   status,
@@ -6873,6 +7235,7 @@ function PrepHealthDialog({
   onFilterChange: (filter: PrepHealthFilter) => void;
   onOpenSource: (issue: PrepHealthIssue) => void;
   onRun: () => void;
+  onTrustAllScripts: () => void;
   open: boolean;
   report: PrepHealthReport | null;
   status: PrepHealthStatus;
@@ -6885,6 +7248,7 @@ function PrepHealthDialog({
   const filteredIssues = report
     ? filterPrepHealthIssues(sortPrepHealthIssues(report.issues), filter)
     : [];
+  const hasUntrustedScripts = Boolean(report?.issues.some((issue) => issue.kind === "untrusted_dms"));
 
   return (
     <div className="dialog-overlay" role="presentation" onMouseDown={onClose}>
@@ -6910,9 +7274,16 @@ function PrepHealthDialog({
                 : t("prep.runDescription")}
             </span>
           </div>
-          <button disabled={status.status === "loading"} onClick={onRun} type="button">
-            {status.status === "loading" ? t("prep.checking") : t("prep.run")}
-          </button>
+          <div className="prep-health-summary-actions">
+            <button disabled={status.status === "loading"} onClick={onRun} type="button">
+              {status.status === "loading" ? t("prep.checking") : t("prep.run")}
+            </button>
+            {hasUntrustedScripts && (
+              <button disabled={status.status === "loading"} onClick={onTrustAllScripts} type="button">
+                {t("prep.trustAllScripts")}
+              </button>
+            )}
+          </div>
         </div>
         {status.message && (
           <p className={status.status === "error" ? "dialog-error" : "dialog-note"}>
@@ -7580,6 +7951,7 @@ function ToolsPanel({
   onDisplayPopupVisibleChange,
   onClearFastSlot,
   onPickPath,
+  onRotatePrimaryScreen,
   onMapClearReveals,
   onMapDeletePin,
   onMapDeletePreset,
@@ -7590,6 +7962,7 @@ function ToolsPanel({
   onMapPinCreate,
   onMapPresent,
   onMapRevealCreate,
+  onMapRotate,
   onMapSavePreset,
   onMapStop,
   onMapUndoReveal,
@@ -7730,6 +8103,7 @@ function ToolsPanel({
   onDisplayPopupVisibleChange: (popupId: string, visible: boolean) => void;
   onClearFastSlot: (position: number) => void;
   onPickPath: (filter: WorldPathPickerFilter, title: string, onSelect: (path: string) => void) => void;
+  onRotatePrimaryScreen: () => void;
   onMapClearReveals: () => void;
   onMapDeletePin: (pinId: string) => void;
   onMapDeletePreset: (presetId: string) => void;
@@ -7740,6 +8114,7 @@ function ToolsPanel({
   onMapPinCreate: (point: MapPoint, label: string, visibility: MapPinVisibility) => void;
   onMapPresent: () => void;
   onMapRevealCreate: (reveal: MapRevealPayload) => void;
+  onMapRotate: () => void;
   onMapSavePreset: (name: string, state: MapState) => void;
   onMapStop: () => void;
   onMapUndoReveal: () => void;
@@ -8042,12 +8417,14 @@ function ToolsPanel({
           onPickPath={onPickPath}
           onMapPresent={onMapPresent}
           onMapRevealCreate={onMapRevealCreate}
+          onMapRotate={onMapRotate}
           onMapSavePreset={onMapSavePreset}
           onMapStop={onMapStop}
           onMapUndoReveal={onMapUndoReveal}
           onMapUseActiveImage={onMapUseActiveImage}
           onMapViewportCommit={onMapViewportCommit}
           onMapViewportPreview={onMapViewportPreview}
+          onRotatePrimary={onRotatePrimaryScreen}
           onTabChange={onScreenToolTabChange}
           tab={screenToolTab}
           t={t}
@@ -8265,6 +8642,7 @@ export function App() {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set([""]));
   const [tabState, setTabState] = useState<TabState>({ tabs: [], activePath: null });
   const tabStateRef = useRef<TabState>({ tabs: [], activePath: null });
+  const [pdfTargets, setPdfTargets] = useState<Record<string, string | null>>({});
   const [fileStates, setFileStates] = useState<Record<string, FileLoadState>>({});
   const [pageStates, setPageStates] = useState<Record<string, PageLoadState>>({});
   const [linksStates, setLinksStates] = useState<Record<string, LinksLoadState>>({});
@@ -8282,6 +8660,8 @@ export function App() {
   });
   const [screenToolTab, setScreenToolTab] = useState<ScreenToolTabId>(DEFAULT_SCREEN_TOOL_TAB);
   const [toolsPanelWidth, setToolsPanelWidth] = useState(() => loadToolsPanelWidth());
+  const [treePanelWidth, setTreePanelWidth] = useState(() => loadTreePanelWidth());
+  const [toolsPanelVisible, setToolsPanelVisible] = useState(() => loadToolsPanelVisible());
   const [treeFilter, setTreeFilter] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchState, setSearchState] = useState<SearchLoadState>({ status: "idle" });
@@ -8362,7 +8742,7 @@ export function App() {
     message: null
   });
   const cancelledDmsRuns = useRef<Set<string>>(new Set());
-  const [trustedScriptPaths, setTrustedScriptPaths] = useState<Set<string>>(() => new Set());
+  const [dmsWorldTrusted, setDmsWorldTrusted] = useState(false);
   const [linkContextMenu, setLinkContextMenu] = useState<LinkContextMenuState>({ open: false });
   const [peekState, setPeekState] = useState<PeekState>({ open: false });
   const [dmsTrustDialog, setDmsTrustDialog] = useState<DmsTrustDialogState>({ open: false });
@@ -8606,7 +8986,7 @@ export function App() {
         setTabState((currentState) =>
           mergeLoadedWorkspaceTabs(currentState, workspaceTabs, activePath)
         );
-        setExpandedPaths(new Set(collectDirectoryPaths(nextWorldTree)));
+        setExpandedPaths(new Set([""]));
         setWorkspaceReady(true);
         setLoadState("ready");
       } catch {
@@ -8725,6 +9105,14 @@ export function App() {
 
   useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
+      if ((event.ctrlKey || event.metaKey) && (event.key.toLowerCase() === "s" || event.code === "KeyS")) {
+        event.preventDefault();
+        return;
+      }
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (isEditableHotkeyTarget(target)) {
+        return;
+      }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "k") {
         event.preventDefault();
         openSearchDialog();
@@ -8743,10 +9131,6 @@ export function App() {
           void handleFastSlotTrigger(slot);
           return;
         }
-      }
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      if (isEditableHotkeyTarget(target)) {
-        return;
       }
       const shortcut = canonicalShortcutFromEvent(event);
       if (!shortcut) {
@@ -8981,6 +9365,27 @@ export function App() {
       cancelled = true;
     };
   }, [scriptsToolOpen, worldLibrary?.current?.id]);
+
+  useEffect(() => {
+    if (!workspaceReady) {
+      return;
+    }
+    let cancelled = false;
+    fetchDmsTrust()
+      .then((state) => {
+        if (!cancelled) {
+          setDmsWorldTrusted(state.trusted);
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setDmsWorldTrusted(false);
+        }
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [workspaceReady, worldLibrary?.current?.id]);
 
   useEffect(() => {
     if (!workspaceReady) {
@@ -9294,6 +9699,7 @@ export function App() {
         tab.mediaKind === "image" ||
         tab.mediaKind === "pdf" ||
         tab.mediaKind === "video" ||
+        tab.mediaKind === "folder" ||
         tab.mediaKind === "unsupported"
       ) {
         continue;
@@ -9362,7 +9768,7 @@ export function App() {
 
   useEffect(() => {
     for (const tab of visiblePaneTabs) {
-      if (isTemporaryDmsPath(tab.path)) {
+      if (isTemporaryDmsPath(tab.path) || tab.mediaKind === "folder") {
         continue;
       }
 
@@ -9518,6 +9924,9 @@ export function App() {
   function openResolvedLink(link: PageLink) {
     const tab = linkToOpenTab(link);
     if (tab) {
+      if (tab.mediaKind === "pdf") {
+        setPdfTargets((targets) => ({ ...targets, [tab.path]: link.heading ?? null }));
+      }
       openWorkspaceTab(openTabToWorkspaceTab(tab));
     }
   }
@@ -9529,6 +9938,9 @@ export function App() {
     }
     const targetPane: WorkspacePaneId =
       normalizedWorkspaceLayout.activePaneId === "main" ? "secondary" : "main";
+    if (tab.mediaKind === "pdf") {
+      setPdfTargets((targets) => ({ ...targets, [tab.path]: link.heading ?? null }));
+    }
     setWorkspaceLayout((layout) => ({
       ...layout,
       mode: "vertical_split",
@@ -9655,6 +10067,13 @@ export function App() {
     }
 
     openWorkspaceTab(tabForEntry(entry));
+  }
+
+  function handleOpenFolderKanban(entry: WorldEntry) {
+    if (entry.kind !== "directory") {
+      return;
+    }
+    openWorkspaceTab(folderKanbanTab(entry));
   }
 
   function handleWorldTreeContextEntry(entry: WorldEntry, event: MouseEvent<HTMLElement>) {
@@ -10237,7 +10656,7 @@ export function App() {
   }
 
   async function handleRunDmsScript(path: string) {
-    if (!trustedScriptPaths.has(path)) {
+    if (!dmsWorldTrusted) {
       setDmsTrustDialog({ open: true, path });
       setToolPanelState((state) => openToolSectionByUser(state, "scripts"));
       return;
@@ -10252,7 +10671,7 @@ export function App() {
     const path = dmsTrustDialog.path;
     try {
       await acknowledgeDmsTrust();
-      setTrustedScriptPaths((paths) => new Set(paths).add(path));
+      setDmsWorldTrusted(true);
       setDmsTrustDialog({ open: false });
       await runTrustedDmsScript(path);
     } catch (error: unknown) {
@@ -10265,6 +10684,23 @@ export function App() {
 
   function handleCancelDmsTrust() {
     setDmsTrustDialog({ open: false });
+  }
+
+  async function handleTrustAllDmsScripts() {
+    if (!window.confirm(t("prep.trustAllScriptsConfirm"))) {
+      return;
+    }
+    setPrepHealthStatus({ status: "loading", message: null });
+    try {
+      await acknowledgeDmsTrust();
+      setDmsWorldTrusted(true);
+      const report = await fetchPrepHealth();
+      setPrepHealthReport(report);
+      setPrepHealthStatus({ status: "ready", message: t("prep.trustAllScriptsDone") });
+    } catch (error: unknown) {
+      const message = error instanceof Error ? error.message : t("prep.trustAllScriptsError");
+      setPrepHealthStatus({ status: "error", message });
+    }
   }
 
   function handleDmsFormChange(name: string, value: string | number | boolean) {
@@ -11841,7 +12277,7 @@ export function App() {
     setTableSnapshotStatus({ status: "idle", message: null });
     setScriptState({ status: "idle" });
     setScriptRunState({ status: "idle" });
-    setTrustedScriptPaths(new Set());
+    setDmsWorldTrusted(false);
     setDmsTrustDialog({ open: false });
     setDmsFormDialog({ open: false });
     setDmsOutputSaveDialog({ open: false });
@@ -11920,7 +12356,7 @@ export function App() {
     setFastSlots(visibleFastSlots(nextFastSlots));
     setTabState({ tabs: workspaceTabs, activePath });
     setWorkspaceLayout(normalizeWorkspaceLayout(workspace.layout, workspace.tabs));
-    setExpandedPaths(new Set(collectDirectoryPaths(nextWorldTree)));
+    setExpandedPaths(new Set([""]));
     setWorkspaceReady(true);
     setSearchRevision((revision) => revision + 1);
     setLoadState("ready");
@@ -12036,6 +12472,20 @@ export function App() {
         })
       );
       adoptMapState(await fetchMapState());
+    } catch {
+    }
+  }
+
+  async function handleRotatePrimaryScreen() {
+    if (screenPrimaryMode(displayState, mapState) === "map") {
+      await handleMapRotate();
+      return;
+    }
+    if (!displayState?.fullscreen) {
+      return;
+    }
+    try {
+      setDisplayState(await rotateDisplayFullscreen());
     } catch {
     }
   }
@@ -12442,6 +12892,18 @@ export function App() {
     }
   }
 
+  async function handleMapRotate() {
+    try {
+      adoptMapState(await rotateMap());
+      setMapActionStatus({ status: "ready", message: t("map.rotated") });
+    } catch (error: unknown) {
+      setMapActionStatus({
+        status: "error",
+        message: mapActionErrorMessage(error, "Could not rotate map.")
+      });
+    }
+  }
+
   async function handleMapStop() {
     try {
       adoptMapState(await stopMap());
@@ -12716,6 +13178,41 @@ export function App() {
     setToolsPanelWidth((width) => saveToolsPanelWidth(width + direction * 24));
   }
 
+  function handleTreeResizePointerDown(event: PointerEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const startX = event.clientX;
+    const startWidth = treePanelWidth;
+
+    function handlePointerMove(moveEvent: globalThis.PointerEvent) {
+      setTreePanelWidth(saveTreePanelWidth(startWidth + moveEvent.clientX - startX));
+    }
+
+    function handlePointerUp() {
+      window.removeEventListener("pointermove", handlePointerMove);
+      window.removeEventListener("pointerup", handlePointerUp);
+    }
+
+    window.addEventListener("pointermove", handlePointerMove);
+    window.addEventListener("pointerup", handlePointerUp);
+  }
+
+  function handleTreeResizeKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
+    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
+      return;
+    }
+    event.preventDefault();
+    const direction = event.key === "ArrowRight" ? 1 : -1;
+    setTreePanelWidth((width) => saveTreePanelWidth(width + direction * 24));
+  }
+
+  function handleTreeResizeReset() {
+    setTreePanelWidth(saveTreePanelWidth(DEFAULT_TREE_PANEL_WIDTH));
+  }
+
+  function handleToolsPanelVisibleChange(visible: boolean) {
+    setToolsPanelVisible(saveToolsPanelVisible(visible));
+  }
+
   function handleToolToggle(tool: ToolId) {
     const lockedTools: ToolId[] = activeMetadataEdit.mode === "edit" ? ["metadata"] : [];
     setToolPanelState((state) => toggleToolSection(state, tool, lockedTools));
@@ -12763,6 +13260,9 @@ export function App() {
   }, [authState.status]);
 
   const currentWorldName = worldLibrary?.current?.name ?? worldTree?.name ?? "No world loaded";
+  const appShellStyle = {
+    "--tree-panel-width": `${treePanelWidth}px`
+  } as CSSProperties;
   const contentLayoutStyle = {
     "--tools-panel-width": `${toolsPanelWidth}px`
   } as CSSProperties;
@@ -12903,7 +13403,20 @@ export function App() {
           <span>{tab ? tab.title ?? tab.name : t("live.pane.empty")}</span>
           {paneActive && <em>{t("actions.target")}</em>}
         </div>
-        {tab ? (
+        {tab?.mediaKind === "folder" ? (
+          <FolderKanbanView
+            dirtyPaths={dirtyPaths}
+            onChanged={async (paths) => {
+              await refreshWorldStructure(paths);
+              setExpandedPaths((expanded) => revealWorldTreePaths(expanded, paths));
+              setSearchRevision((revision) => revision + 1);
+            }}
+            onOpenEntity={(path) => openWorkspaceTab(workspaceTabFromPath(path, pages))}
+            tab={tab}
+            t={t}
+            worldTree={worldTree}
+          />
+        ) : tab ? (
           <>
             {paneActive && (
               <DocumentChrome
@@ -12934,7 +13447,9 @@ export function App() {
               onOpenLink={openResolvedLink}
               onPickWorldPath={handleOpenWorldPathPicker}
               onPeekLink={openLinkPeek}
+              pdfTarget={pdfTargets[tab.path] ?? null}
               tab={tab}
+              t={t}
             />
           </>
         ) : (
@@ -12963,7 +13478,7 @@ export function App() {
   }
 
   return (
-    <main className="app-shell">
+    <main className="app-shell" style={appShellStyle}>
       <aside className="side-panel">
         <div className="side-top">
           <div className="brand-row">
@@ -12999,18 +13514,19 @@ export function App() {
             <button className="panel-action" onClick={() => void refreshWorldLibrary()} title={t("side.scan")} type="button">
               {t("side.scan")}
             </button>
-            <button className="panel-action" onClick={() => void loadTrashDialog()} title={t("side.trash")} type="button">
-              {t("side.trash")}
-            </button>
-            <button
+            <IconButton
               className="panel-action"
+              label={t("side.trash")}
+              name="trash"
+              onClick={() => void loadTrashDialog()}
+            />
+            <IconButton
+              className="panel-action"
+              label={t("app.settings")}
+              name="settings"
               onClick={() => setSettingsDialogOpen(true)}
               ref={settingsButtonRef}
-              title={t("app.settings")}
-              type="button"
-            >
-              {t("side.settings")}
-            </button>
+            />
           </div>
         </div>
         <nav className="world-tree" aria-label={t("side.worldFiles")} data-help-context="world-tree">
@@ -13059,6 +13575,7 @@ export function App() {
             onClose={closeWorldTreeContextMenu}
             onDuplicate={(entry) => void handleWorldTreeDuplicate(entry)}
             onOpen={handleOpenEntry}
+            onOpenKanban={handleOpenFolderKanban}
             onOpenNewTab={handleOpenEntry}
             onRename={handleWorldTreeRename}
             onToggleFavorite={handleWorldTreeToggleFavorite}
@@ -13084,6 +13601,16 @@ export function App() {
           />
         </div>
       </aside>
+      <div
+        aria-label={t("side.resizeTree")}
+        aria-orientation="vertical"
+        className="tree-resizer"
+        onDoubleClick={handleTreeResizeReset}
+        onKeyDown={handleTreeResizeKeyDown}
+        onPointerDown={handleTreeResizePointerDown}
+        role="separator"
+        tabIndex={0}
+      />
 
       <section className="workspace">
         <div className="workspace-body">
@@ -13099,6 +13626,7 @@ export function App() {
             onSearch={openSearchDialog}
             searchButtonRef={searchButtonRef}
             onModeChange={handleWorkspaceModeChange}
+            onToggleTools={() => handleToolsPanelVisibleChange(!toolsPanelVisible)}
             onNew={() =>
               setWorkspaceDialog({ kind: "create", name: "", status: "idle", error: null })
             }
@@ -13121,6 +13649,7 @@ export function App() {
             }}
             prepStatus={livePrepHealthLabel(prepHealthReport, t).replace(/^.*?:\s*/, "")}
             summaries={workspaces}
+            toolsVisible={toolsPanelVisible}
             t={t}
           />
           {tabState.tabs.length > 0 && (
@@ -13155,14 +13684,12 @@ export function App() {
                       {tab.title ?? tab.name}
                       {dirty ? " *" : ""}
                     </button>
-                    <button
-                      aria-label={`Close ${tab.name}`}
+                    <IconButton
                       className="close-tab"
+                      label={t("workspace.closeTab", { name: tab.name })}
+                      name="close"
                       onClick={() => handleCloseTab(tab.path)}
-                      type="button"
-                    >
-                      x
-                    </button>
+                    />
                   </div>
                 );
               })}
@@ -13176,7 +13703,10 @@ export function App() {
             onFadeFinish={handleAudioFadeFinish}
           />
 
-          <div className="content-layout with-tools" style={contentLayoutStyle}>
+          <div
+            className={`content-layout ${toolsPanelVisible ? "with-tools" : "tools-hidden"}`}
+            style={contentLayoutStyle}
+          >
             <div
               className={`viewer-panes viewer-panes-${normalizedWorkspaceLayout.mode}`}
               style={
@@ -13201,16 +13731,18 @@ export function App() {
                 </>
               )}
             </div>
-            <div
-              aria-label="Resize tools panel"
-              aria-orientation="vertical"
-              className="tools-resizer"
-              onKeyDown={handleToolsResizeKeyDown}
-              onPointerDown={handleToolsResizePointerDown}
-              role="separator"
-              tabIndex={0}
-            />
-            <ToolsPanel
+            {toolsPanelVisible ? (
+              <>
+                <div
+                  aria-label={t("tools.resizePanel")}
+                  aria-orientation="vertical"
+                  className="tools-resizer"
+                  onKeyDown={handleToolsResizeKeyDown}
+                  onPointerDown={handleToolsResizePointerDown}
+                  role="separator"
+                  tabIndex={0}
+                />
+                <ToolsPanel
               activeTab={activeTab}
               assistantActiveDocumentLabel={assistantActiveDocumentLabel}
               assistantCanUseActiveDocument={assistantCanUseActiveDocument}
@@ -13323,6 +13855,7 @@ export function App() {
               }
               onMapPresent={() => void handleMapPresent()}
               onMapRevealCreate={(reveal) => void handleMapRevealCreate(reveal)}
+              onMapRotate={() => void handleMapRotate()}
               onMapSavePreset={(name, state) => void handleMapSavePreset(name, state)}
               onMapStop={() => void handleMapStop()}
               onMapUndoReveal={() => void handleMapUndoReveal()}
@@ -13354,6 +13887,7 @@ export function App() {
               onScriptRun={(path) => void handleRunDmsScript(path)}
               onClearAndShowFullscreen={(path) => void handleClearAndShowActiveFullscreen(path)}
               onShowFullscreen={(path) => void handleShowActiveFullscreen(path)}
+              onRotatePrimaryScreen={() => void handleRotatePrimaryScreen()}
               onStartMetadataEdit={handleStartMetadataEdit}
               onScreenToolTabChange={setScreenToolTab}
               onToolPin={handleToolPin}
@@ -13368,8 +13902,18 @@ export function App() {
               tableSnapshotSelectedId={selectedTableSnapshotId}
               tableSnapshotStatus={tableSnapshotStatus}
               tableSnapshots={tableSnapshots}
-              t={t}
-            />
+                  t={t}
+                />
+              </>
+            ) : (
+              <button
+                className="tools-restore-button"
+                onClick={() => handleToolsPanelVisibleChange(true)}
+                type="button"
+              >
+                {t("tools.showPanel")}
+              </button>
+            )}
           </div>
           <FastSlotBar slots={fastSlots} onTrigger={(slot) => void handleFastSlotTrigger(slot)} t={t} />
         </div>
@@ -13423,6 +13967,7 @@ export function App() {
         onFilterChange={setPrepHealthFilter}
         onOpenSource={handleOpenPrepHealthSource}
         onRun={() => void handleRunPrepHealth()}
+        onTrustAllScripts={() => void handleTrustAllDmsScripts()}
         open={prepHealthDialogOpen}
         report={prepHealthReport}
         status={prepHealthStatus}
@@ -13536,6 +14081,7 @@ export function App() {
           }
         }}
         state={linkContextMenu}
+        t={t}
       />
       <PeekDialog
         completions={buildEditorCompletions(pages, worldTree, audioAutocompleteTracks)}
@@ -13545,6 +14091,7 @@ export function App() {
         onOpenLink={openResolvedLink}
         onPeekLink={openLinkPeek}
         state={peekState}
+        t={t}
       />
       <DmsFormDialog
         fileOptions={pages.map((page) => page.path)}

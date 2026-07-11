@@ -53,7 +53,7 @@ function removeImportedPackFiles() {
 async function openSettings(page: Page) {
   let dialog = page.getByRole("dialog", { name: /Settings|Настройки/ });
   if ((await dialog.count()) === 0 || !(await dialog.isVisible())) {
-    await page.getByRole("button", { name: /Settings|Настр\./ }).click();
+    await page.getByRole("button", { name: /Settings|Настройки/ }).click();
     dialog = page.getByRole("dialog", { name: /Settings|Настройки/ });
   }
   await expect(dialog).toBeVisible();

@@ -71,6 +71,20 @@ function treeFile(page: Page, text: string) {
   return page.locator(".file-item").filter({ hasText: text }).first();
 }
 
+async function openTreeFile(page: Page, folder: string, text: string) {
+  const file = treeFile(page, text);
+  if (
+    !(await file
+      .waitFor({ state: "visible", timeout: 750 })
+      .then(() => true)
+      .catch(() => false))
+  ) {
+    await page.getByRole("navigation", { name: "World files" }).getByRole("button", { name: folder, exact: true }).click();
+  }
+  await expect(file).toBeVisible();
+  await file.click();
+}
+
 test.beforeEach(async ({ request }) => {
   await openE2eWorld(request);
 });
@@ -93,29 +107,29 @@ test("F1 opens document-specific and tool-specific context help @smoke", async (
   await expectHelpTitle(page, "Markdown Help");
   await closeHelp(page);
 
-  await treeFile(page, "context-help.csv").click();
+  await openTreeFile(page, "Tables", "context-help.csv");
   await page.locator("[data-help-context='document-csv']").first().focus();
   await page.keyboard.press("F1");
   await expectHelpTitle(page, "Table Help");
   await closeHelp(page);
 
-  await treeFile(page, "Context Card").click();
+  await openTreeFile(page, "Cards", "Context Card");
   await page.locator("[data-help-context='document-card']").focus();
   await page.keyboard.press("F1");
   await expectHelpTitle(page, "Card Help");
   await closeHelp(page);
 
-  await treeFile(page, "context-help.dms").click();
+  await openTreeFile(page, "Scripts", "context-help.dms");
   await page.locator("[data-help-context='document-dms']").focus();
   await page.keyboard.press("F1");
   await expectHelpTitle(page, "DMS Script Help");
   await closeHelp(page);
 
-  await treeFile(page, "context-form.dms").click();
+  await openTreeFile(page, "Scripts", "context-form.dms");
   await page.getByRole("button", { name: "Run Active Script" }).click();
-  const trust = page.getByRole("dialog", { name: "Trust DMS Script" });
+  const trust = page.getByRole("dialog", { name: "Trust DMS Scripts" });
   await expect(trust).toBeVisible();
-  await trust.getByRole("button", { name: "Run Trusted Script" }).click();
+  await trust.getByRole("button", { name: "Trust and Run Script" }).click();
   const form = page.getByRole("dialog", { name: "DMS Script Form" });
   await expect(form).toBeVisible();
   await form.getByLabel("Pick a page").focus();

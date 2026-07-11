@@ -78,6 +78,7 @@ class MapState:
     image_path: str | None
     title: str | None
     viewport: MapViewport
+    rotation: int
     fog_enabled: bool
     grid: MapGrid
     reveals: list[MapReveal]
@@ -108,6 +109,7 @@ def blank_map_state(updated_at: str | None = None) -> MapState:
         image_path=None,
         title=None,
         viewport=default_viewport(),
+        rotation=0,
         fog_enabled=False,
         grid=default_grid(),
         reveals=[],
@@ -224,6 +226,7 @@ def map_state_payload(state: MapState) -> dict[str, object]:
         "image_path": state.image_path,
         "title": state.title,
         "viewport": asdict(state.viewport),
+        "rotation": state.rotation,
         "fog_enabled": state.fog_enabled,
         "grid": asdict(state.grid),
         "reveals": [asdict(reveal) for reveal in state.reveals],
@@ -249,6 +252,7 @@ def _state_json(state: MapState) -> str:
             "image_path": state.image_path,
             "title": state.title,
             "viewport": asdict(state.viewport),
+            "rotation": state.rotation,
             "fog_enabled": state.fog_enabled,
             "grid": asdict(state.grid),
             "reveals": [asdict(reveal) for reveal in state.reveals],
@@ -287,6 +291,16 @@ def _grid_from_dict(value: object) -> MapGrid:
         )
     except (TypeError, ValueError):
         return fallback
+
+
+def _rotation_from_dict(value: object) -> int:
+    if not isinstance(value, dict):
+        return 0
+    try:
+        rotation = int(value.get("rotation") or 0) % 360
+    except (TypeError, ValueError):
+        return 0
+    return rotation if rotation in {0, 90, 180, 270} else 0
 
 
 def _reveal_from_dict(value: object) -> MapReveal | None:
@@ -356,6 +370,7 @@ def _state_from_json(value: str, updated_at: str) -> MapState:
         image_path=str(loaded["image_path"]) if loaded.get("image_path") else None,
         title=str(loaded["title"]) if loaded.get("title") else None,
         viewport=_viewport_from_dict(loaded.get("viewport")),
+        rotation=_rotation_from_dict(loaded),
         fog_enabled=bool(loaded.get("fog_enabled")),
         grid=_grid_from_dict(loaded.get("grid")),
         reveals=[
@@ -389,6 +404,7 @@ def _save_map_state(root: Path, state: MapState) -> MapState:
         image_path=state.image_path,
         title=state.title,
         viewport=state.viewport,
+        rotation=state.rotation,
         fog_enabled=state.fog_enabled,
         grid=state.grid,
         reveals=state.reveals,
@@ -540,6 +556,7 @@ def set_map_source(root: Path, requested_path: str) -> MapState:
             image_path=relative_path,
             title=path.stem,
             viewport=default_viewport(),
+            rotation=0,
             fog_enabled=False,
             grid=default_grid(),
             reveals=[],
@@ -558,6 +575,7 @@ def set_map_viewport(root: Path, viewport: MapViewport) -> MapState:
             image_path=current.image_path,
             title=current.title,
             viewport=viewport,
+            rotation=current.rotation,
             fog_enabled=current.fog_enabled,
             grid=current.grid,
             reveals=current.reveals,
@@ -576,6 +594,7 @@ def set_map_fog(root: Path, enabled: bool) -> MapState:
             image_path=current.image_path,
             title=current.title,
             viewport=current.viewport,
+            rotation=current.rotation,
             fog_enabled=enabled,
             grid=current.grid,
             reveals=current.reveals,
@@ -594,8 +613,30 @@ def set_map_grid(root: Path, grid: MapGrid) -> MapState:
             image_path=current.image_path,
             title=current.title,
             viewport=current.viewport,
+            rotation=current.rotation,
             fog_enabled=current.fog_enabled,
             grid=grid,
+            reveals=current.reveals,
+            pins=current.pins,
+            presenting=current.presenting,
+            updated_at=current.updated_at,
+        ),
+    )
+
+
+def rotate_map(root: Path) -> MapState:
+    current = load_map_state(root)
+    if current.image_path is None:
+        raise ValueError("Map source is required before rotating.")
+    return _save_map_state(
+        root,
+        MapState(
+            image_path=current.image_path,
+            title=current.title,
+            viewport=current.viewport,
+            rotation=(current.rotation + 90) % 360,
+            fog_enabled=current.fog_enabled,
+            grid=current.grid,
             reveals=current.reveals,
             pins=current.pins,
             presenting=current.presenting,
@@ -612,6 +653,7 @@ def add_map_reveal(root: Path, reveal: MapReveal) -> MapState:
             image_path=current.image_path,
             title=current.title,
             viewport=current.viewport,
+            rotation=current.rotation,
             fog_enabled=current.fog_enabled,
             grid=current.grid,
             reveals=[*current.reveals, reveal],
@@ -630,6 +672,7 @@ def delete_map_reveal(root: Path, reveal_id: str) -> MapState:
             image_path=current.image_path,
             title=current.title,
             viewport=current.viewport,
+            rotation=current.rotation,
             fog_enabled=current.fog_enabled,
             grid=current.grid,
             reveals=[reveal for reveal in current.reveals if reveal.id != reveal_id],
@@ -648,6 +691,7 @@ def clear_map_reveals(root: Path) -> MapState:
             image_path=current.image_path,
             title=current.title,
             viewport=current.viewport,
+            rotation=current.rotation,
             fog_enabled=current.fog_enabled,
             grid=current.grid,
             reveals=[],
@@ -666,6 +710,7 @@ def add_map_pin(root: Path, pin: MapPin) -> MapState:
             image_path=current.image_path,
             title=current.title,
             viewport=current.viewport,
+            rotation=current.rotation,
             fog_enabled=current.fog_enabled,
             grid=current.grid,
             reveals=current.reveals,
@@ -684,6 +729,7 @@ def delete_map_pin(root: Path, pin_id: str) -> MapState:
             image_path=current.image_path,
             title=current.title,
             viewport=current.viewport,
+            rotation=current.rotation,
             fog_enabled=current.fog_enabled,
             grid=current.grid,
             reveals=current.reveals,
@@ -704,6 +750,7 @@ def present_map(root: Path) -> MapState:
             image_path=current.image_path,
             title=current.title,
             viewport=current.viewport,
+            rotation=current.rotation,
             fog_enabled=current.fog_enabled,
             grid=current.grid,
             reveals=current.reveals,
@@ -722,6 +769,7 @@ def stop_map(root: Path) -> MapState:
             image_path=current.image_path,
             title=current.title,
             viewport=current.viewport,
+            rotation=current.rotation,
             fog_enabled=current.fog_enabled,
             grid=current.grid,
             reveals=current.reveals,
@@ -748,6 +796,7 @@ def public_map_state(root: Path) -> MapState:
         image_path=state.image_path,
         title=state.title,
         viewport=state.viewport,
+        rotation=state.rotation,
         fog_enabled=state.fog_enabled,
         grid=grid,
         reveals=state.reveals,

@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent } from "react";
+import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
 
 import { MapCanvas } from "./MapCanvas";
 import {
@@ -216,13 +216,14 @@ function ScreenCardContent({
 
 function ScreenContent({ item }: { item: DisplayItem }) {
   const label = item.title ?? item.name;
+  const rotation = item.rotation ?? 0;
+  const contentClassName = `screen-rotated-content screen-rotated-${rotation}`;
 
+  let content: ReactNode;
   if (item.media_kind === "image") {
-    return <img alt={label} src={buildScreenMediaUrl(item.path)} />;
-  }
-
-  if (item.media_kind === "video") {
-    return (
+    content = <img alt={label} src={buildScreenMediaUrl(item.path)} />;
+  } else if (item.media_kind === "video") {
+    content = (
       <video
         aria-label={label}
         autoPlay
@@ -232,22 +233,20 @@ function ScreenContent({ item }: { item: DisplayItem }) {
         src={buildScreenMediaUrl(item.path)}
       />
     );
-  }
-
-  if (item.media_kind === "pdf") {
-    return <iframe aria-label={label} src={buildScreenMediaUrl(item.path)} title={label} />;
-  }
-
-  if (
+  } else if (item.media_kind === "pdf") {
+    content = <iframe aria-label={label} src={buildScreenMediaUrl(item.path)} title={label} />;
+  } else if (
     item.media_kind === "markdown" ||
     item.media_kind === "card" ||
     item.media_kind === "csv" ||
     item.media_kind === "text"
   ) {
-    return <ScreenTextContent item={item} />;
+    content = <ScreenTextContent item={item} />;
+  } else {
+    content = <div className="screen-message">Unsupported screen content.</div>;
   }
 
-  return <div className="screen-message">Unsupported screen content.</div>;
+  return <div className={contentClassName}>{content}</div>;
 }
 
 export function PlayerScreen() {

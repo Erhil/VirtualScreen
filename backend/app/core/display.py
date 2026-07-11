@@ -44,6 +44,7 @@ class DisplayItem:
     title: str | None
     name: str
     media_kind: str
+    rotation: int
 
 
 @dataclass(frozen=True)
@@ -64,11 +65,18 @@ class DisplayState:
 def _item_from_dict(value: object) -> DisplayItem | None:
     if not isinstance(value, dict):
         return None
+    try:
+        rotation = int(value.get("rotation") or 0) % 360
+    except (TypeError, ValueError):
+        rotation = 0
+    if rotation not in {0, 90, 180, 270}:
+        rotation = 0
     return DisplayItem(
         path=str(value.get("path") or ""),
         title=str(value["title"]) if value.get("title") is not None else None,
         name=str(value.get("name") or ""),
         media_kind=str(value.get("media_kind") or "unsupported"),
+        rotation=rotation,
     )
 
 
@@ -87,6 +95,7 @@ def _popup_from_dict(value: object) -> DisplayPopup | None:
         title=item.title,
         name=item.name,
         media_kind=item.media_kind,
+        rotation=item.rotation,
         created_at=str(value.get("created_at") or ""),
         preset=preset,
         visible=bool(value.get("visible", True)),
@@ -209,6 +218,7 @@ def display_item_for_path(root: Path, requested_path: str) -> DisplayItem:
         title=page.title,
         name=path.name,
         media_kind=media_kind_for_extension(extension),
+        rotation=0,
     )
 
 
@@ -226,6 +236,24 @@ def clear_fullscreen(root: Path) -> DisplayState:
     return _save_display_state(root, None, current.popups)
 
 
+def rotate_fullscreen(root: Path) -> DisplayState:
+    current = load_display_state(root)
+    if current.fullscreen is None:
+        raise ValueError("Fullscreen content is required before rotating.")
+    item = current.fullscreen
+    return _save_display_state(
+        root,
+        DisplayItem(
+            path=item.path,
+            title=item.title,
+            name=item.name,
+            media_kind=item.media_kind,
+            rotation=(item.rotation + 90) % 360,
+        ),
+        current.popups,
+    )
+
+
 def restore_display_state(root: Path, state: DisplayState) -> DisplayState:
     return _save_display_state(root, state.fullscreen, state.popups)
 
@@ -241,6 +269,7 @@ def _popup_for_item(
         title=item.title,
         name=item.name,
         media_kind=item.media_kind,
+        rotation=item.rotation,
         created_at=_event_time(),
         preset=preset,
         visible=visible,
@@ -285,6 +314,7 @@ def set_popup_visible(root: Path, popup_id: str, visible: bool) -> DisplayState:
                 title=popup.title,
                 name=popup.name,
                 media_kind=popup.media_kind,
+                rotation=popup.rotation,
                 created_at=popup.created_at,
                 preset=popup.preset,
                 visible=visible if popup.id == popup_id else popup.visible,

@@ -59,6 +59,31 @@ def test_prep_health_returns_ok_on_clean_world(tmp_path: Path) -> None:
     assert body["checked_at"].endswith("Z")
 
 
+def test_prep_health_reports_untrusted_dms_scripts(tmp_path: Path) -> None:
+    world = tmp_path / "world"
+    world.mkdir()
+    write_file(world, "README.md", "# Home")
+    write_file(world, "Scripts/hello.dms", "render_md('# Hello')")
+    client = make_client(world)
+
+    response = client.get("/api/prep-health")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["status"] == "warning"
+    assert body["issue_count"] == 1
+    assert body["errors"] == 0
+    assert body["warnings"] == 1
+    assert issue_pairs(body) == [
+        ("untrusted_dms", "Scripts/hello.dms", "", None),
+    ]
+
+    assert client.post("/api/scripts/trust").status_code == 200
+    trusted_response = client.get("/api/prep-health")
+    assert trusted_response.status_code == 200
+    assert trusted_response.json()["issues"] == []
+
+
 def test_prep_health_reports_unresolved_links_and_embeds(tmp_path: Path) -> None:
     world = tmp_path / "world"
     world.mkdir()
@@ -146,6 +171,7 @@ def test_prep_health_scans_dms_literal_path_arguments(tmp_path: Path) -> None:
         ),
     )
     client = make_client(world)
+    assert client.post("/api/scripts/trust").status_code == 200
 
     response = client.get("/api/prep-health")
 
@@ -175,6 +201,7 @@ def test_prep_health_warns_on_dms_syntax_errors_and_blocks_traversal(
     write_file(world, "Scripts/traversal.dms", "screen_fs('../secret.md')")
     (tmp_path / "secret.md").write_text("# Secret", encoding="utf-8")
     client = make_client(world)
+    assert client.post("/api/scripts/trust").status_code == 200
 
     response = client.get("/api/prep-health")
 

@@ -7,6 +7,8 @@ export type MapViewport = {
   zoom: number;
 };
 
+export type QuarterRotation = 0 | 90 | 180 | 270;
+
 export type MapFogAction = "reveal" | "hide";
 export type MapFogShape = "rect" | "polygon";
 
@@ -87,6 +89,7 @@ export type MapState = {
   image_path: string | null;
   title: string | null;
   viewport: MapViewport;
+  rotation?: QuarterRotation;
   grid: MapGrid;
   fog_enabled: boolean;
   reveals: MapReveal[];
@@ -128,6 +131,7 @@ export const blankMapState: MapState = {
   image_path: null,
   title: null,
   viewport: { center_x: 0.5, center_y: 0.5, zoom: 1 },
+  rotation: 0,
   grid: { enabled: false, columns: 10, rows: 10, visible_to_players: true },
   fog_enabled: false,
   reveals: [],
@@ -167,6 +171,30 @@ function roundCoordinate(value: number): number {
 
 function clampUnit(value: number): number {
   return roundCoordinate(clamp(finiteOr(value, 0), 0, 1));
+}
+
+export function normalizeRotation(value: number | null | undefined): QuarterRotation {
+  const rotation = Number.isFinite(value) ? Number(value) % 360 : 0;
+  const normalized = rotation < 0 ? rotation + 360 : rotation;
+  return normalized === 90 || normalized === 180 || normalized === 270 ? normalized : 0;
+}
+
+export function nextRotation(value: number | null | undefined): QuarterRotation {
+  return normalizeRotation(normalizeRotation(value) + 90);
+}
+
+export function inverseRotateMapPoint(point: MapPoint, rotation: number | null | undefined): MapPoint {
+  const normalized = normalizeMapPoint(point);
+  switch (normalizeRotation(rotation)) {
+    case 90:
+      return normalizeMapPoint({ x: normalized.y, y: 1 - normalized.x });
+    case 180:
+      return normalizeMapPoint({ x: 1 - normalized.x, y: 1 - normalized.y });
+    case 270:
+      return normalizeMapPoint({ x: 1 - normalized.y, y: normalized.x });
+    default:
+      return normalized;
+  }
 }
 
 function clampGridSize(value: number): number {
@@ -485,6 +513,10 @@ export function presentMap(): Promise<MapState> {
 
 export function stopMap(): Promise<MapState> {
   return sendJson<MapState>("/api/map/stop", "POST");
+}
+
+export function rotateMap(): Promise<MapState> {
+  return sendJson<MapState>("/api/map/rotate", "POST");
 }
 
 export function saveMapPreset(name: string, state?: MapState): Promise<MapPreset> {

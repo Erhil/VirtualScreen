@@ -43,7 +43,8 @@ function MetadataEditForm({
   onChange,
   onReload,
   onSave,
-  onRevert
+  onRevert,
+  t
 }: {
   contentDirty: boolean;
   fileReady: boolean;
@@ -54,8 +55,9 @@ function MetadataEditForm({
   onReload: () => void;
   onSave: () => void;
   onRevert: () => void;
+  t: Translator;
 }) {
-  const validation = validateMetadataForm(state.form);
+  const validation = validateMetadataForm(state.form, t);
   const dirty = isMetadataFormDirty(state.form, page);
   const saving = state.status === "saving";
   const disabled = saving || !fileReady || contentDirty;
@@ -69,91 +71,91 @@ function MetadataEditForm({
       }}
     >
       <label>
-        Title
+        {t("metadata.field.title")}
         <input
-          aria-label="Metadata title"
+          aria-label={t("metadata.field.title")}
           onChange={(event) => onChange({ ...state.form, title: event.target.value })}
           value={state.form.title}
         />
       </label>
       <label>
-        Type
+        {t("metadata.field.type")}
         <input
-          aria-label="Metadata type"
+          aria-label={t("metadata.field.type")}
           onChange={(event) => onChange({ ...state.form, type: event.target.value })}
           value={state.form.type}
         />
       </label>
       <label>
-        Tags
+        {t("metadata.field.tags")}
         <input
-          aria-label="Metadata tags"
+          aria-label={t("metadata.field.tags")}
           onChange={(event) => onChange({ ...state.form, tagsText: event.target.value })}
           value={state.form.tagsText}
         />
       </label>
       <label>
-        Aliases
+        {t("metadata.field.aliases")}
         <input
-          aria-label="Metadata aliases"
+          aria-label={t("metadata.field.aliases")}
           onChange={(event) => onChange({ ...state.form, aliasesText: event.target.value })}
           value={state.form.aliasesText}
         />
       </label>
-      <section className="metadata-fields" aria-label="Custom Fields">
-        <h3>Custom Fields</h3>
+      <section className="metadata-fields" aria-label={t("metadata.customFields")}>
+        <h3>{t("metadata.customFields")}</h3>
         {state.form.fields.map((field, index) => (
           <div className="metadata-field-row" key={`field-${index}`}>
             <input
-              aria-label={`Field ${index + 1} key`}
+              aria-label={t("metadata.fieldKey", { index: index + 1 })}
               onChange={(event) =>
                 onChange(updateMetadataFieldRow(state.form, index, { key: event.target.value }))
               }
-              placeholder="Key"
+              placeholder={t("metadata.key")}
               value={field.key}
             />
             <input
-              aria-label={`Field ${index + 1} value`}
+              aria-label={t("metadata.fieldValue", { index: index + 1 })}
               onChange={(event) =>
                 onChange(updateMetadataFieldRow(state.form, index, { value: event.target.value }))
               }
-              placeholder="Value"
+              placeholder={t("metadata.value")}
               value={field.value}
             />
             <button
-              aria-label={`Remove field ${index + 1}`}
+              aria-label={t("metadata.removeField", { index: index + 1 })}
               onClick={() => onChange(removeMetadataFieldRow(state.form, index))}
               type="button"
             >
-              Remove
+              {t("app.remove")}
             </button>
           </div>
         ))}
         <button onClick={() => onChange(addMetadataFieldRow(state.form))} type="button">
-          Add Field
+          {t("metadata.addField")}
         </button>
       </section>
       {(validation || state.message || contentDirty) && (
         <p className={`metadata-form-message metadata-form-message-${state.status}`}>
           {contentDirty
-            ? "Save or revert content before editing metadata."
+            ? t("metadata.saveContentFirst")
             : validation ?? state.message}
         </p>
       )}
       <div className="metadata-form-actions">
         <button disabled={disabled || !dirty || Boolean(validation)} type="submit">
-          {saving ? "Saving..." : "Save Metadata"}
+          {saving ? t("app.saving") : t("metadata.save")}
         </button>
         <button disabled={saving} onClick={onRevert} type="button">
-          Revert
+          {t("metadata.revert")}
         </button>
         {state.status === "conflict" && (
           <button disabled={saving} onClick={onReload} type="button">
-            Reload metadata
+            {t("metadata.reload")}
           </button>
         )}
         <button disabled={saving} onClick={onCancel} type="button">
-          Cancel
+          {t("app.cancel")}
         </button>
       </div>
     </form>
@@ -214,7 +216,7 @@ export function MetadataTool({
     );
   }
 
-  const entries = buildMetadataViewModel(pageState.page);
+  const entries = buildMetadataViewModel(pageState.page, t);
   const outgoing = linksState.status === "ready" ? linksState.outgoing : [];
   const backlinks = linksState.status === "ready" ? linksState.backlinks : [];
   const linksError = linksState.status === "error" ? linksState.message : null;
@@ -239,6 +241,7 @@ export function MetadataTool({
           onSave={onSaveEdit}
           page={pageState.page}
           state={editState}
+          t={t}
         />
       ) : (
         <>

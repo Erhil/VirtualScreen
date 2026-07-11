@@ -25,22 +25,29 @@ function Get-FreePort {
   return $port
 }
 
-function Test-EnvFileWorldRoot {
+function Get-EnvFileValue {
+  param([string]$Name)
+
   $envFile = Join-Path $root ".env"
   if (-not (Test-Path $envFile)) {
-    return $false
+    return $null
   }
 
+  $escapedName = [regex]::Escape($Name)
   foreach ($line in Get-Content -LiteralPath $envFile) {
     if ($line -match '^\s*#') {
       continue
     }
-    if ($line -match '^\s*VIRTUALSCREEN_WORLD_ROOT\s*=\s*(.+?)\s*$') {
-      return -not [string]::IsNullOrWhiteSpace($matches[1].Trim().Trim('"').Trim("'"))
+    if ($line -match "^\s*$escapedName\s*=\s*(.*?)\s*$") {
+      return $matches[1].Trim().Trim('"').Trim("'")
     }
   }
 
-  return $false
+  return $null
+}
+
+function Test-EnvFileWorldRoot {
+  return -not [string]::IsNullOrWhiteSpace((Get-EnvFileValue "VIRTUALSCREEN_WORLD_ROOT"))
 }
 
 function Ensure-DevWorld {
@@ -74,6 +81,9 @@ $backendPort = Get-FreePort -PreferredPort 8000
 $frontendHost = "0.0.0.0"
 $frontendPort = Get-FreePort -PreferredPort 5173
 $accessToken = $env:VIRTUALSCREEN_ACCESS_TOKEN
+if ([string]::IsNullOrWhiteSpace($accessToken)) {
+  $accessToken = Get-EnvFileValue "VIRTUALSCREEN_ACCESS_TOKEN"
+}
 $generatedAccessToken = $false
 if ([string]::IsNullOrWhiteSpace($accessToken)) {
   $bytes = [byte[]]::new(6)

@@ -21,6 +21,7 @@ VALID_MEDIA_KINDS = {
     "image",
     "pdf",
     "video",
+    "folder",
     "unsupported",
 }
 VALID_LAYOUT_MODES = {"single", "vertical_split"}
@@ -231,7 +232,11 @@ def _validate_tab(root: Path, tab: WorkspaceTab) -> None:
     if not path.exists():
         raise WorldPathError("Workspace tab path was not found.")
     if path.is_dir():
+        if tab.mediaKind == "folder":
+            return
         raise WorldPathError("Workspace tab path points to a directory.")
+    if tab.mediaKind == "folder":
+        raise WorldPathError("Workspace folder tab path must point to a directory.")
 
 
 def _validate_tabs(root: Path, tabs: list[WorkspaceTab]) -> None:
