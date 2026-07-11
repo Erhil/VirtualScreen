@@ -939,7 +939,6 @@ def _execute_script(
     run_id: str,
     path: str,
     form_values: list[dict[str, object]],
-    created_at: str,
 ) -> None:
     script_path = resolve_under_root(root, path)
     runner = _write_runtime(root, run_id, script_path)
@@ -1066,11 +1065,10 @@ def _start_worker(
     run_id: str,
     path: str,
     form_values: list[dict[str, object]],
-    created_at: str,
 ) -> None:
     thread = threading.Thread(
         target=_execute_script,
-        args=(root, run_id, path, form_values, created_at),
+        args=(root, run_id, path, form_values),
         daemon=True,
     )
     thread.start()
@@ -1094,7 +1092,7 @@ def run_dms_script(root: Path, raw_path: object) -> DmsRunState:
     with _RUNS_LOCK:
         _RUNS[run_id] = state
     _prune_old_runs(root)
-    _start_worker(root, run_id, path, [], created_at)
+    _start_worker(root, run_id, path, [])
     return state
 
 
@@ -1113,7 +1111,7 @@ def resume_dms_form(root: Path, run_id: str, values: dict[str, object]) -> DmsRu
         current.stdout = ""
         current.stderr = ""
         current.cancel_requested = False
-    _start_worker(root, run_id, current.path, next_values, current.created_at)
+    _start_worker(root, run_id, current.path, next_values)
     return current
 
 

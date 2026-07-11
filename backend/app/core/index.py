@@ -25,12 +25,6 @@ class RebuildResult:
     rebuilt_at: datetime
 
 
-@dataclass(frozen=True)
-class IndexedPage:
-    page: PageData
-    media_kind: str
-
-
 def media_kind_for_extension(extension: str | None) -> str:
     if extension in MARKDOWN_EXTENSIONS:
         return "markdown"
