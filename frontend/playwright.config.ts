@@ -1,6 +1,6 @@
 import { defineConfig, devices } from "@playwright/test";
 
-const frontendPort = 5174;
+const frontendPort = 5273;
 const isCi = Boolean(process.env.CI);
 
 export default defineConfig({

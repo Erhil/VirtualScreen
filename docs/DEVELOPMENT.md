@@ -102,7 +102,7 @@ npm run test:e2e:smoke
 npm run test:e2e
 ```
 
-If Playwright reports that `5174` or `8010` is already in use, run:
+If Playwright reports that `5273` or `8100` is already in use, run:
 
 ```powershell
 .\scripts\check-dev.ps1

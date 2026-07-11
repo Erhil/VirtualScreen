@@ -193,6 +193,10 @@ def test_llm_config_reports_enabled_without_exposing_api_key(
     tmp_path: Path,
     monkeypatch: MonkeyPatch,
 ) -> None:
+    monkeypatch.setattr(
+        "app.core.llm.httpx.Client",
+        lambda *, timeout: OllamaTagsClient(["huihui_ai/qwen3.5-abliterated:4b"]),
+    )
     client = make_client(
         tmp_path,
         monkeypatch,

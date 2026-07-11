@@ -15,8 +15,8 @@ const stopMarker = resolve(stateDir, "e2e-stop");
 const pythonExecutable = existsSync(resolve(repoRoot, ".venv", "Scripts", "python.exe"))
   ? resolve(repoRoot, ".venv", "Scripts", "python.exe")
   : "python";
-const backendPort = process.env.VIRTUALSCREEN_E2E_BACKEND_PORT ?? "8010";
-const frontendPort = process.env.VIRTUALSCREEN_E2E_FRONTEND_PORT ?? "5174";
+const backendPort = process.env.VIRTUALSCREEN_E2E_BACKEND_PORT ?? "8100";
+const frontendPort = process.env.VIRTUALSCREEN_E2E_FRONTEND_PORT ?? "5273";
 const frontendHost = "127.0.0.1";
 const frontendCommand =
   process.platform === "win32"

@@ -37,7 +37,7 @@ function Get-DescendantProcessIds {
 }
 
 function Stop-TestPortListeners {
-  $testPorts = @(5174, 8010)
+  $testPorts = @(5273, 8100)
   foreach ($port in $testPorts) {
     try {
       $connections = Get-NetTCPConnection -State Listen -LocalPort $port -ErrorAction SilentlyContinue
@@ -139,7 +139,7 @@ function Invoke-Native {
 
 Invoke-Stage "Preflight e2e cleanup" {
   Stop-TestPortListeners
-  & (Join-Path $PSScriptRoot "check-dev.ps1") -Ports @(5173, 5174, 8000, 8010)
+  & (Join-Path $PSScriptRoot "check-dev.ps1") -Ports @(5173, 5273, 8000, 8100)
 }
 
 Invoke-Stage "Release hygiene" {
@@ -200,7 +200,7 @@ finally {
 
 Invoke-Stage "Postflight e2e cleanup" {
   Stop-TestPortListeners
-  & (Join-Path $PSScriptRoot "check-dev.ps1") -Ports @(5173, 5174, 8000, 8010)
+  & (Join-Path $PSScriptRoot "check-dev.ps1") -Ports @(5173, 5273, 8000, 8100)
 }
 
 Show-Summary
