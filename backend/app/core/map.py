@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import json
 import mimetypes
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
@@ -569,174 +569,54 @@ def set_map_source(root: Path, requested_path: str) -> MapState:
 
 def set_map_viewport(root: Path, viewport: MapViewport) -> MapState:
     current = load_map_state(root)
-    return _save_map_state(
-        root,
-        MapState(
-            image_path=current.image_path,
-            title=current.title,
-            viewport=viewport,
-            rotation=current.rotation,
-            fog_enabled=current.fog_enabled,
-            grid=current.grid,
-            reveals=current.reveals,
-            pins=current.pins,
-            presenting=current.presenting,
-            updated_at=current.updated_at,
-        ),
-    )
+    return _save_map_state(root, replace(current, viewport=viewport))
 
 
 def set_map_fog(root: Path, enabled: bool) -> MapState:
     current = load_map_state(root)
-    return _save_map_state(
-        root,
-        MapState(
-            image_path=current.image_path,
-            title=current.title,
-            viewport=current.viewport,
-            rotation=current.rotation,
-            fog_enabled=enabled,
-            grid=current.grid,
-            reveals=current.reveals,
-            pins=current.pins,
-            presenting=current.presenting,
-            updated_at=current.updated_at,
-        ),
-    )
+    return _save_map_state(root, replace(current, fog_enabled=enabled))
 
 
 def set_map_grid(root: Path, grid: MapGrid) -> MapState:
     current = load_map_state(root)
-    return _save_map_state(
-        root,
-        MapState(
-            image_path=current.image_path,
-            title=current.title,
-            viewport=current.viewport,
-            rotation=current.rotation,
-            fog_enabled=current.fog_enabled,
-            grid=grid,
-            reveals=current.reveals,
-            pins=current.pins,
-            presenting=current.presenting,
-            updated_at=current.updated_at,
-        ),
-    )
+    return _save_map_state(root, replace(current, grid=grid))
 
 
 def rotate_map(root: Path) -> MapState:
     current = load_map_state(root)
     if current.image_path is None:
         raise ValueError("Map source is required before rotating.")
-    return _save_map_state(
-        root,
-        MapState(
-            image_path=current.image_path,
-            title=current.title,
-            viewport=current.viewport,
-            rotation=(current.rotation + 90) % 360,
-            fog_enabled=current.fog_enabled,
-            grid=current.grid,
-            reveals=current.reveals,
-            pins=current.pins,
-            presenting=current.presenting,
-            updated_at=current.updated_at,
-        ),
-    )
+    return _save_map_state(root, replace(current, rotation=(current.rotation + 90) % 360))
 
 
 def add_map_reveal(root: Path, reveal: MapReveal) -> MapState:
     current = load_map_state(root)
-    return _save_map_state(
-        root,
-        MapState(
-            image_path=current.image_path,
-            title=current.title,
-            viewport=current.viewport,
-            rotation=current.rotation,
-            fog_enabled=current.fog_enabled,
-            grid=current.grid,
-            reveals=[*current.reveals, reveal],
-            pins=current.pins,
-            presenting=current.presenting,
-            updated_at=current.updated_at,
-        ),
-    )
+    return _save_map_state(root, replace(current, reveals=[*current.reveals, reveal]))
 
 
 def delete_map_reveal(root: Path, reveal_id: str) -> MapState:
     current = load_map_state(root)
     return _save_map_state(
         root,
-        MapState(
-            image_path=current.image_path,
-            title=current.title,
-            viewport=current.viewport,
-            rotation=current.rotation,
-            fog_enabled=current.fog_enabled,
-            grid=current.grid,
-            reveals=[reveal for reveal in current.reveals if reveal.id != reveal_id],
-            pins=current.pins,
-            presenting=current.presenting,
-            updated_at=current.updated_at,
-        ),
+        replace(current, reveals=[reveal for reveal in current.reveals if reveal.id != reveal_id]),
     )
 
 
 def clear_map_reveals(root: Path) -> MapState:
     current = load_map_state(root)
-    return _save_map_state(
-        root,
-        MapState(
-            image_path=current.image_path,
-            title=current.title,
-            viewport=current.viewport,
-            rotation=current.rotation,
-            fog_enabled=current.fog_enabled,
-            grid=current.grid,
-            reveals=[],
-            pins=current.pins,
-            presenting=current.presenting,
-            updated_at=current.updated_at,
-        ),
-    )
+    return _save_map_state(root, replace(current, reveals=[]))
 
 
 def add_map_pin(root: Path, pin: MapPin) -> MapState:
     current = load_map_state(root)
-    return _save_map_state(
-        root,
-        MapState(
-            image_path=current.image_path,
-            title=current.title,
-            viewport=current.viewport,
-            rotation=current.rotation,
-            fog_enabled=current.fog_enabled,
-            grid=current.grid,
-            reveals=current.reveals,
-            pins=[*current.pins, pin],
-            presenting=current.presenting,
-            updated_at=current.updated_at,
-        ),
-    )
+    return _save_map_state(root, replace(current, pins=[*current.pins, pin]))
 
 
 def delete_map_pin(root: Path, pin_id: str) -> MapState:
     current = load_map_state(root)
     return _save_map_state(
         root,
-        MapState(
-            image_path=current.image_path,
-            title=current.title,
-            viewport=current.viewport,
-            rotation=current.rotation,
-            fog_enabled=current.fog_enabled,
-            grid=current.grid,
-            reveals=current.reveals,
-            pins=[pin for pin in current.pins if pin.id != pin_id],
-            presenting=current.presenting,
-            updated_at=current.updated_at,
-        ),
+        replace(current, pins=[pin for pin in current.pins if pin.id != pin_id]),
     )
 
 
@@ -744,40 +624,12 @@ def present_map(root: Path) -> MapState:
     current = load_map_state(root)
     if current.image_path is None:
         raise ValueError("Map source is required before presenting.")
-    return _save_map_state(
-        root,
-        MapState(
-            image_path=current.image_path,
-            title=current.title,
-            viewport=current.viewport,
-            rotation=current.rotation,
-            fog_enabled=current.fog_enabled,
-            grid=current.grid,
-            reveals=current.reveals,
-            pins=current.pins,
-            presenting=True,
-            updated_at=current.updated_at,
-        ),
-    )
+    return _save_map_state(root, replace(current, presenting=True))
 
 
 def stop_map(root: Path) -> MapState:
     current = load_map_state(root)
-    return _save_map_state(
-        root,
-        MapState(
-            image_path=current.image_path,
-            title=current.title,
-            viewport=current.viewport,
-            rotation=current.rotation,
-            fog_enabled=current.fog_enabled,
-            grid=current.grid,
-            reveals=current.reveals,
-            pins=current.pins,
-            presenting=False,
-            updated_at=current.updated_at,
-        ),
-    )
+    return _save_map_state(root, replace(current, presenting=False))
 
 
 def public_map_state(root: Path) -> MapState:
