@@ -132,10 +132,6 @@ export const builtInCardTemplates: CardTemplate[] = cardTemplateOptions.map((kin
   }
 }));
 
-export function cardTemplate(kind: CardTemplateKind, title = ""): StructuredCard {
-  return renderCardTemplate(builtInCardTemplates.find((template) => template.id === kind)!, title);
-}
-
 export function defaultCardPath(folder: string, title: string): string {
   const fileName = `${title.trim() || "Untitled"}.cs`;
   const normalizedFolder = folder.trim().replace(/[\\/]+$/, "");
@@ -910,18 +906,6 @@ export function updateCardTitle(card: StructuredCard, title: string): Structured
 
 export function updateCardKind(card: StructuredCard, kind: string): StructuredCard {
   return { ...card, kind };
-}
-
-export function addCardTag(card: StructuredCard, tag: string): StructuredCard {
-  const nextTag = tag.trim();
-  if (!nextTag || card.tags.includes(nextTag)) {
-    return card;
-  }
-  return { ...card, tags: [...card.tags, nextTag] };
-}
-
-export function removeCardTag(card: StructuredCard, tag: string): StructuredCard {
-  return { ...card, tags: card.tags.filter((cardTag) => cardTag !== tag) };
 }
 
 export function addCardSection(card: StructuredCard): StructuredCard {

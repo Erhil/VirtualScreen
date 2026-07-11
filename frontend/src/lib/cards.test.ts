@@ -3,12 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   addCardField,
   addCardSection,
-  addCardTag,
   addCardTableColumn,
   addCardTableRow,
   addTypedCardField,
   builtInCardTemplates,
-  cardTemplate,
   cardTemplateOptions,
   computedCardFieldPreview,
   defaultCardPath,
@@ -22,7 +20,6 @@ import {
   parseCard,
   removeCardField,
   removeCardSection,
-  removeCardTag,
   removeCardTableColumn,
   removeCardTableRow,
   renderCardTemplate,
@@ -78,7 +75,8 @@ describe("card helpers", () => {
     ]);
 
     for (const kind of cardTemplateOptions) {
-      const template = cardTemplate(kind, "Captain Mira");
+      const builtIn = builtInCardTemplates.find((template) => template.id === kind)!;
+      const template = renderCardTemplate(builtIn, "Captain Mira");
       const parsed = parseCard(serializeCard(template));
 
       expect(parsed).toEqual(template);
@@ -614,13 +612,11 @@ describe("card helpers", () => {
     });
   });
 
-  it("updates card title, kind, tags, sections, and fields immutably", () => {
+  it("updates card title, kind, sections, and fields immutably", () => {
     const card = parseCard('{"title":"Old","kind":"npc"}');
     const titled = updateCardTitle(card, "Captain Ilyra");
     const typed = updateCardKind(titled, "ally");
-    const tagged = addCardTag(addCardTag(typed, "city-watch"), "ally");
-    const deduped = addCardTag(tagged, "ally");
-    const withSection = updateCardSection(addCardSection(deduped), 0, {
+    const withSection = updateCardSection(addCardSection(typed), 0, {
       title: "Hooks"
     });
     const withField = updateCardField(addCardField(withSection, 0), 0, 0, {
@@ -629,11 +625,10 @@ describe("card helpers", () => {
     });
 
     expect(card).toEqual({ title: "Old", kind: "npc", tags: [], sections: [] });
-    expect(deduped.tags).toEqual(["city-watch", "ally"]);
     expect(withField).toEqual({
       title: "Captain Ilyra",
       kind: "ally",
-      tags: ["city-watch", "ally"],
+      tags: [],
       sections: [
         {
           title: "Hooks",
@@ -643,7 +638,6 @@ describe("card helpers", () => {
     });
     expect(removeCardField(withField, 0, 0).sections[0].fields).toEqual([]);
     expect(removeCardSection(withField, 0).sections).toEqual([]);
-    expect(removeCardTag(withField, "ally").tags).toEqual(["city-watch"]);
   });
 
   it("adds, updates, and removes typed fields immutably", () => {

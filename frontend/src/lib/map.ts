@@ -1,5 +1,4 @@
 import type { WorldMediaKind } from "./api";
-import type { Translator } from "../lang";
 
 export type MapViewport = {
   center_x: number;
@@ -179,10 +178,6 @@ export function normalizeRotation(value: number | null | undefined): QuarterRota
   return normalized === 90 || normalized === 180 || normalized === 270 ? normalized : 0;
 }
 
-export function nextRotation(value: number | null | undefined): QuarterRotation {
-  return normalizeRotation(normalizeRotation(value) + 90);
-}
-
 export function inverseRotateMapPoint(point: MapPoint, rotation: number | null | undefined): MapPoint {
   const normalized = normalizeMapPoint(point);
   switch (normalizeRotation(rotation)) {
@@ -250,12 +245,6 @@ export function normalizedMapGridLines(grid: MapGrid): MapGridLine[] {
   return lines;
 }
 
-export function formatMapMeasurementLabel(squares: number): string {
-  const rounded = Math.round(Math.max(0, finiteOr(squares, 0)) * 10) / 10;
-  const value = Number.isInteger(rounded) ? String(rounded) : rounded.toFixed(1);
-  return `${value} sq`;
-}
-
 export function normalizeMapPoint(point: MapPoint): MapPoint {
   return {
     x: clampUnit(point.x),
@@ -305,10 +294,6 @@ export function fitMapImageToStage(stage: MapSize, image: MapSize): MapSize {
 
 export function mapFogClassName(mode: "dm" | "player"): string {
   return `map-canvas-fog map-canvas-fog-${mode}`;
-}
-
-export function mapFogOverlayOpacity(mode: "dm" | "player"): number {
-  return mode === "dm" ? 0.7 : 1;
 }
 
 export function mapFogRevealRects(reveals: MapReveal[]): MapRectRevealPayload[] {
@@ -416,11 +401,6 @@ export function isMapPresenting(state: MapState | null | undefined): state is Ma
   image_path: string;
 } {
   return Boolean(state?.presenting && state.image_path);
-}
-
-function fileNameFromPath(path: string): string {
-  const parts = path.split(/[\\/]/);
-  return parts[parts.length - 1] || path;
 }
 
 async function getJson<T>(path: string): Promise<T> {
@@ -587,30 +567,8 @@ export function clientPointToImagePoint(
   });
 }
 
-export function normalizePointerToImagePoint(
-  point: { clientX: number; clientY: number },
-  rect: RectLike
-): MapPoint {
-  return clientPointToImagePoint(point.clientX, point.clientY, rect);
-}
-
 export function isImageMapCandidate(mediaKind: WorldMediaKind): boolean {
   return mediaKind === "image";
-}
-
-export function mapSummary(state: MapState, t?: Translator): string {
-  if (!state.image_path) {
-    return t ? t("map.summary.noMap") : "No map";
-  }
-
-  const label = state.title || fileNameFromPath(state.image_path);
-  return state.presenting
-    ? t
-      ? t("map.summary.presenting", { map: label })
-      : `Presenting: ${label}`
-    : t
-      ? t("map.summary.ready", { map: label })
-      : `Ready: ${label}`;
 }
 
 export function nextMapState(_current: MapState, event: MapState): MapState {

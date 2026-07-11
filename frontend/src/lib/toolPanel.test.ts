@@ -5,13 +5,10 @@ import {
   canSendToScreen,
   closeToolSection,
   createToolPanelState,
-  getLockedToolSections,
   isToolOpen,
   openToolSection,
   openToolSectionByUser,
   pinToolSection,
-  selectActionsToolTab,
-  selectScreenToolTab,
   toggleToolSection,
   toggleToolSectionPin,
   type ToolPanelState
@@ -36,7 +33,7 @@ describe("tool panel helpers", () => {
   it("toggles sections while respecting locked metadata edit mode", () => {
     const state: ToolPanelState = createToolPanelState(["metadata", "actions"]);
 
-    const lockedState = toggleToolSection(state, "metadata", getLockedToolSections({ metadataEditing: true }));
+    const lockedState = toggleToolSection(state, "metadata", ["metadata"]);
     const toggledState = toggleToolSection(state, "actions");
 
     expect(lockedState.openTools).toEqual(["metadata", "actions"]);
@@ -85,7 +82,7 @@ describe("tool panel helpers", () => {
     });
 
     expect(state.openTools).toEqual(["metadata", "screen"]);
-    expect(closeToolSection(state, "metadata", getLockedToolSections({ metadataEditing: true })).openTools).toEqual([
+    expect(closeToolSection(state, "metadata", ["metadata"]).openTools).toEqual([
       "metadata",
       "screen"
     ]);
@@ -112,7 +109,6 @@ describe("tool panel helpers", () => {
 
   it("auto-opens and locks metadata during metadata edits even after manual close", () => {
     const manuallyClosed = toggleToolSection(createToolPanelState(["metadata"]), "metadata");
-    const editingLocks = getLockedToolSections({ metadataEditing: true });
     const reopenedState = applyToolAutoOpenRules(manuallyClosed, {
       activePath: null,
       displayState: blankDisplay,
@@ -120,8 +116,7 @@ describe("tool panel helpers", () => {
     });
 
     expect(reopenedState.openTools).toEqual(["metadata"]);
-    expect(closeToolSection(reopenedState, "metadata", editingLocks).openTools).toEqual(["metadata"]);
-    expect(getLockedToolSections({ metadataEditing: false })).toEqual([]);
+    expect(closeToolSection(reopenedState, "metadata", ["metadata"]).openTools).toEqual(["metadata"]);
   });
 
   it("auto-opens screen when display content is active until the user closes it", () => {
@@ -259,19 +254,5 @@ describe("tool panel helpers", () => {
     expect(closeToolSection(createToolPanelState(["metadata", "screen"]), "screen").openTools).toEqual([
       "metadata"
     ]);
-  });
-
-  it("defaults and selects actions tool tabs", () => {
-    expect(selectActionsToolTab(null)).toBe("slots");
-    expect(selectActionsToolTab("state")).toBe("state");
-    expect(selectActionsToolTab("keys")).toBe("keys");
-    expect(selectActionsToolTab("midi")).toBe("midi");
-    expect(selectActionsToolTab("display")).toBe("slots");
-  });
-
-  it("defaults and selects screen tool tabs", () => {
-    expect(selectScreenToolTab(undefined)).toBe("display");
-    expect(selectScreenToolTab("map")).toBe("map");
-    expect(selectScreenToolTab("slots")).toBe("display");
   });
 });

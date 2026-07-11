@@ -20,10 +20,6 @@ export const DEFAULT_ACTIONS_TOOL_TAB: ActionsToolTabId = "slots";
 
 export const DEFAULT_SCREEN_TOOL_TAB: ScreenToolTabId = "display";
 
-const ACTIONS_TOOL_TABS: ActionsToolTabId[] = ["slots", "state", "keys", "midi"];
-
-const SCREEN_TOOL_TABS: ScreenToolTabId[] = ["display", "map"];
-
 const LIVE_TOOLS: ToolId[] = ["screen", "audio", "dice", "actions", "scripts", "hp"];
 
 export type ToolPanelState = {
@@ -185,22 +181,6 @@ export function applyToolAutoOpenRules(
     nextState = openToolSection(nextState, "audio");
   }
   return nextState;
-}
-
-export function getLockedToolSections(input: ToolPanelLocksInput): ToolId[] {
-  return input.metadataEditing ? ["metadata"] : [];
-}
-
-export function selectActionsToolTab(tab: string | null | undefined): ActionsToolTabId {
-  return tab && (ACTIONS_TOOL_TABS as readonly string[]).includes(tab)
-    ? (tab as ActionsToolTabId)
-    : DEFAULT_ACTIONS_TOOL_TAB;
-}
-
-export function selectScreenToolTab(tab: string | null | undefined): ScreenToolTabId {
-  return tab && (SCREEN_TOOL_TABS as readonly string[]).includes(tab)
-    ? (tab as ScreenToolTabId)
-    : DEFAULT_SCREEN_TOOL_TAB;
 }
 
 export function canSendToScreen(mediaKind: WorldMediaKind | null | undefined): boolean {

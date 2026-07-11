@@ -44,25 +44,6 @@ function isCaptureDraft(value: unknown): value is CaptureDraft {
   );
 }
 
-export function getCaptureCategoryLabel(category: CaptureCategory): string {
-  return CAPTURE_CATEGORY_OPTIONS.find((option) => option.value === category)?.label ?? "Other";
-}
-
-export function nextCaptureDraftCategory(
-  draft: CaptureDraft,
-  category: CaptureCategory
-): CaptureDraft {
-  return { ...draft, category };
-}
-
-export function nextCaptureDraftText(draft: CaptureDraft, text: string): CaptureDraft {
-  return { ...draft, text };
-}
-
-export function shouldPersistCaptureDraft(draft: CaptureDraft): boolean {
-  return draft.text.trim().length > 0;
-}
-
 export function loadCaptureDraft(
   worldKey: string,
   storage: Storage = window.localStorage

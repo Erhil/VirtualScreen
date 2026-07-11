@@ -1,10 +1,7 @@
 import type {
-  DisplayItem,
   DisplayPopup,
   DisplayPopupPreset,
-  DisplayState,
-  WorldMediaKind,
-  WorkspaceTab
+  DisplayState
 } from "./api";
 import type { MapState } from "./map";
 
@@ -26,19 +23,8 @@ export function buildScreenDisplayEventsUrl(location: LocationLike = window.loca
   return `${protocol}//${location.host}/ws/screen/display`;
 }
 
-export function isDisplayableMediaKind(mediaKind: WorldMediaKind): boolean {
-  return mediaKind !== "unsupported";
-}
-
 export function nextDisplayState(_current: DisplayState, event: DisplayState): DisplayState {
   return event;
-}
-
-export function closePopup(state: DisplayState, popupId: string): DisplayState {
-  return {
-    ...state,
-    popups: state.popups.filter((popup) => popup.id !== popupId)
-  };
 }
 
 const popupPresets = new Set<DisplayPopupPreset>([
@@ -63,14 +49,6 @@ export function isDisplayPopupVisible(popup: DisplayPopup): boolean {
 
 export function visibleDisplayPopups(popups: DisplayPopup[]): DisplayPopup[] {
   return popups.filter(isDisplayPopupVisible);
-}
-
-export function displayPopupVisibilityStatus(popup: DisplayPopup): "visible" | "staged" {
-  return isDisplayPopupVisible(popup) ? "visible" : "staged";
-}
-
-export function displayPopupVisibilityLabel(popup: DisplayPopup): string {
-  return isDisplayPopupVisible(popup) ? "Shown to players" : "Staged (hidden)";
 }
 
 export function hasResidualPopupsAfterBlank(state: DisplayState): boolean {
@@ -106,15 +84,6 @@ export function screenPrimaryTitle(
 
 export function visibleScreenPopupCount(displayState: DisplayState | null): number {
   return visibleDisplayPopups(displayState?.popups ?? []).length;
-}
-
-export function displayTabFromItem(item: DisplayItem): WorkspaceTab {
-  return {
-    path: item.path,
-    name: item.name,
-    title: item.title,
-    mediaKind: item.media_kind
-  };
 }
 
 export type DisplayEventClientOptions = {

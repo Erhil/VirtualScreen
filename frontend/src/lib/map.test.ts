@@ -1,6 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { createTranslator } from "../lang";
 import {
   addMapPin,
   addMapReveal,
@@ -16,18 +15,14 @@ import {
   fetchMapState,
   fetchMapPresets,
   fetchScreenMapState,
-  formatMapMeasurementLabel,
   isImageMapCandidate,
   isMapPresenting,
   isUsableMapImageSize,
   inverseRotateMapPoint,
   mapFogClassName,
-  mapFogOverlayOpacity,
   mapFogMaskOperations,
   mapFogRevealRects,
-  mapSummary,
   nextMapState,
-  nextRotation,
   normalizedMapGridLines,
   normalizeMapPolygon,
   normalizeMapRect,
@@ -161,11 +156,7 @@ describe("map helpers", () => {
     });
   });
 
-  it("normalizes quarter rotations and inverse-rotates map pointer points", () => {
-    expect(nextRotation(0)).toBe(90);
-    expect(nextRotation(270)).toBe(0);
-    expect(nextRotation(45)).toBe(90);
-
+  it("inverse-rotates map pointer points", () => {
     const point = { x: 0.25, y: 0.75 };
     expect(inverseRotateMapPoint(point, 0)).toEqual(point);
     expect(inverseRotateMapPoint(point, 90)).toEqual({ x: 0.75, y: 0.75 });
@@ -260,8 +251,6 @@ describe("map helpers", () => {
     expect(isUsableMapImageSize({ width: 0, height: 400 })).toBe(false);
     expect(mapFogClassName("dm")).toBe("map-canvas-fog map-canvas-fog-dm");
     expect(mapFogClassName("player")).toBe("map-canvas-fog map-canvas-fog-player");
-    expect(mapFogOverlayOpacity("dm")).toBe(0.7);
-    expect(mapFogOverlayOpacity("player")).toBe(1);
   });
 
   it("adopts incoming map state only when it is not stale", () => {
@@ -315,7 +304,7 @@ describe("map helpers", () => {
     ).toEqual({ x: 0.25, y: 0.2 });
   });
 
-  it("returns normalized internal grid lines and concise measurement labels", () => {
+  it("returns normalized internal grid lines", () => {
     const grid: MapGrid = {
       enabled: true,
       columns: 4,
@@ -352,10 +341,6 @@ describe("map helpers", () => {
     expect(
       normalizedMapGridLines({ ...grid, enabled: false, columns: 99, rows: 99 })
     ).toEqual([]);
-    expect(formatMapMeasurementLabel(0)).toBe("0 sq");
-    expect(formatMapMeasurementLabel(1)).toBe("1 sq");
-    expect(formatMapMeasurementLabel(1.25)).toBe("1.3 sq");
-    expect(formatMapMeasurementLabel(Number.NaN)).toBe("0 sq");
   });
 
   it("creates binary fog mask reveal rectangles without inverting the mask", () => {
@@ -488,39 +473,10 @@ describe("map helpers", () => {
     ).toBe(true);
   });
 
-  it("summarizes map state and accepts only image map candidates", () => {
+  it("accepts only image map candidates", () => {
     expect(isImageMapCandidate("image")).toBe(true);
     expect(isImageMapCandidate("video")).toBe(false);
     expect(isImageMapCandidate("pdf")).toBe(false);
-    expect(mapSummary(blankState)).toBe("No map");
-    expect(
-      mapSummary({
-        ...blankState,
-        image_path: "Media/City Map.svg",
-        title: "City Map"
-      })
-    ).toBe("Ready: City Map");
-    expect(
-      mapSummary({
-        ...blankState,
-        image_path: "Media/City Map.svg",
-        title: null,
-        presenting: true
-      })
-    ).toBe("Presenting: City Map.svg");
-    const t = createTranslator({
-      "map.summary.noMap": "Карты нет",
-      "map.summary.presenting": "На экране: {map}",
-      "map.summary.ready": "Готово: {map}"
-    });
-    expect(mapSummary(blankState, t)).toBe("Карты нет");
-    expect(
-      mapSummary({
-        ...blankState,
-        image_path: "Media/City Map.svg",
-        title: "City Map"
-      }, t)
-    ).toBe("Готово: City Map");
   });
 
   it("replaces map state from websocket events", () => {

@@ -3,13 +3,9 @@ import { describe, expect, it } from "vitest";
 import {
   CAPTURE_CATEGORY_OPTIONS,
   clearCaptureDraft,
-  getCaptureCategoryLabel,
   isCaptureSubmitShortcut,
   loadCaptureDraft,
-  nextCaptureDraftCategory,
-  nextCaptureDraftText,
-  saveCaptureDraft,
-  shouldPersistCaptureDraft
+  saveCaptureDraft
 } from "./capture";
 
 function fakeStorage(initialValues: Record<string, string> = {}): Storage {
@@ -27,7 +23,7 @@ function fakeStorage(initialValues: Record<string, string> = {}): Storage {
 }
 
 describe("capture helpers", () => {
-  it("maps capture categories to UI labels", () => {
+  it("exposes capture category options", () => {
     expect(CAPTURE_CATEGORY_OPTIONS).toEqual([
       { value: "idea", label: "Idea" },
       { value: "todo", label: "Todo" },
@@ -38,7 +34,6 @@ describe("capture helpers", () => {
       { value: "question", label: "Question" },
       { value: "other", label: "Other" }
     ]);
-    expect(getCaptureCategoryLabel("player_wish")).toBe("Player Wish");
   });
 
   it("saves, loads, and clears a draft per world key", () => {
@@ -71,25 +66,6 @@ describe("capture helpers", () => {
       category: "loot",
       text: "Moonlit compass."
     });
-  });
-
-  it("updates capture category and text without mutating the draft", () => {
-    const draft = { category: "idea" as const, text: "Ask about the lighthouse." };
-
-    expect(nextCaptureDraftCategory(draft, "npc")).toEqual({
-      category: "npc",
-      text: "Ask about the lighthouse."
-    });
-    expect(nextCaptureDraftText(draft, "Follow the bell")).toEqual({
-      category: "idea",
-      text: "Follow the bell"
-    });
-    expect(draft).toEqual({ category: "idea", text: "Ask about the lighthouse." });
-  });
-
-  it("persists drafts only when there is meaningful text", () => {
-    expect(shouldPersistCaptureDraft({ category: "todo", text: "  " })).toBe(false);
-    expect(shouldPersistCaptureDraft({ category: "todo", text: "Prep harbor clocks" })).toBe(true);
   });
 
   it("ignores missing or invalid draft values", () => {

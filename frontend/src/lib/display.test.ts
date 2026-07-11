@@ -3,15 +3,10 @@ import { describe, expect, it } from "vitest";
 import {
   buildDisplayEventsUrl,
   buildScreenDisplayEventsUrl,
-  closePopup,
   displayPopupClassName,
   displayPopupPreset,
-  displayPopupVisibilityLabel,
-  displayPopupVisibilityStatus,
-  displayTabFromItem,
   hasResidualPopupsAfterBlank,
   isDisplayPopupVisible,
-  isDisplayableMediaKind,
   nextDisplayState,
   screenPrimaryMode,
   screenPrimaryTitle,
@@ -39,13 +34,6 @@ describe("display helpers", () => {
     );
   });
 
-  it("accepts playable media kinds and rejects unsupported files", () => {
-    expect(isDisplayableMediaKind("video")).toBe(true);
-    expect(isDisplayableMediaKind("image")).toBe(true);
-    expect(isDisplayableMediaKind("pdf")).toBe(true);
-    expect(isDisplayableMediaKind("unsupported")).toBe(false);
-  });
-
   it("replaces display state from websocket events", () => {
     const next = {
       ...state,
@@ -58,32 +46,6 @@ describe("display helpers", () => {
     };
 
     expect(nextDisplayState(state, next)).toEqual(next);
-  });
-
-  it("removes a popup by id", () => {
-    const current: DisplayState = {
-      ...state,
-      popups: [
-        {
-          id: "first",
-          path: "A.md",
-          title: "A",
-          name: "A.md",
-          media_kind: "markdown",
-          created_at: "2026-05-08T12:00:00Z"
-        },
-        {
-          id: "second",
-          path: "B.md",
-          title: "B",
-          name: "B.md",
-          media_kind: "markdown",
-          created_at: "2026-05-08T12:01:00Z"
-        }
-      ]
-    };
-
-    expect(closePopup(current, "first").popups.map((popup) => popup.id)).toEqual(["second"]);
   });
 
   it("defaults popup presets to plain", () => {
@@ -146,22 +108,6 @@ describe("display helpers", () => {
     expect(visibleDisplayPopups([stagedPopup, visiblePopup])).toEqual([visiblePopup]);
   });
 
-  it("labels popup visibility by player-visible state", () => {
-    const popup = {
-      id: "popup",
-      path: "A.md",
-      title: "A",
-      name: "A.md",
-      media_kind: "markdown" as const,
-      created_at: "2026-05-08T12:00:00Z"
-    };
-
-    expect(displayPopupVisibilityStatus(popup)).toBe("visible");
-    expect(displayPopupVisibilityLabel(popup)).toBe("Shown to players");
-    expect(displayPopupVisibilityStatus({ ...popup, visible: false })).toBe("staged");
-    expect(displayPopupVisibilityLabel({ ...popup, visible: false })).toBe("Staged (hidden)");
-  });
-
   it("detects stale blank responses that still contain popups", () => {
     expect(hasResidualPopupsAfterBlank(state)).toBe(false);
     expect(
@@ -179,22 +125,6 @@ describe("display helpers", () => {
         ]
       })
     ).toBe(true);
-  });
-
-  it("maps display items into workspace-style tabs", () => {
-    expect(
-      displayTabFromItem({
-        path: "Media/map.mp4",
-        title: "Animated Map",
-        name: "map.mp4",
-        media_kind: "video"
-      })
-    ).toEqual({
-      path: "Media/map.mp4",
-      name: "map.mp4",
-      title: "Animated Map",
-      mediaKind: "video"
-    });
   });
 
   it("reports exactly one primary player-screen mode with popup overlays", () => {
