@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 import mimetypes
 from dataclasses import asdict, dataclass, replace
@@ -8,9 +7,10 @@ from datetime import UTC, datetime
 from pathlib import Path
 from uuid import uuid4
 
-from fastapi import BackgroundTasks, WebSocket
+from fastapi import BackgroundTasks
 
 from app.core.database import initialize_database
+from app.core.hub import EventHub
 from app.core.paths import (
     WorldPathError,
     ensure_no_reserved_path_parts,
@@ -658,39 +658,8 @@ def public_map_state(root: Path) -> MapState:
     )
 
 
-class MapEventHub:
-    def __init__(self) -> None:
-        self._clients: set[WebSocket] = set()
-        self._lock = asyncio.Lock()
-
-    async def connect(self, websocket: WebSocket) -> None:
-        await websocket.accept()
-        async with self._lock:
-            self._clients.add(websocket)
-
-    async def disconnect(self, websocket: WebSocket) -> None:
-        async with self._lock:
-            self._clients.discard(websocket)
-
-    async def publish(self, event: dict[str, object]) -> None:
-        async with self._lock:
-            clients = list(self._clients)
-
-        disconnected: list[WebSocket] = []
-        for websocket in clients:
-            try:
-                await websocket.send_json(event)
-            except RuntimeError:
-                disconnected.append(websocket)
-
-        if disconnected:
-            async with self._lock:
-                for websocket in disconnected:
-                    self._clients.discard(websocket)
-
-
-map_event_hub = MapEventHub()
-screen_map_event_hub = MapEventHub()
+map_event_hub = EventHub()
+screen_map_event_hub = EventHub()
 
 
 def queue_map_event(

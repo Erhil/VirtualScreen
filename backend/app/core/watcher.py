@@ -7,7 +7,8 @@ from pathlib import Path
 
 from watchfiles import Change, awatch
 
-from app.core.events import WorldEventHub, world_event_hub, world_event_payload
+from app.core.events import world_event_hub, world_event_payload
+from app.core.hub import EventHub
 from app.core.index import rebuild_index
 from app.core.paths import normalize_relative_path
 
@@ -103,7 +104,7 @@ def _watch_filter(root: Path):
     return should_watch
 
 
-async def watch_world(root: Path, hub: WorldEventHub = world_event_hub) -> None:
+async def watch_world(root: Path, hub: EventHub = world_event_hub) -> None:
     root.mkdir(parents=True, exist_ok=True)
     async for changes in awatch(root, debounce=500, watch_filter=_watch_filter(root)):
         summary = summarize_watch_changes(root, changes)
@@ -122,7 +123,7 @@ async def watch_world(root: Path, hub: WorldEventHub = world_event_hub) -> None:
 
 
 class WatcherManager:
-    def __init__(self, enabled: bool, hub: WorldEventHub = world_event_hub) -> None:
+    def __init__(self, enabled: bool, hub: EventHub = world_event_hub) -> None:
         self.enabled = enabled
         self.hub = hub
         self._task: asyncio.Task[None] | None = None

@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 import json
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
@@ -8,9 +7,10 @@ from pathlib import Path
 from typing import Literal, cast
 from uuid import uuid4
 
-from fastapi import BackgroundTasks, WebSocket
+from fastapi import BackgroundTasks
 
 from app.core.database import initialize_database
+from app.core.hub import EventHub
 from app.core.index import media_kind_for_extension
 from app.core.pages import parse_page
 from app.core.paths import (
@@ -338,39 +338,8 @@ def clear_popups(root: Path) -> DisplayState:
     return _save_display_state(root, current.fullscreen, [])
 
 
-class DisplayEventHub:
-    def __init__(self) -> None:
-        self._clients: set[WebSocket] = set()
-        self._lock = asyncio.Lock()
-
-    async def connect(self, websocket: WebSocket) -> None:
-        await websocket.accept()
-        async with self._lock:
-            self._clients.add(websocket)
-
-    async def disconnect(self, websocket: WebSocket) -> None:
-        async with self._lock:
-            self._clients.discard(websocket)
-
-    async def publish(self, event: dict[str, object]) -> None:
-        async with self._lock:
-            clients = list(self._clients)
-
-        disconnected: list[WebSocket] = []
-        for websocket in clients:
-            try:
-                await websocket.send_json(event)
-            except RuntimeError:
-                disconnected.append(websocket)
-
-        if disconnected:
-            async with self._lock:
-                for websocket in disconnected:
-                    self._clients.discard(websocket)
-
-
-display_event_hub = DisplayEventHub()
-screen_display_event_hub = DisplayEventHub()
+display_event_hub = EventHub()
+screen_display_event_hub = EventHub()
 
 
 def queue_display_event(background_tasks: BackgroundTasks, state: DisplayState) -> None:
