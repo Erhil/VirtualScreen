@@ -1,3 +1,4 @@
+import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
@@ -85,7 +86,7 @@ async def create_world(
         raise HTTPException(status_code=409, detail="World already exists.") from exc
 
     set_active_world_root(settings.resolved_worlds_root, world_root)
-    rebuild_index(world_root)
+    await asyncio.to_thread(rebuild_index, world_root)
     watcher_manager = getattr(request.app.state, "watcher_manager", None)
     if watcher_manager is not None:
         await watcher_manager.switch(world_root)
@@ -107,7 +108,7 @@ async def open_world(
         raise HTTPException(status_code=404, detail="World was not found.") from exc
 
     set_active_world_root(settings.resolved_worlds_root, world_root)
-    rebuild_index(world_root)
+    await asyncio.to_thread(rebuild_index, world_root)
     watcher_manager = getattr(request.app.state, "watcher_manager", None)
     if watcher_manager is not None:
         await watcher_manager.switch(world_root)

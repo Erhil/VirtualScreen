@@ -110,7 +110,7 @@ async def watch_world(root: Path, hub: WorldEventHub = world_event_hub) -> None:
         if not summary.paths and not summary.deleted_paths:
             continue
 
-        result = rebuild_index(root)
+        result = await asyncio.to_thread(rebuild_index, root)
         event = world_event_payload(
             paths=summary.paths,
             deleted_paths=summary.deleted_paths,

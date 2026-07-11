@@ -40,7 +40,7 @@ LinkLookups = tuple[
 
 WIKI_LINK_RE = re.compile(r"(!)?\[\[([^\]]+)]]")
 MARKDOWN_LINK_RE = re.compile(r"(!)?\[([^\]]*)]\(([^)]+)\)")
-IMAGE_EXTENSIONS = {".gif", ".jpeg", ".jpg", ".png", ".svg"}
+IMAGE_EXTENSIONS = {".gif", ".jpeg", ".jpg", ".png", ".svg", ".webp"}
 PDF_EXTENSIONS = {".pdf"}
 VIDEO_EXTENSIONS = {".mp4"}
 CARD_EXTENSIONS = {".cs"}
