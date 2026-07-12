@@ -344,77 +344,81 @@ def _unlisted_files(
     )
 
 
+def _plan_from_archive(root: Path, archive: zipfile.ZipFile) -> PackPlan:
+    manifest = _read_manifest(archive)
+    infos = _zip_file_map(archive)
+    manifest_paths = set(manifest.files)
+    seen_paths: set[str] = set()
+    files: list[PlannedFile] = []
+
+    for raw_path in manifest.files:
+        relative_path = _normalize_manifest_path(raw_path)
+        if relative_path is None:
+            files.append(
+                PlannedFile(
+                    source_path=raw_path,
+                    path=raw_path,
+                    status="invalid",
+                    reason="unsafe_path",
+                )
+            )
+            continue
+        if relative_path in seen_paths:
+            files.append(
+                PlannedFile(
+                    source_path=raw_path,
+                    path=relative_path,
+                    status="invalid",
+                    reason="duplicate_path",
+                )
+            )
+            continue
+        seen_paths.add(relative_path)
+        info = infos.get(relative_path)
+        content_bytes = archive.read(info) if info and not _is_symlink(info) else None
+        reason = _skip_reason(relative_path, info, content_bytes)
+        if reason:
+            status: PreviewStatus = "skipped"
+            if reason not in {"unsupported_dms", "unsupported_extension"}:
+                status = "invalid"
+            files.append(
+                PlannedFile(
+                    source_path=raw_path,
+                    path=relative_path,
+                    status=status,
+                    reason=reason,
+                )
+            )
+            continue
+        try:
+            target_path = resolve_under_root(root, relative_path)
+        except WorldPathError:
+            files.append(
+                PlannedFile(
+                    source_path=raw_path,
+                    path=relative_path,
+                    status="invalid",
+                    reason="unsafe_path",
+                )
+            )
+            continue
+        ready_status: Literal["ready", "conflict"] = (
+            "conflict" if target_path.exists() else "ready"
+        )
+        files.append(
+            PlannedFile(source_path=raw_path, path=relative_path, status=ready_status)
+        )
+
+    return PackPlan(
+        manifest=manifest,
+        files=files,
+        skipped_unlisted=_unlisted_files(infos, manifest_paths),
+    )
+
+
 def plan_system_pack(root: Path, content: bytes) -> PackPlan:
     with _load_zip(content) as archive:
-        manifest = _read_manifest(archive)
-        infos = _zip_file_map(archive)
-        manifest_paths = set(manifest.files)
-        seen_paths: set[str] = set()
-        files: list[PlannedFile] = []
-
-        for raw_path in manifest.files:
-            relative_path = _normalize_manifest_path(raw_path)
-            if relative_path is None:
-                files.append(
-                    PlannedFile(
-                        source_path=raw_path,
-                        path=raw_path,
-                        status="invalid",
-                        reason="unsafe_path",
-                    )
-                )
-                continue
-            if relative_path in seen_paths:
-                files.append(
-                    PlannedFile(
-                        source_path=raw_path,
-                        path=relative_path,
-                        status="invalid",
-                        reason="duplicate_path",
-                    )
-                )
-                continue
-            seen_paths.add(relative_path)
-            info = infos.get(relative_path)
-            content_bytes = archive.read(info) if info and not _is_symlink(info) else None
-            reason = _skip_reason(relative_path, info, content_bytes)
-            if reason:
-                status: PreviewStatus = "skipped"
-                if reason not in {"unsupported_dms", "unsupported_extension"}:
-                    status = "invalid"
-                files.append(
-                    PlannedFile(
-                        source_path=raw_path,
-                        path=relative_path,
-                        status=status,
-                        reason=reason,
-                    )
-                )
-                continue
-            try:
-                target_path = resolve_under_root(root, relative_path)
-            except WorldPathError:
-                files.append(
-                    PlannedFile(
-                        source_path=raw_path,
-                        path=relative_path,
-                        status="invalid",
-                        reason="unsafe_path",
-                    )
-                )
-                continue
-            ready_status: Literal["ready", "conflict"] = (
-                "conflict" if target_path.exists() else "ready"
-            )
-            files.append(
-                PlannedFile(source_path=raw_path, path=relative_path, status=ready_status)
-            )
-
-        return PackPlan(
-            manifest=manifest,
-            files=files,
-            skipped_unlisted=_unlisted_files(infos, manifest_paths),
-        )
+        return _plan_from_archive(root, archive)
 
 
 def _rename_target_reason(
@@ -464,7 +468,7 @@ def import_system_pack(
     decisions: dict[str, dict[str, str | None]],
 ) -> ImportResult:
     with _load_zip(content) as archive:
-        plan = plan_system_pack(root, content)
+        plan = _plan_from_archive(root, archive)
         if any(item.status == "invalid" for item in plan.files):
             raise SystemPackError("System pack contains invalid entries.")
         conflict_decisions = _decisions_by_path(decisions)
