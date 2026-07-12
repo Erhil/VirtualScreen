@@ -167,6 +167,10 @@ Invoke-Stage "Backend Ruff" {
   Invoke-Native { .\.venv\Scripts\python -m ruff check backend }
 }
 
+Invoke-Stage "Backend mypy" {
+  Invoke-Native { .\.venv\Scripts\python -m mypy --config-file backend/pyproject.toml backend/app }
+}
+
 Push-Location frontend
 try {
   Invoke-Stage "Frontend Vitest" {

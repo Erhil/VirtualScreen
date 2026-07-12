@@ -68,6 +68,7 @@ jobs:
           ./.venv/bin/python -m pip install -e './backend[dev]'
           ./.venv/bin/python -m pytest backend
           ./.venv/bin/python -m ruff check backend
+          ./.venv/bin/python -m mypy --config-file backend/pyproject.toml backend/app
       - name: Frontend smoke
         run: |
           cd frontend
