@@ -8,7 +8,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, cast
 
 from app.core.audio import BUS_FOLDER_TO_BUS, scan_audio_library
 from app.core.card_templates import list_card_templates, validate_card_shape
@@ -739,7 +739,11 @@ def _validate_effect(root: Path, command: dict[str, object]) -> DmsEffect:
         if not any(track.path == path for track in tracks):
             raise FileNotFoundError("Audio track was not found.")
         try:
-            volume = int(command.get("volume") or 100)
+            # command.get("volume") is a JSON scalar (str/int/float/bool/None)
+            # decoded from the DMS script's stdout; anything int() can't
+            # accept raises TypeError/ValueError, which is caught below.
+            raw_volume = cast(str | int | float, command.get("volume") or 100)
+            volume = int(raw_volume)
         except (TypeError, ValueError):
             volume = 100
         return DmsEffect(
@@ -840,7 +844,8 @@ def _commands_to_outputs_effects_writes(
     for command in commands:
         command_type = command.get("type")
         if command_type == "form":
-            schema = command.get("schema") if isinstance(command.get("schema"), dict) else {}
+            schema_value = command.get("schema")
+            schema = schema_value if isinstance(schema_value, dict) else {}
             form_request = DmsFormRequest(
                 request_id=str(command.get("request_id") or "form-0"),
                 schema=schema,
@@ -962,6 +967,12 @@ def _execute_script(
     except subprocess.TimeoutExpired as exc:
         process.kill()
         stdout, stderr = process.communicate()
+        # Popen(..., encoding="utf-8", text=True) above means communicate()
+        # decodes to str even on TimeoutExpired, so exc.stdout/exc.stderr are
+        # `str | None` at runtime despite the broader `bytes | str | None`
+        # typeshed annotation.
+        exc_stdout = cast(str, exc.stdout) if exc.stdout else None
+        exc_stderr = cast(str, exc.stderr) if exc.stderr else None
         _set_run(
             run_id,
             status="timeout",
@@ -969,8 +980,8 @@ def _execute_script(
             form_request=None,
             outputs=[],
             effects=[],
-            stdout=stdout or exc.stdout or "",
-            stderr=_script_stderr(path, stderr or exc.stderr or "DMS script timed out."),
+            stdout=stdout or exc_stdout or "",
+            stderr=_script_stderr(path, stderr or exc_stderr or "DMS script timed out."),
         )
         return
     except Exception as exc:  # pragma: no cover - defensive process-start failure

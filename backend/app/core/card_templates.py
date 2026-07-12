@@ -1,7 +1,7 @@
 import json
 import re
 from pathlib import Path
-from typing import Any, Literal
+from typing import Any, Literal, TypeGuard, cast
 
 from pydantic import BaseModel
 
@@ -176,7 +176,7 @@ def _warning(path: Path, world_root: Path, reason: str) -> CardTemplateWarning:
     return CardTemplateWarning(path=relative_path, message=reason)
 
 
-def _is_valid_template_id(value: Any) -> bool:
+def _is_valid_template_id(value: Any) -> TypeGuard[str]:
     return isinstance(value, str) and bool(TEMPLATE_ID_PATTERN.fullmatch(value))
 
 
@@ -348,6 +348,10 @@ def _template_from_json(
     card_warning = validate_card_shape(card, allowed_kinds=VALID_KINDS)
     if card_warning:
         return None, _warning(path, world_root, card_warning)
+    # validate_card_shape's first check is `isinstance(value, dict)`, returning
+    # a warning otherwise; card_warning being falsy here guarantees card is a
+    # dict[str, Any] at runtime.
+    card_dict = cast(dict[str, Any], card)
 
     return (
         CardTemplate(
@@ -356,7 +360,7 @@ def _template_from_json(
             kind=kind,
             description=description,
             source="world",
-            card=card,
+            card=card_dict,
         ),
         None,
     )

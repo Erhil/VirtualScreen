@@ -693,13 +693,14 @@ def duplicate_world_path(
     root = settings.resolved_world_root
     _, source_path = _resolve_existing_management_path(root, payload.path)
     _validate_managed_tree(source_path)
-    default_target_path = _default_duplicate_path(source_path) if payload.new_path is None else None
+    if payload.new_path is None:
+        requested_path = _default_duplicate_path(source_path).relative_to(root).as_posix()
+    else:
+        requested_path = payload.new_path
     target_relative_path, target_path = _validate_path_operation_target(
         root,
         source_path,
-        default_target_path.relative_to(root).as_posix()
-        if default_target_path
-        else payload.new_path,
+        requested_path,
     )
 
     if source_path.is_dir():

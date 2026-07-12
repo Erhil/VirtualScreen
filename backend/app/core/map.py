@@ -315,7 +315,8 @@ def _reveal_from_dict(value: object) -> MapReveal | None:
         return None
     try:
         if shape == "polygon":
-            raw_points = value.get("points") if isinstance(value.get("points"), list) else []
+            points_value = value.get("points")
+            raw_points = points_value if isinstance(points_value, list) else []
             reveal = normalize_polygon_reveal(raw_points, str(value.get("action") or "reveal"))
         else:
             reveal = normalize_reveal(
@@ -365,8 +366,10 @@ def _state_from_json(value: str, updated_at: str) -> MapState:
     if not isinstance(loaded, dict):
         return blank_map_state(updated_at)
 
-    raw_reveals = loaded.get("reveals") if isinstance(loaded.get("reveals"), list) else []
-    raw_pins = loaded.get("pins") if isinstance(loaded.get("pins"), list) else []
+    reveals_value = loaded.get("reveals")
+    raw_reveals = reveals_value if isinstance(reveals_value, list) else []
+    pins_value = loaded.get("pins")
+    raw_pins = pins_value if isinstance(pins_value, list) else []
     return MapState(
         image_path=str(loaded["image_path"]) if loaded.get("image_path") else None,
         title=str(loaded["title"]) if loaded.get("title") else None,

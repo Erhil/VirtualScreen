@@ -6,7 +6,7 @@ from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from app.core.database import initialize_database
 from app.core.paths import WorldPathError, normalize_relative_path, resolve_under_root
@@ -220,8 +220,12 @@ def run_scenario(root: Path, scenario_id: str, inputs: Mapping[str, object]) -> 
             scenario_id=scenario.id,
             status="timeout",
             output_kind=scenario.output_kind,
-            output=exc.stdout or "",
-            stderr=exc.stderr or "Scenario timed out.",
+            # subprocess.run(..., encoding="utf-8") above means Popen decodes
+            # output to str even on TimeoutExpired, so stdout/stderr are
+            # `str | None` at runtime despite the broader `bytes | str | None`
+            # typeshed annotation.
+            output=cast(str, exc.stdout) if exc.stdout else "",
+            stderr=cast(str, exc.stderr) if exc.stderr else "Scenario timed out.",
             created_at=created_at,
         )
 

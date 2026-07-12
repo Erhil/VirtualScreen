@@ -4,7 +4,7 @@ import zipfile
 from dataclasses import dataclass
 from io import BytesIO
 from pathlib import Path
-from typing import Literal
+from typing import Literal, cast
 
 from app.core.audio import AUDIO_EXTENSIONS
 from app.core.card_templates import TEMPLATE_ID_PATTERN, VALID_KINDS, validate_card_shape
@@ -403,8 +403,12 @@ def plan_system_pack(root: Path, content: bytes) -> PackPlan:
                     )
                 )
                 continue
-            status: Literal["ready", "conflict"] = "conflict" if target_path.exists() else "ready"
-            files.append(PlannedFile(source_path=raw_path, path=relative_path, status=status))
+            ready_status: Literal["ready", "conflict"] = (
+                "conflict" if target_path.exists() else "ready"
+            )
+            files.append(
+                PlannedFile(source_path=raw_path, path=relative_path, status=ready_status)
+            )
 
         return PackPlan(
             manifest=manifest,
@@ -447,7 +451,10 @@ def _decisions_by_path(
         rename_target = decision.get("rename_target_path")
         if rename_target is not None and not isinstance(rename_target, str):
             raise SystemPackError("Rename target path must be a string.")
-        parsed[target_path] = (kind, rename_target)
+        # The `not in` check above already restricts kind to exactly these
+        # three literal strings (raising otherwise), so this cast just
+        # reflects that runtime guarantee for the type checker.
+        parsed[target_path] = (cast(ConflictDecision, kind), rename_target)
     return parsed
 
 

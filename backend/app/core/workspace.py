@@ -2,6 +2,7 @@ import json
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
+from typing import cast
 from uuid import uuid4
 
 from app.core.database import initialize_database
@@ -138,7 +139,13 @@ def _layout_json(layout: WorkspaceLayout) -> str:
 
 
 def _clamp_split_ratio(value: object) -> float:
-    ratio = float(value)
+    # `value` is declared `object` (not `float`) on purpose: it is read back
+    # out of `WorkspaceLayout.splitRatio`, whose value may originate from
+    # hand-edited/corrupted on-disk JSON via `_layout_from_dict`, so it isn't
+    # guaranteed to actually be numeric at runtime. A non-numeric value makes
+    # float() raise TypeError/ValueError, which `_layout_from_json` catches
+    # and falls back to the default layout for.
+    ratio = float(cast("str | float | int", value))
     return min(0.75, max(0.25, ratio))
 
 

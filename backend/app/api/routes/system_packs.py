@@ -21,6 +21,20 @@ router = APIRouter()
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
+def _param_value(value: str | tuple[str | None, str | None, str] | None) -> str | None:
+    """Normalize Message.get_param()'s result to a plain string.
+
+    email.message.Message.get_param can return an RFC 2231 encoded
+    (charset, language, value) tuple instead of a plain str. The
+    multipart/form-data uploads this endpoint accepts never use RFC 2231
+    encoding for the "name"/"filename" params, so take the value component
+    when a tuple is returned.
+    """
+    if isinstance(value, tuple):
+        return value[2]
+    return value
+
+
 async def _read_multipart_upload(request: Request) -> tuple[bytes, dict[str, str]]:
     content_type = request.headers.get("content-type", "")
     if "multipart/form-data" not in content_type:
@@ -49,11 +63,17 @@ async def _read_multipart_upload(request: Request) -> tuple[bytes, dict[str, str
     zip_content: bytes | None = None
     zip_filename = ""
     for part in message.iter_parts():
-        name = part.get_param("name", header="content-disposition")
+        name = _param_value(part.get_param("name", header="content-disposition"))
         if not name:
             continue
-        payload = part.get_payload(decode=True) or b""
-        filename = part.get_param("filename", header="content-disposition")
+        raw_payload = part.get_payload(decode=True)
+        # get_payload(decode=True) is typed to allow a nested Message because
+        # the stub can't statically rule out multipart-within-a-part; a
+        # non-bytes result here would previously slip through `or b""`
+        # (Message objects are truthy) and crash later on `.decode()`, so
+        # treat anything but bytes as an empty payload instead.
+        payload = raw_payload if isinstance(raw_payload, bytes) else b""
+        filename = _param_value(part.get_param("filename", header="content-disposition"))
         if name in {"file", "pack"}:
             zip_content = payload
             zip_filename = filename or ""
