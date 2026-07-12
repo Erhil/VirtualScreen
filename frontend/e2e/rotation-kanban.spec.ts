@@ -181,7 +181,7 @@ async function moveKanbanCard(page: Page, title: string, targetColumn: Locator) 
   await dataTransfer.dispose();
 }
 
-test("Rotate 90 updates fullscreen and map output on the player screen", async ({
+test("Rotate 90 updates fullscreen and map output on the player screen @smoke", async ({
   context,
   page
 }) => {
@@ -208,7 +208,7 @@ test("Rotate 90 updates fullscreen and map output on the player screen", async (
     .toContain("rotate(90deg)");
 });
 
-test("folder kanban groups direct files, persists metadata moves, and creates a card", async ({
+test("folder kanban groups direct files, persists metadata moves, and creates a card @smoke", async ({
   page,
   request
 }) => {

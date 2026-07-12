@@ -133,7 +133,7 @@ test.beforeEach(async ({ request }) => {
   });
 });
 
-test("integrated PDF viewer renders pages and edits bookmarks", async ({ page }) => {
+test("integrated PDF viewer renders pages and edits bookmarks @smoke", async ({ page }) => {
   await page.goto("/");
 
   const tree = worldTree(page);
@@ -176,7 +176,7 @@ test("integrated PDF viewer renders pages and edits bookmarks", async ({ page })
   await expect(page.getByText("Current reveal renamed")).toHaveCount(0);
 });
 
-test("PDF page and bookmark links route from rich content without leaking controls to screen", async ({
+test("PDF page and bookmark links route from rich content without leaking controls to screen @smoke", async ({
   page,
   context
 }) => {

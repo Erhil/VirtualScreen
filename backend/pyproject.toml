@@ -20,6 +20,7 @@ dependencies = [
 [project.optional-dependencies]
 dev = [
   "pytest>=8.3.0",
+  "pytest-cov>=6.0.0",
   "ruff>=0.9.0",
   "mypy>=1.13.0",
 ]
@@ -31,6 +32,10 @@ packages = ["app"]
 pythonpath = ["."]
 testpaths = ["tests"]
 cache_dir = "../.virtualscreen/pytest-cache/backend"
+
+[tool.coverage.run]
+source = ["app"]
+omit = ["tests/*"]
 
 [tool.ruff]
 line-length = 100
