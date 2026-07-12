@@ -408,3 +408,5 @@ export function useAudio(options: UseAudioOptions) {
     reset
   };
 }
+
+export type AudioApi = ReturnType<typeof useAudio>;

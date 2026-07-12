@@ -17,6 +17,7 @@ import { CodeEditor } from "./CodeEditor";
 import { ContextHelpDialog } from "./components/ContextHelpDialog";
 import { AudioPlaybackHost } from "./components/audio/AudioPlaybackHost";
 import { AudioTool } from "./components/audio/AudioTool";
+import { AudioProvider, useAudioContext } from "./contexts/AudioContext";
 import {
   DmsFormDialog,
   DmsOutputSaveDialog,
@@ -156,7 +157,6 @@ import {
   type TranslationCatalog,
   type DisplayState,
   type DisplayPopupPreset,
-  type AudioBus,
   type AudioTrack,
   type AppConfig,
   type AuthStatus,
@@ -236,11 +236,7 @@ import {
   hasLoadedAudio,
   loadAudioTrack,
   setAudioBusPlaying,
-  setAudioBusVolume,
-  type AudioLoadState,
-  type AudioMixerState,
-  type AudioPlaylistLoadState,
-  type PlaylistExpansionState
+  setAudioBusVolume
 } from "./lib/audio";
 import {
   CAPTURE_CATEGORY_OPTIONS,
@@ -7254,12 +7250,6 @@ function ToolsPanel({
   assistantValues,
   actionBindings,
   actionBindingMessage,
-  audioExpansionState,
-  audioLibraryTracks,
-  audioMixer,
-  audioQuery,
-  audioState,
-  audioPlaylistState,
   contentDirty,
   displayState,
   diceHistory,
@@ -7294,30 +7284,6 @@ function ToolsPanel({
   onActionBindingDelete,
   onActionBindingRun,
   onActionBindingSave,
-  onAudioFadeIn,
-  onAudioFadeOut,
-  onAudioLoadTrack,
-  onAudioLoadPlaylist,
-  onAudioLoopChange,
-  onAudioNextTrack,
-  onAudioPlaylistLoopChange,
-  onAudioPlaylistToggle,
-  onAudioPlayingChange,
-  onAudioPreviousTrack,
-  onAudioQueryChange,
-  onAudioStopAll,
-  onAudioStopBus,
-  onAudioVolumeChange,
-  onSavedAudioPlaylistAddCurrentTrack,
-  onSavedAudioPlaylistAddTrack,
-  onSavedAudioPlaylistBusChange,
-  onSavedAudioPlaylistCreate,
-  onSavedAudioPlaylistDelete,
-  onSavedAudioPlaylistLoopChange,
-  onSavedAudioPlaylistMoveTrack,
-  onSavedAudioPlaylistPlay,
-  onSavedAudioPlaylistRemoveTrack,
-  onSavedAudioPlaylistRename,
   onDiceClearHistory,
   onDiceRoll,
   onHpAdd,
@@ -7405,12 +7371,6 @@ function ToolsPanel({
   assistantValues: AssistantFormValues;
   actionBindings: ActionBinding[];
   actionBindingMessage: string | null;
-  audioExpansionState: PlaylistExpansionState;
-  audioLibraryTracks: AudioTrack[];
-  audioMixer: AudioMixerState;
-  audioQuery: string;
-  audioState: AudioLoadState;
-  audioPlaylistState: AudioPlaylistLoadState;
   contentDirty: boolean;
   displayState: DisplayState | null;
   diceHistory: DiceHistoryEntry[];
@@ -7445,30 +7405,6 @@ function ToolsPanel({
   onActionBindingDelete: (bindingId: string) => void;
   onActionBindingRun: (binding: ActionBinding) => void;
   onActionBindingSave: (binding: ActionBinding) => void;
-  onAudioFadeIn: (bus: AudioBus) => void;
-  onAudioFadeOut: (bus: AudioBus) => void;
-  onAudioLoadTrack: (track: AudioTrack) => void;
-  onAudioLoadPlaylist: (bus: AudioBus, playlist: string | null, tracks: AudioTrack[]) => void;
-  onAudioLoopChange: (bus: AudioBus, loop: boolean) => void;
-  onAudioNextTrack: (bus: AudioBus) => void;
-  onAudioPlaylistLoopChange: (bus: AudioBus, loop: boolean) => void;
-  onAudioPlaylistToggle: (bus: AudioBus, playlist: string | null) => void;
-  onAudioPlayingChange: (bus: AudioBus, playing: boolean) => void;
-  onAudioPreviousTrack: (bus: AudioBus) => void;
-  onAudioQueryChange: (query: string) => void;
-  onAudioStopAll: () => void;
-  onAudioStopBus: (bus: AudioBus) => void;
-  onAudioVolumeChange: (bus: AudioBus, volume: number) => void;
-  onSavedAudioPlaylistAddCurrentTrack: (playlistId: string) => void;
-  onSavedAudioPlaylistAddTrack: (playlistId: string, path: string) => void;
-  onSavedAudioPlaylistBusChange: (playlistId: string, bus: AudioBus) => void;
-  onSavedAudioPlaylistCreate: (name: string, bus: AudioBus) => void;
-  onSavedAudioPlaylistDelete: (playlistId: string) => void;
-  onSavedAudioPlaylistLoopChange: (playlistId: string, loop: boolean) => void;
-  onSavedAudioPlaylistMoveTrack: (playlistId: string, index: number, direction: -1 | 1) => void;
-  onSavedAudioPlaylistPlay: (playlistId: string) => void;
-  onSavedAudioPlaylistRemoveTrack: (playlistId: string, path: string) => void;
-  onSavedAudioPlaylistRename: (playlistId: string, name: string) => void;
   onDiceClearHistory: () => void;
   onDiceRoll: (expression: string) => void;
   onHpAdd: () => void;
@@ -7542,6 +7478,7 @@ function ToolsPanel({
   t: Translator;
 }) {
   const metadataLocked = metadataEditState.mode === "edit";
+  const { audioMixer } = useAudioContext();
 
   return (
     <aside className="tools-panel" aria-label={t("tools.panel")}>
@@ -7624,40 +7561,7 @@ function ToolsPanel({
         title={t("tools.audio")}
         tool="audio"
       >
-        <AudioTool
-          audioLibraryTracks={audioLibraryTracks}
-          expansionState={audioExpansionState}
-          mixer={audioMixer}
-          onFadeIn={onAudioFadeIn}
-          onFadeOut={onAudioFadeOut}
-          onLoadTrack={onAudioLoadTrack}
-          onLoadPlaylist={onAudioLoadPlaylist}
-          onSavedPlaylistAddCurrentTrack={onSavedAudioPlaylistAddCurrentTrack}
-          onSavedPlaylistAddTrack={onSavedAudioPlaylistAddTrack}
-          onSavedPlaylistBusChange={onSavedAudioPlaylistBusChange}
-          onSavedPlaylistCreate={onSavedAudioPlaylistCreate}
-          onSavedPlaylistDelete={onSavedAudioPlaylistDelete}
-          onSavedPlaylistLoopChange={onSavedAudioPlaylistLoopChange}
-          onSavedPlaylistMoveTrack={onSavedAudioPlaylistMoveTrack}
-          onSavedPlaylistPlay={onSavedAudioPlaylistPlay}
-          onSavedPlaylistRemoveTrack={onSavedAudioPlaylistRemoveTrack}
-          onSavedPlaylistRename={onSavedAudioPlaylistRename}
-          onLoopChange={onAudioLoopChange}
-          onNextTrack={onAudioNextTrack}
-          onPickPath={onPickPath}
-          onPlaylistLoopChange={onAudioPlaylistLoopChange}
-          onPlaylistToggle={onAudioPlaylistToggle}
-          onPlayingChange={onAudioPlayingChange}
-          onPreviousTrack={onAudioPreviousTrack}
-          onQueryChange={onAudioQueryChange}
-          onStopAll={onAudioStopAll}
-          onStopBus={onAudioStopBus}
-          onVolumeChange={onAudioVolumeChange}
-          query={audioQuery}
-          savedPlaylistsState={audioPlaylistState}
-          state={audioState}
-          t={t}
-        />
+        <AudioTool />
       </ToolSection>
       <ToolSection
         onTogglePin={onToolPin}
@@ -12553,6 +12457,7 @@ export function App() {
   }
 
   return (
+    <AudioProvider value={{ ...audio, t, onPickPath: handleOpenWorldPathPicker }}>
     <main className="app-shell" style={appShellStyle}>
       <aside className="side-panel">
         <div className="side-top">
@@ -12772,11 +12677,7 @@ export function App() {
             </div>
           )}
 
-          <AudioPlaybackHost
-            mixer={audio.audioMixer}
-            onEnded={audio.handleAudioEnded}
-            onFadeFinish={audio.handleAudioFadeFinish}
-          />
+          <AudioPlaybackHost />
 
           <div
             className={`content-layout ${toolsPanelVisible ? "with-tools" : "tools-hidden"}`}
@@ -12833,12 +12734,6 @@ export function App() {
               assistantValues={assistantValues}
               actionBindings={actionBindings}
               actionBindingMessage={actionBindingMessage}
-              audioExpansionState={audio.audioPlaylistExpansion}
-              audioLibraryTracks={audio.audioAutocompleteTracks}
-              audioMixer={audio.audioMixer}
-              audioQuery={audio.audioQuery}
-              audioPlaylistState={audio.audioPlaylistState}
-              audioState={audio.audioState}
               contentDirty={activeContentDirty}
               displayState={displayState}
               diceHistory={diceHistory}
@@ -12876,30 +12771,6 @@ export function App() {
               onActionBindingDelete={handleDeleteActionBinding}
               onActionBindingRun={(binding) => void handleActionBindingTrigger(binding)}
               onActionBindingSave={handleSaveActionBinding}
-              onAudioFadeIn={audio.handleAudioFadeIn}
-              onAudioFadeOut={audio.handleAudioFadeOut}
-              onAudioLoadTrack={audio.handleAudioLoadTrack}
-              onAudioLoadPlaylist={audio.handleAudioLoadPlaylist}
-              onAudioLoopChange={audio.handleAudioLoopChange}
-              onAudioNextTrack={audio.handleAudioNextTrack}
-              onAudioPlaylistLoopChange={audio.handleAudioPlaylistLoopChange}
-              onAudioPlaylistToggle={audio.handleAudioPlaylistToggle}
-              onAudioPlayingChange={audio.handleAudioPlayingChange}
-              onAudioPreviousTrack={audio.handleAudioPreviousTrack}
-              onAudioQueryChange={audio.setAudioQuery}
-              onAudioStopAll={audio.handleAudioStopAll}
-              onAudioStopBus={audio.handleAudioStopBus}
-              onAudioVolumeChange={audio.handleAudioVolumeChange}
-              onSavedAudioPlaylistAddCurrentTrack={audio.handleSavedAudioPlaylistAddCurrentTrack}
-              onSavedAudioPlaylistAddTrack={audio.handleSavedAudioPlaylistAddTrack}
-              onSavedAudioPlaylistBusChange={audio.handleSavedAudioPlaylistBusChange}
-              onSavedAudioPlaylistCreate={audio.handleSavedAudioPlaylistCreate}
-              onSavedAudioPlaylistDelete={audio.handleSavedAudioPlaylistDelete}
-              onSavedAudioPlaylistLoopChange={audio.handleSavedAudioPlaylistLoopChange}
-              onSavedAudioPlaylistMoveTrack={audio.handleSavedAudioPlaylistMoveTrack}
-              onSavedAudioPlaylistPlay={audio.handleSavedAudioPlaylistPlay}
-              onSavedAudioPlaylistRemoveTrack={audio.handleSavedAudioPlaylistRemoveTrack}
-              onSavedAudioPlaylistRename={audio.handleSavedAudioPlaylistRename}
               onDiceClearHistory={handleDiceClearHistory}
               onDiceRoll={handleDiceRoll}
               onHpAdd={handleHpAdd}
@@ -13196,5 +13067,6 @@ export function App() {
         topic={contextHelpTopic}
       />
     </main>
+    </AudioProvider>
   );
 }

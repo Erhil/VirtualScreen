@@ -1,16 +1,10 @@
-import type { AudioBus } from "../../lib/api";
-import { AUDIO_BUSES, type AudioMixerState } from "../../lib/audio";
+import { useAudioContext } from "../../contexts/AudioContext";
+import { AUDIO_BUSES } from "../../lib/audio";
 import { AudioBusPlayer } from "./AudioBusPlayer";
 
-export function AudioPlaybackHost({
-  mixer,
-  onEnded,
-  onFadeFinish
-}: {
-  mixer: AudioMixerState;
-  onEnded: (bus: AudioBus) => void;
-  onFadeFinish: (bus: AudioBus) => void;
-}) {
+export function AudioPlaybackHost() {
+  const { audioMixer: mixer, handleAudioEnded: onEnded, handleAudioFadeFinish: onFadeFinish } =
+    useAudioContext();
   return (
     <div className="audio-playback-host">
       {AUDIO_BUSES.map((bus) => (

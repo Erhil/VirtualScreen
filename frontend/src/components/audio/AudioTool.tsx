@@ -1,89 +1,52 @@
 import { useEffect, useState } from "react";
 
 import { IconButton } from "../IconButton";
-import type { Translator } from "../../lang";
-import type { AudioBus, AudioTrack } from "../../lib/api";
+import { useAudioContext } from "../../contexts/AudioContext";
+import type { AudioBus } from "../../lib/api";
 import {
   AUDIO_BUSES,
   audioQueueLabel,
   displayAudioTrackTitle,
   groupAudioTracksByBus,
   playlistExpansionKey,
-  resolveAudioPlaylists,
-  type AudioLoadState,
-  type AudioMixerState,
-  type AudioPlaylistLoadState,
-  type PlaylistExpansionState
+  resolveAudioPlaylists
 } from "../../lib/audio";
-import type { WorldPathPickerFilter } from "../../lib/worldPathPicker";
 
-export function AudioTool({
-  expansionState,
-  mixer,
-  onFadeIn,
-  onFadeOut,
-  onLoadTrack,
-  onLoadPlaylist,
-  onSavedPlaylistAddCurrentTrack,
-  onSavedPlaylistAddTrack,
-  onSavedPlaylistBusChange,
-  onSavedPlaylistCreate,
-  onSavedPlaylistDelete,
-  onSavedPlaylistLoopChange,
-  onSavedPlaylistMoveTrack,
-  onSavedPlaylistPlay,
-  onSavedPlaylistRemoveTrack,
-  onSavedPlaylistRename,
-  onLoopChange,
-  onNextTrack,
-  onPickPath,
-  onPlayingChange,
-  onPlaylistLoopChange,
-  onPlaylistToggle,
-  onPreviousTrack,
-  onQueryChange,
-  onStopAll,
-  onStopBus,
-  onVolumeChange,
-  query,
-  audioLibraryTracks,
-  savedPlaylistsState,
-  state,
-  t
-}: {
-  expansionState: PlaylistExpansionState;
-  mixer: AudioMixerState;
-  onFadeIn: (bus: AudioBus) => void;
-  onFadeOut: (bus: AudioBus) => void;
-  onLoadTrack: (track: AudioTrack) => void;
-  onLoadPlaylist: (bus: AudioBus, playlist: string | null, tracks: AudioTrack[]) => void;
-  onSavedPlaylistAddCurrentTrack: (playlistId: string) => void;
-  onSavedPlaylistAddTrack: (playlistId: string, path: string) => void;
-  onSavedPlaylistBusChange: (playlistId: string, bus: AudioBus) => void;
-  onSavedPlaylistCreate: (name: string, bus: AudioBus) => void;
-  onSavedPlaylistDelete: (playlistId: string) => void;
-  onSavedPlaylistLoopChange: (playlistId: string, loop: boolean) => void;
-  onSavedPlaylistMoveTrack: (playlistId: string, index: number, direction: -1 | 1) => void;
-  onSavedPlaylistPlay: (playlistId: string) => void;
-  onSavedPlaylistRemoveTrack: (playlistId: string, path: string) => void;
-  onSavedPlaylistRename: (playlistId: string, name: string) => void;
-  onLoopChange: (bus: AudioBus, loop: boolean) => void;
-  onNextTrack: (bus: AudioBus) => void;
-  onPickPath: (filter: WorldPathPickerFilter, title: string, onSelect: (path: string) => void) => void;
-  onPlayingChange: (bus: AudioBus, playing: boolean) => void;
-  onPlaylistLoopChange: (bus: AudioBus, loop: boolean) => void;
-  onPlaylistToggle: (bus: AudioBus, playlist: string | null) => void;
-  onPreviousTrack: (bus: AudioBus) => void;
-  onQueryChange: (query: string) => void;
-  onStopAll: () => void;
-  onStopBus: (bus: AudioBus) => void;
-  onVolumeChange: (bus: AudioBus, volume: number) => void;
-  query: string;
-  audioLibraryTracks: AudioTrack[];
-  savedPlaylistsState: AudioPlaylistLoadState;
-  state: AudioLoadState;
-  t: Translator;
-}) {
+export function AudioTool() {
+  const {
+    audioPlaylistExpansion: expansionState,
+    audioMixer: mixer,
+    handleAudioFadeIn: onFadeIn,
+    handleAudioFadeOut: onFadeOut,
+    handleAudioLoadTrack: onLoadTrack,
+    handleAudioLoadPlaylist: onLoadPlaylist,
+    handleSavedAudioPlaylistAddCurrentTrack: onSavedPlaylistAddCurrentTrack,
+    handleSavedAudioPlaylistAddTrack: onSavedPlaylistAddTrack,
+    handleSavedAudioPlaylistBusChange: onSavedPlaylistBusChange,
+    handleSavedAudioPlaylistCreate: onSavedPlaylistCreate,
+    handleSavedAudioPlaylistDelete: onSavedPlaylistDelete,
+    handleSavedAudioPlaylistLoopChange: onSavedPlaylistLoopChange,
+    handleSavedAudioPlaylistMoveTrack: onSavedPlaylistMoveTrack,
+    handleSavedAudioPlaylistPlay: onSavedPlaylistPlay,
+    handleSavedAudioPlaylistRemoveTrack: onSavedPlaylistRemoveTrack,
+    handleSavedAudioPlaylistRename: onSavedPlaylistRename,
+    handleAudioLoopChange: onLoopChange,
+    handleAudioNextTrack: onNextTrack,
+    onPickPath,
+    handleAudioPlayingChange: onPlayingChange,
+    handleAudioPlaylistLoopChange: onPlaylistLoopChange,
+    handleAudioPlaylistToggle: onPlaylistToggle,
+    handleAudioPreviousTrack: onPreviousTrack,
+    setAudioQuery: onQueryChange,
+    handleAudioStopAll: onStopAll,
+    handleAudioStopBus: onStopBus,
+    handleAudioVolumeChange: onVolumeChange,
+    audioQuery: query,
+    audioAutocompleteTracks: audioLibraryTracks,
+    audioPlaylistState: savedPlaylistsState,
+    audioState: state,
+    t
+  } = useAudioContext();
   const libraryTracks = state.status === "ready" ? state.tracks : [];
   const savedLibraryTracks = audioLibraryTracks.length > 0 ? audioLibraryTracks : libraryTracks;
   const groupsByBus = groupAudioTracksByBus(libraryTracks);
