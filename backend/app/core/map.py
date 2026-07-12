@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import mimetypes
+from collections.abc import Sequence
 from dataclasses import asdict, dataclass, replace
 from datetime import UTC, datetime
 from pathlib import Path
@@ -172,7 +173,7 @@ def normalize_reveal(
     )
 
 
-def normalize_polygon_reveal(points: list[object], action: str | None = None) -> MapReveal:
+def normalize_polygon_reveal(points: Sequence[object], action: str | None = None) -> MapReveal:
     if len(points) < 3:
         raise ValueError("Map polygon reveal must have at least three points.")
     if len(points) > MAX_POLYGON_REVEAL_POINTS:

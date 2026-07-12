@@ -3,7 +3,7 @@ import mimetypes
 import shutil
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from fastapi.responses import FileResponse
@@ -227,7 +227,7 @@ def _metadata_for_path(
     media_kind: str,
     content_type: str,
     content_bytes: bytes,
-) -> dict[str, object]:
+) -> dict[str, Any]:
     stat = path.stat()
     relative_path = normalize_relative_path(path.relative_to(root).as_posix())
     extension = path.suffix.lower().lstrip(".") or None

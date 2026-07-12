@@ -4,6 +4,7 @@ from typing import Annotated, Any
 from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException
 from pydantic import BaseModel
 
+from app.core.audio import AudioBus
 from app.core.config import Settings, get_settings
 from app.core.display import display_state_payload, queue_display_event
 from app.core.map import map_state_payload, queue_map_event
@@ -48,7 +49,7 @@ def _snapshot_response(snapshot: TableSnapshotDetail) -> dict[str, object]:
     }
 
 
-def _audio_response(audio: dict[str, TableSnapshotAudioBus]) -> dict[str, object]:
+def _audio_response(audio: dict[AudioBus, TableSnapshotAudioBus]) -> dict[str, object]:
     return {
         bus: {
             "track": value.track,

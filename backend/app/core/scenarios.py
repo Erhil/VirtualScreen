@@ -2,6 +2,7 @@ import json
 import subprocess
 import sys
 import uuid
+from collections.abc import Mapping
 from dataclasses import asdict, dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -185,7 +186,7 @@ def _store_run(root: Path, result: ScenarioRunResult) -> None:
     conn.close()
 
 
-def run_scenario(root: Path, scenario_id: str, inputs: dict[str, object]) -> ScenarioRunResult:
+def run_scenario(root: Path, scenario_id: str, inputs: Mapping[str, object]) -> ScenarioRunResult:
     scenario = get_scenario(root, scenario_id)
     scenario_folder = _scenario_root(root) / scenario.id
     script_path = resolve_under_root(scenario_folder, scenario.script)

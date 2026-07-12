@@ -203,7 +203,7 @@ def _file_response(root: Path, file_path: Path) -> PageWorldFile:
     )
 
 
-def _normalized_metadata(metadata: ManagedPageMetadata) -> dict[str, object]:
+def _normalized_metadata(metadata: ManagedPageMetadata) -> dict[str, Any]:
     normalized_fields: dict[str, str] = {}
     for raw_key, value in metadata.fields.items():
         key = str(raw_key).strip()

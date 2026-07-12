@@ -8,7 +8,7 @@ import uuid
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from pathlib import Path
-from typing import Literal
+from typing import Any, Literal
 
 from app.core.audio import BUS_FOLDER_TO_BUS, scan_audio_library
 from app.core.card_templates import list_card_templates, validate_card_shape
@@ -1143,7 +1143,7 @@ def get_dms_run(run_id: str) -> DmsRunState:
     return state
 
 
-def run_payload(state: DmsRunState) -> dict[str, object]:
+def run_payload(state: DmsRunState) -> dict[str, Any]:
     return {
         "run_id": state.run_id,
         "path": state.path,
