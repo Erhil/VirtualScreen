@@ -79,6 +79,9 @@ if (
 
 $backendPort = Get-FreePort -PreferredPort 8000
 $frontendHost = "0.0.0.0"
+$backendHost = $env:VIRTUALSCREEN_HOST
+if ([string]::IsNullOrWhiteSpace($backendHost)) { $backendHost = Get-EnvFileValue "VIRTUALSCREEN_HOST" }
+if ([string]::IsNullOrWhiteSpace($backendHost)) { $backendHost = "127.0.0.1" }
 $frontendPort = Get-FreePort -PreferredPort 5173
 $accessToken = $env:VIRTUALSCREEN_ACCESS_TOKEN
 if ([string]::IsNullOrWhiteSpace($accessToken)) {
@@ -122,7 +125,7 @@ try {
   $backend = Start-Process powershell -WindowStyle Hidden -PassThru -ArgumentList @(
     "-NoExit",
     "-Command",
-    "Set-Location '$root'; `$env:PYTHONPATH='$backendDir'; `$env:VIRTUALSCREEN_WATCH_WORLD='true'; & '$venvPython' -m uvicorn app.main:app --app-dir '$backendDir' --host 127.0.0.1 --port $backendPort --reload --reload-dir '$backendDir'"
+    "Set-Location '$root'; `$env:PYTHONPATH='$backendDir'; `$env:VIRTUALSCREEN_WATCH_WORLD='true'; & '$venvPython' -m uvicorn app.main:app --app-dir '$backendDir' --host $backendHost --port $backendPort --reload --reload-dir '$backendDir'"
   )
 }
 finally {
