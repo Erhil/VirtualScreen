@@ -29,6 +29,19 @@ export type AudioTrackGroup = {
 export type AudioTrackGroupsByBus = Record<AudioBus, AudioTrackGroup[]>;
 export type PlaylistExpansionState = Record<string, boolean>;
 
+export type AudioLoadState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready"; tracks: AudioTrack[] }
+  | { status: "error"; message: string };
+
+export type AudioPlaylistLoadState =
+  | { status: "idle"; playlists: AudioPlaylist[]; message?: string | null }
+  | { status: "loading"; playlists: AudioPlaylist[]; message?: string | null }
+  | { status: "saving"; playlists: AudioPlaylist[]; message?: string | null }
+  | { status: "ready"; playlists: AudioPlaylist[]; message?: string | null }
+  | { status: "error"; playlists: AudioPlaylist[]; message: string };
+
 export type ResolvedAudioPlaylist = AudioPlaylist & {
   tracks: AudioTrack[];
   missing_paths: string[];
