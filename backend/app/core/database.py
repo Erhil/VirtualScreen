@@ -1,9 +1,13 @@
 import json
 import sqlite3
+import threading
 from pathlib import Path
 
 DATABASE_DIR = ".virtualscreen"
 DATABASE_NAME = "virtualscreen.sqlite3"
+
+_initialized_paths: set[Path] = set()
+_init_lock = threading.Lock()
 
 
 def _legacy_snapshot_value(raw_value: object, fallback: object) -> object:
@@ -63,8 +67,12 @@ def connect_database(root: Path) -> sqlite3.Connection:
 
 def initialize_database(root: Path) -> sqlite3.Connection:
     conn = connect_database(root)
-    conn.executescript(
-        """
+    db_path = database_path(root).resolve()
+    if db_path not in _initialized_paths:
+        with _init_lock:
+            if db_path not in _initialized_paths:
+                conn.executescript(
+                    """
         create table if not exists app_meta (
           key text primary key,
           value text not null
@@ -189,12 +197,15 @@ def initialize_database(root: Path) -> sqlite3.Connection:
           created_at text not null
         );
         """
-    )
-    columns = {
-        row["name"] for row in conn.execute("pragma table_info(pages)").fetchall()
-    }
-    if "content_hash" not in columns:
-        conn.execute("alter table pages add column content_hash text not null default ''")
-    _migrate_table_snapshots(conn)
-    conn.commit()
+                )
+                columns = {
+                    row["name"] for row in conn.execute("pragma table_info(pages)").fetchall()
+                }
+                if "content_hash" not in columns:
+                    conn.execute(
+                        "alter table pages add column content_hash text not null default ''"
+                    )
+                _migrate_table_snapshots(conn)
+                conn.commit()
+                _initialized_paths.add(db_path)
     return conn
