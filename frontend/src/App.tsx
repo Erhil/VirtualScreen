@@ -37,6 +37,7 @@ import { PdfViewer } from "./components/PdfViewer";
 import { MapCanvas, type MapCanvasTool } from "./MapCanvas";
 import { UnlockScreen } from "./UnlockScreen";
 import { WorldPathPicker } from "./WorldPathPicker";
+import { useAudio } from "./hooks/useAudio";
 import {
   addCardField,
   addCardSection,
@@ -92,7 +93,6 @@ import {
   fetchAppConfig,
   fetchAuthStatus,
   fetchAudioLibrary,
-  fetchAudioPlaylists,
   fetchCardTemplates,
   fetchCaptureToday,
   fetchDisplayState,
@@ -131,7 +131,6 @@ import {
   runDmsScript,
   saveFavorites,
   saveFastSlots,
-  saveAudioPlaylists,
   saveRecentFiles,
   saveHpTracker,
   saveTableSnapshot,
@@ -158,7 +157,6 @@ import {
   type DisplayState,
   type DisplayPopupPreset,
   type AudioBus,
-  type AudioPlaylist,
   type AudioTrack,
   type AppConfig,
   type AuthStatus,
@@ -234,33 +232,11 @@ import {
   type MidiMessage
 } from "./lib/midiBindings";
 import {
-  advanceAudioQueue,
   audioSummary,
-  addAudioPlaylistTrack,
-  createAudioPlaylist,
-  createPlaylistExpansionState,
-  createAudioMixerState,
-  deleteAudioPlaylist,
-  finishAudioFade,
-  groupAudioTracksByBus,
   hasLoadedAudio,
-  loadAudioPlaylist,
-  loadSavedAudioPlaylist,
   loadAudioTrack,
-  moveAudioPlaylistTrack,
-  removeAudioPlaylistTrack,
-  renameAudioPlaylist,
-  rewindAudioQueue,
-  setAudioBusLoop,
-  setAudioPlaylistLoop,
   setAudioBusPlaying,
   setAudioBusVolume,
-  setSavedAudioPlaylistBus,
-  setSavedAudioPlaylistLoop,
-  startAudioFade,
-  stopAllAudio,
-  stopAudioBus,
-  togglePlaylistExpansion,
   type AudioLoadState,
   type AudioMixerState,
   type AudioPlaylistLoadState,
@@ -658,7 +634,6 @@ type WorldPathPickerState =
       title: string;
       onSelect: (path: string) => void;
     };
-const AUDIO_FADE_DURATION_MS = 2000;
 type ScriptLoadState =
   | { status: "idle" }
   | { status: "loading" }
@@ -8087,16 +8062,6 @@ export function App() {
   });
   const [hpRows, setHpRows] = useState<HpTrackerRow[]>([]);
   const [hpStatus, setHpStatus] = useState<HpToolStatus>({ status: "idle", message: null });
-  const [audioQuery, setAudioQuery] = useState("");
-  const [audioState, setAudioState] = useState<AudioLoadState>({ status: "idle" });
-  const [audioAutocompleteTracks, setAudioAutocompleteTracks] = useState<AudioTrack[]>([]);
-  const [audioMixer, setAudioMixer] = useState<AudioMixerState>(() => createAudioMixerState());
-  const [audioPlaylistState, setAudioPlaylistState] = useState<AudioPlaylistLoadState>({
-    status: "idle",
-    playlists: []
-  });
-  const [audioPlaylistExpansion, setAudioPlaylistExpansion] =
-    useState<PlaylistExpansionState>({});
   const [diceHistory, setDiceHistory] = useState<DiceHistoryEntry[]>([]);
   const [diceStatus, setDiceStatus] = useState<DiceStatus>({ status: "idle", message: null });
   const [fastSlots, setFastSlots] = useState<FastSlot[]>([]);
@@ -8180,8 +8145,6 @@ export function App() {
   const mapViewportSyncRef = useRef({ lastSyncedAt: 0 });
   const hpEditVersionRef = useRef(0);
   const hpRowsRef = useRef<HpTrackerRow[]>([]);
-  const audioPlaylistsRef = useRef<AudioPlaylist[]>([]);
-  const audioPlaylistSaveRevisionRef = useRef(0);
   const midiBindingsRef = useRef<MidiBinding[]>([]);
   const midiInputsRef = useRef<MidiInputLike[]>([]);
   const midiLearningRef = useRef(false);
@@ -8198,11 +8161,17 @@ export function App() {
   const scriptsToolOpen = isToolOpen(toolPanelState, "scripts");
   const actionsToolOpen = isToolOpen(toolPanelState, "actions");
   const screenToolOpen = isToolOpen(toolPanelState, "screen");
+  const t = useMemo(() => createTranslator(uiCatalog ?? undefined), [uiCatalog]);
+  const audio = useAudio({
+    worldId: worldLibrary?.current?.id,
+    workspaceReady,
+    audioToolOpen,
+    t
+  });
   const pathPickerCandidates = flattenWorldPathPickerEntries(
     worldTree,
-    audioState.status === "ready" ? audioState.tracks : audioAutocompleteTracks
+    audio.audioState.status === "ready" ? audio.audioState.tracks : audio.audioAutocompleteTracks
   );
-  const t = useMemo(() => createTranslator(uiCatalog ?? undefined), [uiCatalog]);
   const localizedAssistantForms = useMemo(
     () =>
       assistantForms.map((form) => ({
@@ -8224,15 +8193,6 @@ export function App() {
 
   function mapActionErrorMessage(error: unknown, fallback: string): string {
     return error instanceof Error ? error.message : fallback;
-  }
-
-  async function fetchFullAudioLibraryTracks(): Promise<AudioTrack[]> {
-    if (audioAutocompleteTracks.length > 0) {
-      return audioAutocompleteTracks;
-    }
-    const tracks = await fetchAudioLibrary();
-    setAudioAutocompleteTracks(tracks);
-    return tracks;
   }
 
   function applyLanguage(language: UiLanguage, catalog: TranslationCatalog, persist: boolean) {
@@ -8631,118 +8591,30 @@ export function App() {
   }, [searchToolOpen, searchQuery, searchRevision]);
 
   useEffect(() => {
-    if (!audioToolOpen) {
-      return;
-    }
-
-    let cancelled = false;
-    setAudioState({ status: "loading" });
-    const timeout = window.setTimeout(() => {
-      fetchAudioLibrary({ q: audioQuery.trim() || undefined })
-        .then((tracks) => {
-          if (!cancelled) {
-            setAudioState({ status: "ready", tracks });
-            setAudioPlaylistExpansion((current) =>
-              createPlaylistExpansionState(
-                groupAudioTracksByBus(tracks),
-                audioQuery.trim(),
-                current
-              )
-            );
-          }
-        })
-        .catch((error: unknown) => {
-          if (!cancelled) {
-            const message = error instanceof Error ? error.message : "Unknown error";
-            setAudioState({ status: "error", message });
-          }
-        });
-    }, 180);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeout);
-    };
-  }, [audioToolOpen, audioQuery, worldLibrary?.current?.id]);
-
-  useEffect(() => {
     if (!pathPickerOpen || !pathPickerState.open || pathPickerState.filter !== "audio") {
       return;
     }
-    if (audioState.status === "ready" || audioState.status === "loading") {
+    if (audio.audioState.status === "ready" || audio.audioState.status === "loading") {
       return;
     }
     let cancelled = false;
-    setAudioState({ status: "loading" });
+    audio.setAudioState({ status: "loading" });
     fetchAudioLibrary()
       .then((tracks) => {
         if (!cancelled) {
-          setAudioState({ status: "ready", tracks });
+          audio.setAudioState({ status: "ready", tracks });
         }
       })
       .catch((error: unknown) => {
         if (!cancelled) {
           const message = error instanceof Error ? error.message : "Unknown error";
-          setAudioState({ status: "error", message });
+          audio.setAudioState({ status: "error", message });
         }
       });
     return () => {
       cancelled = true;
     };
-  }, [audioState.status, pathPickerOpen, pathPickerState]);
-
-  useEffect(() => {
-    if (!workspaceReady) {
-      return;
-    }
-
-    let cancelled = false;
-    setAudioPlaylistState({ status: "loading", playlists: [] });
-    fetchAudioPlaylists()
-      .then((response) => {
-        if (!cancelled) {
-          audioPlaylistsRef.current = response.playlists;
-          setAudioPlaylistState({
-            status: "ready",
-            playlists: response.playlists
-          });
-        }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          const message = error instanceof Error ? error.message : "Unknown error";
-          audioPlaylistsRef.current = [];
-          setAudioPlaylistState({ status: "error", playlists: [], message });
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [workspaceReady, worldLibrary?.current?.id]);
-
-  useEffect(() => {
-    if (!workspaceReady) {
-      return;
-    }
-
-    let cancelled = false;
-    fetchAudioLibrary()
-      .then((tracks) => {
-        if (!cancelled) {
-          setAudioAutocompleteTracks(tracks);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setAudioAutocompleteTracks([]);
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [workspaceReady, worldLibrary?.current?.id]);
+  }, [audio.audioState.status, pathPickerOpen, pathPickerState]);
 
   useEffect(() => {
     if (!scriptsToolOpen) {
@@ -8922,13 +8794,13 @@ export function App() {
     setToolPanelState((state) =>
       applyToolAutoOpenRules(state, {
         activePath: activeTab?.path ?? null,
-        audioActive: hasLoadedAudio(audioMixer),
+        audioActive: hasLoadedAudio(audio.audioMixer),
         displayState,
         mapState,
         metadataEditing: activeMetadataEdit.mode === "edit"
       })
     );
-  }, [activeTab?.path, activeMetadataEdit.mode, audioMixer, displayState, mapState]);
+  }, [activeTab?.path, activeMetadataEdit.mode, audio.audioMixer, displayState, mapState]);
 
   useEffect(() => {
     if (searchToolOpen) {
@@ -9843,7 +9715,7 @@ export function App() {
       ]);
       const saved = await saveTableSnapshot({
         name,
-        state: buildTableSnapshotState(display, map, workspace, audioMixer)
+        state: buildTableSnapshotState(display, map, workspace, audio.audioMixer)
       });
       setTableSnapshots((snapshots) => saveTableSnapshotInList(snapshots, saved));
       setSelectedTableSnapshotId(saved.id);
@@ -9869,7 +9741,7 @@ export function App() {
       setLocalMapViewport(null);
       mapViewportSyncRef.current.lastSyncedAt = 0;
       applyWorkspaceState(restored.workspace);
-      setAudioMixer((state) => applyAudioSnapshot(state, restored.audio));
+      audio.setAudioMixer((state) => applyAudioSnapshot(state, restored.audio));
       setTableSnapshots((snapshots) =>
         saveTableSnapshotInList(snapshots, restored.snapshot)
       );
@@ -9980,11 +9852,11 @@ export function App() {
         setScreenToolTab("map");
         setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       } else if (effect.kind === "audio_play") {
-        const tracks = await fetchFullAudioLibraryTracks();
+        const tracks = await audio.fetchFullAudioLibraryTracks();
         const track = tracks.find((item) => item.path === effect.path);
         if (track) {
           const busTrack = { ...track, bus: effect.bus };
-          setAudioMixer((state) =>
+          audio.setAudioMixer((state) =>
             setAudioBusVolume(
               setAudioBusPlaying(loadAudioTrack(state, busTrack), effect.bus, true),
               effect.bus,
@@ -10197,11 +10069,11 @@ export function App() {
       return;
     }
     if (dispatchAction.kind === "audio_track") {
-      const tracks = await fetchFullAudioLibraryTracks();
+      const tracks = await audio.fetchFullAudioLibraryTracks();
       const track = tracks.find((item) => item.path === dispatchAction.path);
       if (track) {
         const effectTrack = { ...track, bus: "effect" as const };
-        setAudioMixer((state) =>
+        audio.setAudioMixer((state) =>
           setAudioBusPlaying(loadAudioTrack(state, effectTrack), "effect", true)
         );
         setToolPanelState((state) => openToolSectionByUser(state, "audio"));
@@ -11663,17 +11535,11 @@ export function App() {
     setToolPanelState(createToolPanelState());
     setSearchQuery("");
     setSearchState({ status: "idle" });
-    setAudioQuery("");
-    setAudioState({ status: "idle" });
-    setAudioAutocompleteTracks([]);
+    audio.reset();
     hpEditVersionRef.current = 0;
     hpRowsRef.current = [];
-    audioPlaylistsRef.current = [];
-    setAudioPlaylistState({ status: "idle", playlists: [] });
     setHpRows([]);
     setHpStatus({ status: "idle", message: null });
-    setAudioMixer(createAudioMixerState());
-    setAudioPlaylistExpansion({});
     setFastSlots([]);
     setTableSnapshots([]);
     setSelectedTableSnapshotId("");
@@ -12360,201 +12226,6 @@ export function App() {
     }
   }
 
-  function persistAudioPlaylists(playlists: AudioPlaylist[]) {
-    const revision = audioPlaylistSaveRevisionRef.current + 1;
-    audioPlaylistSaveRevisionRef.current = revision;
-    audioPlaylistsRef.current = playlists;
-    setAudioPlaylistState({
-      status: "saving",
-      playlists,
-      message: t("audio.savedSaving")
-    });
-    void saveAudioPlaylists(playlists)
-      .then((response) => {
-        if (audioPlaylistSaveRevisionRef.current !== revision) {
-          return;
-        }
-        audioPlaylistsRef.current = response.playlists;
-        setAudioPlaylistState({
-          status: "ready",
-          playlists: response.playlists,
-          message: t("audio.savedSaved")
-        });
-      })
-      .catch((error: unknown) => {
-        if (audioPlaylistSaveRevisionRef.current !== revision) {
-          return;
-        }
-        const message = error instanceof Error ? error.message : t("audio.savedSaveError");
-        setAudioPlaylistState({ status: "error", playlists, message });
-      });
-  }
-
-  function updateAudioPlaylists(updater: (playlists: AudioPlaylist[]) => AudioPlaylist[]) {
-    persistAudioPlaylists(updater(audioPlaylistsRef.current));
-  }
-
-  function handleSavedAudioPlaylistCreate(name: string, bus: AudioBus) {
-    updateAudioPlaylists((playlists) => createAudioPlaylist(playlists, name, bus));
-  }
-
-  function handleSavedAudioPlaylistRename(playlistId: string, name: string) {
-    updateAudioPlaylists((playlists) => renameAudioPlaylist(playlists, playlistId, name));
-  }
-
-  function handleSavedAudioPlaylistDelete(playlistId: string) {
-    updateAudioPlaylists((playlists) => deleteAudioPlaylist(playlists, playlistId));
-  }
-
-  function handleSavedAudioPlaylistBusChange(playlistId: string, bus: AudioBus) {
-    updateAudioPlaylists((playlists) => setSavedAudioPlaylistBus(playlists, playlistId, bus));
-  }
-
-  function handleSavedAudioPlaylistLoopChange(playlistId: string, loop: boolean) {
-    updateAudioPlaylists((playlists) => setSavedAudioPlaylistLoop(playlists, playlistId, loop));
-  }
-
-  function handleSavedAudioPlaylistAddTrack(playlistId: string, path: string) {
-    updateAudioPlaylists((playlists) => addAudioPlaylistTrack(playlists, playlistId, path.trim()));
-  }
-
-  function handleSavedAudioPlaylistAddCurrentTrack(playlistId: string) {
-    const playlist = audioPlaylistsRef.current.find((candidate) => candidate.id === playlistId);
-    const currentTrack = playlist ? audioMixer[playlist.bus].track : null;
-    if (!currentTrack) {
-      setAudioPlaylistState({
-        status: "error",
-        playlists: audioPlaylistsRef.current,
-        message: t("audio.noCurrentTrack")
-      });
-      return;
-    }
-    handleSavedAudioPlaylistAddTrack(playlistId, currentTrack.path);
-  }
-
-  function handleSavedAudioPlaylistRemoveTrack(playlistId: string, path: string) {
-    updateAudioPlaylists((playlists) => removeAudioPlaylistTrack(playlists, playlistId, path));
-  }
-
-  function handleSavedAudioPlaylistMoveTrack(
-    playlistId: string,
-    index: number,
-    direction: -1 | 1
-  ) {
-    updateAudioPlaylists((playlists) =>
-      moveAudioPlaylistTrack(playlists, playlistId, index, direction)
-    );
-  }
-
-  async function handleSavedAudioPlaylistPlay(playlistId: string) {
-    const playlist = audioPlaylistsRef.current.find((candidate) => candidate.id === playlistId);
-    if (!playlist) {
-      return;
-    }
-    try {
-      const tracks =
-        audioAutocompleteTracks.length > 0
-          ? audioAutocompleteTracks
-          : await fetchAudioLibrary();
-      if (audioAutocompleteTracks.length === 0) {
-        setAudioAutocompleteTracks(tracks);
-      }
-      const nextMixer = loadSavedAudioPlaylist(audioMixer, playlist, tracks);
-      if (!nextMixer[playlist.bus].track) {
-        setAudioPlaylistState({
-          status: "error",
-          playlists: audioPlaylistsRef.current,
-          message: t("audio.noPlayableTracks")
-        });
-        return;
-      }
-      setAudioMixer(setAudioBusPlaying(nextMixer, playlist.bus, true));
-      setAudioPlaylistState({
-        status: "ready",
-        playlists: audioPlaylistsRef.current,
-        message: t("audio.savedLoaded", { name: playlist.name })
-      });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : t("audio.savedLoadError");
-      setAudioPlaylistState({ status: "error", playlists: audioPlaylistsRef.current, message });
-    }
-  }
-
-  function handleAudioLoadTrack(track: AudioTrack) {
-    setAudioMixer((state) => loadAudioTrack(state, track));
-  }
-
-  function handleAudioLoadPlaylist(
-    bus: AudioBus,
-    playlist: string | null,
-    tracks: AudioTrack[]
-  ) {
-    setAudioMixer((state) =>
-      setAudioBusPlaying(loadAudioPlaylist(state, bus, playlist, tracks), bus, true)
-    );
-  }
-
-  function handleAudioPlayingChange(bus: AudioBus, playing: boolean) {
-    setAudioMixer((state) => setAudioBusPlaying(state, bus, playing));
-  }
-
-  function handleAudioEnded(bus: AudioBus) {
-    setAudioMixer((state) => {
-      if (state[bus].playlistMode) {
-        return advanceAudioQueue(state, bus);
-      }
-      return setAudioBusPlaying(state, bus, false);
-    });
-  }
-
-  function handleAudioStopBus(bus: AudioBus) {
-    setAudioMixer((state) => stopAudioBus(state, bus));
-  }
-
-  function handleAudioStopAll() {
-    setAudioMixer((state) => stopAllAudio(state));
-  }
-
-  function handleAudioLoopChange(bus: AudioBus, loop: boolean) {
-    setAudioMixer((state) => setAudioBusLoop(state, bus, loop));
-  }
-
-  function handleAudioPlaylistLoopChange(bus: AudioBus, loop: boolean) {
-    setAudioMixer((state) => setAudioPlaylistLoop(state, bus, loop));
-  }
-
-  function handleAudioNextTrack(bus: AudioBus) {
-    setAudioMixer((state) => advanceAudioQueue(state, bus));
-  }
-
-  function handleAudioPreviousTrack(bus: AudioBus) {
-    setAudioMixer((state) => rewindAudioQueue(state, bus));
-  }
-
-  function handleAudioFadeIn(bus: AudioBus) {
-    setAudioMixer((state) =>
-      startAudioFade(state, bus, "fading_in", AUDIO_FADE_DURATION_MS, performance.now())
-    );
-  }
-
-  function handleAudioFadeOut(bus: AudioBus) {
-    setAudioMixer((state) =>
-      startAudioFade(state, bus, "fading_out", AUDIO_FADE_DURATION_MS, performance.now())
-    );
-  }
-
-  function handleAudioFadeFinish(bus: AudioBus) {
-    setAudioMixer((state) => finishAudioFade(state, bus));
-  }
-
-  function handleAudioVolumeChange(bus: AudioBus, volume: number) {
-    setAudioMixer((state) => setAudioBusVolume(state, bus, volume));
-  }
-
-  function handleAudioPlaylistToggle(bus: AudioBus, playlist: string | null) {
-    setAudioPlaylistExpansion((state) => togglePlaylistExpansion(state, bus, playlist));
-  }
-
   function handleToolsResizePointerDown(event: PointerEvent<HTMLDivElement>) {
     event.preventDefault();
     const startX = event.clientX;
@@ -12840,7 +12511,7 @@ export function App() {
               />
             )}
             <FileViewer
-              completions={buildEditorCompletions(pages, worldTree, audioAutocompleteTracks)}
+              completions={buildEditorCompletions(pages, worldTree, audio.audioAutocompleteTracks)}
               draft={viewerDraft}
               links={paneLinksState.status === "ready" ? paneLinksState.outgoing : []}
               loadState={paneFileState}
@@ -13102,9 +12773,9 @@ export function App() {
           )}
 
           <AudioPlaybackHost
-            mixer={audioMixer}
-            onEnded={handleAudioEnded}
-            onFadeFinish={handleAudioFadeFinish}
+            mixer={audio.audioMixer}
+            onEnded={audio.handleAudioEnded}
+            onFadeFinish={audio.handleAudioFadeFinish}
           />
 
           <div
@@ -13162,12 +12833,12 @@ export function App() {
               assistantValues={assistantValues}
               actionBindings={actionBindings}
               actionBindingMessage={actionBindingMessage}
-              audioExpansionState={audioPlaylistExpansion}
-              audioLibraryTracks={audioAutocompleteTracks}
-              audioMixer={audioMixer}
-              audioQuery={audioQuery}
-              audioPlaylistState={audioPlaylistState}
-              audioState={audioState}
+              audioExpansionState={audio.audioPlaylistExpansion}
+              audioLibraryTracks={audio.audioAutocompleteTracks}
+              audioMixer={audio.audioMixer}
+              audioQuery={audio.audioQuery}
+              audioPlaylistState={audio.audioPlaylistState}
+              audioState={audio.audioState}
               contentDirty={activeContentDirty}
               displayState={displayState}
               diceHistory={diceHistory}
@@ -13205,30 +12876,30 @@ export function App() {
               onActionBindingDelete={handleDeleteActionBinding}
               onActionBindingRun={(binding) => void handleActionBindingTrigger(binding)}
               onActionBindingSave={handleSaveActionBinding}
-              onAudioFadeIn={handleAudioFadeIn}
-              onAudioFadeOut={handleAudioFadeOut}
-              onAudioLoadTrack={handleAudioLoadTrack}
-              onAudioLoadPlaylist={handleAudioLoadPlaylist}
-              onAudioLoopChange={handleAudioLoopChange}
-              onAudioNextTrack={handleAudioNextTrack}
-              onAudioPlaylistLoopChange={handleAudioPlaylistLoopChange}
-              onAudioPlaylistToggle={handleAudioPlaylistToggle}
-              onAudioPlayingChange={handleAudioPlayingChange}
-              onAudioPreviousTrack={handleAudioPreviousTrack}
-              onAudioQueryChange={setAudioQuery}
-              onAudioStopAll={handleAudioStopAll}
-              onAudioStopBus={handleAudioStopBus}
-              onAudioVolumeChange={handleAudioVolumeChange}
-              onSavedAudioPlaylistAddCurrentTrack={handleSavedAudioPlaylistAddCurrentTrack}
-              onSavedAudioPlaylistAddTrack={handleSavedAudioPlaylistAddTrack}
-              onSavedAudioPlaylistBusChange={handleSavedAudioPlaylistBusChange}
-              onSavedAudioPlaylistCreate={handleSavedAudioPlaylistCreate}
-              onSavedAudioPlaylistDelete={handleSavedAudioPlaylistDelete}
-              onSavedAudioPlaylistLoopChange={handleSavedAudioPlaylistLoopChange}
-              onSavedAudioPlaylistMoveTrack={handleSavedAudioPlaylistMoveTrack}
-              onSavedAudioPlaylistPlay={handleSavedAudioPlaylistPlay}
-              onSavedAudioPlaylistRemoveTrack={handleSavedAudioPlaylistRemoveTrack}
-              onSavedAudioPlaylistRename={handleSavedAudioPlaylistRename}
+              onAudioFadeIn={audio.handleAudioFadeIn}
+              onAudioFadeOut={audio.handleAudioFadeOut}
+              onAudioLoadTrack={audio.handleAudioLoadTrack}
+              onAudioLoadPlaylist={audio.handleAudioLoadPlaylist}
+              onAudioLoopChange={audio.handleAudioLoopChange}
+              onAudioNextTrack={audio.handleAudioNextTrack}
+              onAudioPlaylistLoopChange={audio.handleAudioPlaylistLoopChange}
+              onAudioPlaylistToggle={audio.handleAudioPlaylistToggle}
+              onAudioPlayingChange={audio.handleAudioPlayingChange}
+              onAudioPreviousTrack={audio.handleAudioPreviousTrack}
+              onAudioQueryChange={audio.setAudioQuery}
+              onAudioStopAll={audio.handleAudioStopAll}
+              onAudioStopBus={audio.handleAudioStopBus}
+              onAudioVolumeChange={audio.handleAudioVolumeChange}
+              onSavedAudioPlaylistAddCurrentTrack={audio.handleSavedAudioPlaylistAddCurrentTrack}
+              onSavedAudioPlaylistAddTrack={audio.handleSavedAudioPlaylistAddTrack}
+              onSavedAudioPlaylistBusChange={audio.handleSavedAudioPlaylistBusChange}
+              onSavedAudioPlaylistCreate={audio.handleSavedAudioPlaylistCreate}
+              onSavedAudioPlaylistDelete={audio.handleSavedAudioPlaylistDelete}
+              onSavedAudioPlaylistLoopChange={audio.handleSavedAudioPlaylistLoopChange}
+              onSavedAudioPlaylistMoveTrack={audio.handleSavedAudioPlaylistMoveTrack}
+              onSavedAudioPlaylistPlay={audio.handleSavedAudioPlaylistPlay}
+              onSavedAudioPlaylistRemoveTrack={audio.handleSavedAudioPlaylistRemoveTrack}
+              onSavedAudioPlaylistRename={audio.handleSavedAudioPlaylistRename}
               onDiceClearHistory={handleDiceClearHistory}
               onDiceRoll={handleDiceRoll}
               onHpAdd={handleHpAdd}
@@ -13488,7 +13159,7 @@ export function App() {
         t={t}
       />
       <PeekDialog
-        completions={buildEditorCompletions(pages, worldTree, audioAutocompleteTracks)}
+        completions={buildEditorCompletions(pages, worldTree, audio.audioAutocompleteTracks)}
         onClose={() => setPeekState({ open: false })}
         onContextLink={handleLinkContext}
         onDiceRoll={handleDiceRoll}
