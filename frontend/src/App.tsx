@@ -30,6 +30,7 @@ import {
   type PageLoadState
 } from "./components/MetadataTool";
 import { IconButton } from "./components/IconButton";
+import { Modal } from "./components/Modal";
 import { PdfViewer } from "./components/PdfViewer";
 import { MapCanvas, type MapCanvasTool } from "./MapCanvas";
 import { UnlockScreen } from "./UnlockScreen";
@@ -3716,20 +3717,15 @@ function SettingsDialog({
   }
 
   return (
-    <div className="dialog-overlay" onMouseDown={onClose} role="presentation">
-      <section
-        aria-label={t("app.settingsTitle")}
-        className="file-dialog settings-dialog"
-        data-help-context="settings"
-        onMouseDown={(event) => event.stopPropagation()}
-        role="dialog"
-      >
-        <div className="dialog-header">
-          <h2>{t("app.settingsTitle")}</h2>
-          <button aria-label={t("app.closeSettings")} onClick={onClose} type="button">
-            x
-          </button>
-        </div>
+    <Modal
+      ariaLabel={t("app.settingsTitle")}
+      className="settings-dialog"
+      closeLabel={t("app.closeSettings")}
+      dataHelpContext="settings"
+      dismissOnBackdrop
+      onClose={onClose}
+      title={t("app.settingsTitle")}
+    >
         <label>
           {t("app.language")}
           <select
@@ -3877,8 +3873,7 @@ function SettingsDialog({
             {t("app.close")}
           </button>
         </div>
-      </section>
-    </div>
+    </Modal>
   );
 }
 
@@ -3960,14 +3955,13 @@ function WorldOpenDialog({
   t: Translator;
 }) {
   return (
-    <div className="dialog-overlay" role="presentation">
-      <section aria-label={t("world.openFolderTitle")} className="file-dialog world-dialog" role="dialog">
-        <div className="dialog-header">
-          <h2>{t("world.openFolderTitle")}</h2>
-          <button aria-label={t("world.closeOpenFolder")} onClick={onClose} type="button">
-            x
-          </button>
-        </div>
+    <Modal
+      ariaLabel={t("world.openFolderTitle")}
+      className="world-dialog"
+      closeLabel={t("world.closeOpenFolder")}
+      onClose={onClose}
+      title={t("world.openFolderTitle")}
+    >
         <p className="dialog-note">{state?.worlds_root ?? t("world.libraryNotLoaded")}</p>
         <button className="panel-action" onClick={onRefresh} type="button">
           {t("world.scanWorlds")}
@@ -3988,8 +3982,7 @@ function WorldOpenDialog({
             ))}
           </div>
         ) : null}
-      </section>
-    </div>
+    </Modal>
   );
 }
 
@@ -4011,14 +4004,13 @@ function WorldCreateDialog({
   }
 
   return (
-    <div className="dialog-overlay" role="presentation">
-      <section aria-label={t("world.addTitle")} className="file-dialog world-dialog" role="dialog">
-        <div className="dialog-header">
-          <h2>{t("world.addTitle")}</h2>
-          <button aria-label={t("world.closeAdd")} onClick={onClose} type="button">
-            x
-          </button>
-        </div>
+    <Modal
+      ariaLabel={t("world.addTitle")}
+      className="world-dialog"
+      closeLabel={t("world.closeAdd")}
+      onClose={onClose}
+      title={t("world.addTitle")}
+    >
         <label>
           {t("world.name")}
           <input
@@ -4036,8 +4028,7 @@ function WorldCreateDialog({
             {state.status === "submitting" ? t("world.creating") : t("world.create")}
           </button>
         </div>
-      </section>
-    </div>
+    </Modal>
   );
 }
 
@@ -4059,14 +4050,13 @@ function WorkspaceDialog({
   const title = state.kind === "create" ? "New Workspace" : "Rename Workspace";
 
   return (
-    <div className="dialog-overlay" role="presentation">
-      <section aria-label={title} className="file-dialog world-dialog" role="dialog">
-        <div className="dialog-header">
-          <h2>{title}</h2>
-          <button aria-label={`Close ${title}`} onClick={onClose} type="button">
-            x
-          </button>
-        </div>
+    <Modal
+      ariaLabel={title}
+      className="world-dialog"
+      closeLabel={`Close ${title}`}
+      onClose={onClose}
+      title={title}
+    >
         <label>
           Workspace name
           <input
@@ -4084,8 +4074,7 @@ function WorkspaceDialog({
             {state.status === "submitting" ? "Saving..." : "Save"}
           </button>
         </div>
-      </section>
-    </div>
+    </Modal>
   );
 }
 
@@ -4109,14 +4098,13 @@ function TrashManagerDialog({
   }
 
   return (
-    <div className="dialog-overlay" role="presentation">
-      <section aria-label="Trash" className="file-dialog trash-dialog" role="dialog">
-        <div className="dialog-header">
-          <h2>Trash</h2>
-          <button aria-label="Close Trash" onClick={onClose} type="button">
-            x
-          </button>
-        </div>
+    <Modal
+      ariaLabel="Trash"
+      className="trash-dialog"
+      closeLabel="Close Trash"
+      onClose={onClose}
+      title="Trash"
+    >
         {state.status === "loading" && <p>Loading trash...</p>}
         {state.error && <p className="dialog-error">{state.error}</p>}
         {state.status !== "loading" && state.entries.length === 0 && <p>Trash is empty.</p>}
@@ -4167,8 +4155,7 @@ function TrashManagerDialog({
             ))}
           </div>
         )}
-      </section>
-    </div>
+    </Modal>
   );
 }
 
@@ -7162,20 +7149,15 @@ function CaptureDialog({
   }
 
   return (
-    <div className="dialog-overlay" role="presentation" onMouseDown={handleClose}>
-      <section
-        aria-label={t("capture.title")}
-        className="file-dialog tool-dialog"
-        data-help-context="capture"
-        onMouseDown={(event) => event.stopPropagation()}
-        role="dialog"
-      >
-        <div className="dialog-header">
-          <h2>{t("capture.title")}</h2>
-          <button aria-label={t("capture.close")} onClick={handleClose} type="button">
-            x
-          </button>
-        </div>
+    <Modal
+      ariaLabel={t("capture.title")}
+      className="tool-dialog"
+      closeLabel={t("capture.close")}
+      dataHelpContext="capture"
+      dismissOnBackdrop
+      onClose={handleClose}
+      title={t("capture.title")}
+    >
         <CaptureTool
           draft={draft}
           onCategoryChange={onCategoryChange}
@@ -7187,8 +7169,7 @@ function CaptureDialog({
           t={t}
           today={today}
         />
-      </section>
-    </div>
+    </Modal>
   );
 }
 
@@ -7251,20 +7232,15 @@ function PrepHealthDialog({
   const hasUntrustedScripts = Boolean(report?.issues.some((issue) => issue.kind === "untrusted_dms"));
 
   return (
-    <div className="dialog-overlay" role="presentation" onMouseDown={onClose}>
-      <section
-        aria-label={t("prep.title")}
-        className="file-dialog prep-health-dialog tool-dialog"
-        data-help-context="prep-health"
-        onMouseDown={(event) => event.stopPropagation()}
-        role="dialog"
-      >
-        <div className="dialog-header">
-          <h2>{t("prep.title")}</h2>
-          <button aria-label={t("prep.close")} onClick={onClose} type="button">
-            x
-          </button>
-        </div>
+    <Modal
+      ariaLabel={t("prep.title")}
+      className="prep-health-dialog tool-dialog"
+      closeLabel={t("prep.close")}
+      dataHelpContext="prep-health"
+      dismissOnBackdrop
+      onClose={onClose}
+      title={t("prep.title")}
+    >
         <div className="prep-health-summary">
           <div>
             <strong>{report ? prepHealthStatusLabel(report.status, t) : t("prep.status.notChecked")}</strong>
@@ -7338,8 +7314,7 @@ function PrepHealthDialog({
             )}
           </>
         )}
-      </section>
-    </div>
+    </Modal>
   );
 }
 
@@ -8488,14 +8463,12 @@ function FileManagementDialog({
       : null;
 
   return (
-    <div className="dialog-overlay" role="presentation">
-      <section aria-label={title} className="file-dialog" role="dialog">
-        <div className="dialog-header">
-          <h2>{title}</h2>
-          <button aria-label={`Close ${title}`} onClick={onClose} type="button">
-            x
-          </button>
-        </div>
+    <Modal
+      ariaLabel={title}
+      closeLabel={`Close ${title}`}
+      onClose={onClose}
+      title={title}
+    >
         <form
           onSubmit={(event) => {
             event.preventDefault();
@@ -8603,8 +8576,7 @@ function FileManagementDialog({
             </button>
           </div>
         </form>
-      </section>
-    </div>
+    </Modal>
   );
 }
 
