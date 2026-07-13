@@ -4481,3 +4481,32 @@ td {
     border-top: 1px solid #c9c1b1;
   }
 }
+
+.plugin-dock {
+  bottom: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: fixed;
+  right: 16px;
+  z-index: 20;
+}
+
+.plugin-dock-button {
+  align-items: center;
+  background: #f7f2e8;
+  border: 1px solid #b7ad9c;
+  border-radius: 6px;
+  cursor: pointer;
+  display: flex;
+  font-size: 16px;
+  height: 32px;
+  justify-content: center;
+  width: 32px;
+}
+
+.plugin-dock-button:hover,
+.plugin-dock-button:focus-visible {
+  border-color: #9c7b45;
+  outline: none;
+}

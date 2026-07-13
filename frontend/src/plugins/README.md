@@ -1,0 +1,1 @@
+Plugin folders live here. Each is `<id>/plugin.ts(x)` exporting `definePlugin({...})` — see docs/PLUGINS.md. Auto-discovered via import.meta.glob; delete a folder to disable that plugin. Nothing in the core references these by name.

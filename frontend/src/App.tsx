@@ -15,6 +15,7 @@ import {
 
 import { CodeEditor } from "./CodeEditor";
 import { ContextHelpDialog } from "./components/ContextHelpDialog";
+import { PluginToolsHost } from "./components/PluginToolsHost";
 import { AudioPlaybackHost } from "./components/audio/AudioPlaybackHost";
 import { AudioTool } from "./components/audio/AudioTool";
 import { AudioProvider, useAudioContext } from "./contexts/AudioContext";
@@ -13067,6 +13068,7 @@ export function App() {
         topic={contextHelpTopic}
       />
     </main>
+    <PluginToolsHost t={t} worldId={worldLibrary?.current?.id ?? null} />
     </AudioProvider>
   );
 }
