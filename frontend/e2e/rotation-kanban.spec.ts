@@ -174,11 +174,23 @@ function statusField(fields: Record<string, unknown>) {
 }
 
 async function moveKanbanCard(page: Page, title: string, targetColumn: Locator) {
-  const source = page.locator(".folder-kanban-card", { hasText: title });
-  const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
-  await source.dispatchEvent("dragstart", { dataTransfer });
-  await targetColumn.dispatchEvent("drop", { dataTransfer });
-  await dataTransfer.dispose();
+  // The card's path travels in the DataTransfer: dragstart calls setData and
+  // drop reads it back. Saving a move re-renders the board, and a dragstart
+  // dispatched at a card that has just been replaced never reaches React, so
+  // the DataTransfer stays empty and the drop is a silent no-op. Retry the
+  // whole gesture until the card actually lands; re-dragging a card that is
+  // already in the target column is harmless.
+  await expect(async () => {
+    const source = page.locator(".folder-kanban-card", { hasText: title });
+    const dataTransfer = await page.evaluateHandle(() => new DataTransfer());
+    try {
+      await source.dispatchEvent("dragstart", { dataTransfer });
+      await targetColumn.dispatchEvent("drop", { dataTransfer });
+    } finally {
+      await dataTransfer.dispose();
+    }
+    await expect(targetColumn).toContainText(title, { timeout: 2000 });
+  }).toPass({ timeout: 15000 });
 }
 
 test("Rotate 90 updates fullscreen and map output on the player screen @smoke", async ({
@@ -231,20 +243,23 @@ test("folder kanban groups direct files, persists metadata moves, and creates a 
   const doneColumn = page.getByRole("region", { name: "Done" });
   await expect(doneColumn).toBeVisible();
 
-  for (const title of ["Smuggler Scene", "Dock Contact", "Harbor Encounters.csv"]) {
+  const moves = [
+    { title: "Smuggler Scene", path: "Board/Smuggler Scene.md" },
+    { title: "Dock Contact", path: "Board/Dock Contact.cs" },
+    { title: "Harbor Encounters.csv", path: "Board/Harbor Encounters.csv" }
+  ];
+
+  for (const { title, path } of moves) {
     await moveKanbanCard(page, title, doneColumn);
     await expect(doneColumn).toContainText(title);
+    // Settle each move on disk before dragging the next card, so the re-render
+    // that follows a save cannot land in the middle of the next gesture. The
+    // status is read back through the index, which is refreshed asynchronously
+    // after the write, so this needs more room than the default poll timeout.
+    await expect
+      .poll(async () => statusField(await pageFields(request, path)), { timeout: 15000 })
+      .toBe("Done");
   }
-
-  await expect
-    .poll(async () => statusField(await pageFields(request, "Board/Smuggler Scene.md")))
-    .toBe("Done");
-  await expect
-    .poll(async () => statusField(await pageFields(request, "Board/Dock Contact.cs")))
-    .toBe("Done");
-  await expect
-    .poll(async () => statusField(await pageFields(request, "Board/Harbor Encounters.csv")))
-    .toBe("Done");
 
   await doneColumn.getByLabel("Card name").fill("New Lead");
   await doneColumn.getByRole("button", { name: "+ Card" }).click();
