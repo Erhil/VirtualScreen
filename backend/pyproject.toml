@@ -30,12 +30,14 @@ packages = ["app"]
 
 [tool.pytest.ini_options]
 pythonpath = ["."]
-testpaths = ["tests"]
+# Plugins keep their tests co-located (app/plugins/<id>/test_*.py) so deleting a
+# plugin folder removes its tests with it; both roots must be collected.
+testpaths = ["tests", "app/plugins"]
 cache_dir = "../.virtualscreen/pytest-cache/backend"
 
 [tool.coverage.run]
 source = ["app"]
-omit = ["tests/*"]
+omit = ["tests/*", "app/plugins/*/test_*.py"]
 
 [tool.ruff]
 line-length = 100
