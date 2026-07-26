@@ -31,6 +31,7 @@ class Settings(BaseSettings):
     llm_max_input_chars: int = Field(default=12000, gt=0)
     llm_max_output_tokens: int = Field(default=800, gt=0)
     llm_temperature: float = Field(default=0.7, ge=0, le=2)
+    static_dir: Path | None = None
 
     @property
     def resolved_world_root(self) -> Path:
@@ -53,6 +54,12 @@ class Settings(BaseSettings):
         if cwd_path.exists():
             return cwd_path
         return (Path(__file__).resolve().parents[3] / expanded).resolve()
+
+    @property
+    def resolved_static_dir(self) -> Path | None:
+        if self.static_dir is None:
+            return None
+        return self.static_dir.expanduser().resolve()
 
 
 @lru_cache
