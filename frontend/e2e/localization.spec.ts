@@ -29,6 +29,11 @@ test.beforeEach(async ({ request }) => {
     data: { id: "E2E World" }
   });
   await request.post("/api/index/rebuild");
+  // Other spec files reuse the same "E2E World" workspace; without this reset,
+  // tabs left open by a preceding spec file leak into these tests.
+  await request.put("/api/workspace/tabs", {
+    data: { tabs: [], activePath: null }
+  });
 });
 
 async function switchToRussian(page: Page) {
@@ -183,7 +188,20 @@ test("Russian tool panel and HP controls fit above the fast-slot dock", async ({
 test("tab strip shows an open-file count when tabs can overflow", async ({ page }) => {
   await page.goto("/");
 
-  for (const name of ["README.md", "Captain Ilyra", "random-events.csv", "hello_world1.dms"]) {
+  const filesToOpen: Array<{ name: string; folder?: string }> = [
+    { name: "README.md" },
+    { name: "Captain Ilyra", folder: "NPCs" },
+    { name: "random-events.csv", folder: "Tables" },
+    { name: "hello_world1.dms", folder: "Scripts" }
+  ];
+  for (const { name, folder } of filesToOpen) {
+    if (folder) {
+      // A collapsed folder keeps its children out of the DOM.
+      const folderButton = page.getByRole("button", { name: folder, exact: true });
+      if ((await folderButton.getAttribute("aria-expanded")) !== "true") {
+        await folderButton.click();
+      }
+    }
     await page.locator(".file-item").filter({ hasText: name }).first().click();
   }
 

@@ -415,16 +415,26 @@ async function ensureTreeFolderOpen(page: Page, folder: string) {
   }
 }
 
-async function openPdfFixture(page: Page) {
-  const pdfButton = worldTree(page).getByRole("button", { name: /session-handout/ });
-  await expect(worldTree(page).getByRole("button", { name: "Docs", exact: true })).toBeVisible();
-  try {
-    await expect(pdfButton).toBeVisible({ timeout: 1000 });
-  } catch {
-    await worldTree(page).getByRole("button", { name: "Docs", exact: true }).click();
-    await expect(pdfButton).toBeVisible();
+async function openTreeFile(page: Page, fileName: string | RegExp, folder?: string) {
+  const fileButton = worldTree(page).getByRole("button", {
+    name: typeof fileName === "string" ? new RegExp(fileName) : fileName
+  });
+  if (folder) {
+    try {
+      await expect(fileButton).toBeVisible({ timeout: 1000 });
+    } catch {
+      // A collapsed folder keeps its children out of the DOM.
+      await ensureTreeFolderOpen(page, folder);
+      await expect(fileButton).toBeVisible();
+    }
+  } else {
+    await expect(fileButton).toBeVisible();
   }
-  await pdfButton.click();
+  await fileButton.click();
+}
+
+async function openPdfFixture(page: Page) {
+  await openTreeFile(page, /session-handout/, "Docs");
 }
 
 function captainTreeButton(page: Page) {
@@ -432,36 +442,15 @@ function captainTreeButton(page: Page) {
 }
 
 async function openNotesFile(page: Page, fileName: string) {
-  const fileButton = worldTree(page).getByRole("button", { name: new RegExp(fileName) });
-  try {
-    await expect(fileButton).toBeVisible({ timeout: 1000 });
-  } catch {
-    await worldTree(page).getByRole("button", { name: "Notes", exact: true }).click();
-    await expect(fileButton).toBeVisible();
-  }
-  await fileButton.click();
+  await openTreeFile(page, fileName, "Notes");
 }
 
 async function openCardsFile(page: Page, fileName: string) {
-  const fileButton = worldTree(page).getByRole("button", { name: new RegExp(fileName) });
-  try {
-    await expect(fileButton).toBeVisible({ timeout: 1000 });
-  } catch {
-    await worldTree(page).getByRole("button", { name: "Cards", exact: true }).click();
-    await expect(fileButton).toBeVisible();
-  }
-  await fileButton.click();
+  await openTreeFile(page, fileName, "Cards");
 }
 
 async function openScriptsFile(page: Page, fileName: string) {
-  const fileButton = worldTree(page).getByRole("button", { name: new RegExp(fileName) });
-  try {
-    await expect(fileButton).toBeVisible({ timeout: 1000 });
-  } catch {
-    await worldTree(page).getByRole("button", { name: "Scripts", exact: true }).click();
-    await expect(fileButton).toBeVisible();
-  }
-  await fileButton.click();
+  await openTreeFile(page, fileName, "Scripts");
 }
 
 function toolsPanel(page: Page) {
@@ -818,6 +807,7 @@ test("world tree displays sample world folders and files @smoke", async ({ page 
 test("world tree context menu duplicates renames and trashes files", async ({ page }) => {
   await page.goto("/");
   const tree = worldTree(page);
+  await ensureTreeFolderOpen(page, "Cards");
   const moonlit = tree.getByRole("button", { name: /Moonlit Key Moonlit Key\.cs/ });
   await expect(moonlit).toBeVisible();
 
@@ -909,6 +899,7 @@ test("world tree context menu duplicates renames and trashes folders recursively
 test("world tree drag and drop moves files between folders", async ({ page }) => {
   await page.goto("/");
   const tree = worldTree(page);
+  await ensureTreeFolderOpen(page, "Cards");
   const moonlit = tree.getByRole("button", { name: /Moonlit Key Moonlit Key\.cs/ });
   const notes = tree.getByRole("button", { name: "Notes", exact: true });
   await expect(moonlit).toBeVisible();
@@ -1063,7 +1054,7 @@ test("opens markdown in a tab", async ({ page }) => {
 test("opens markdown with read-only metadata panel", async ({ page }) => {
   await page.goto("/");
 
-  await captainTreeButton(page).click();
+  await openTreeFile(page, /Captain Ilyra Captain Ilyra\.md/, "NPCs");
 
   await expect(page.getByRole("tab", { name: "Captain Ilyra" })).toHaveAttribute(
     "aria-selected",
@@ -1084,7 +1075,7 @@ test("opens markdown with read-only metadata panel", async ({ page }) => {
 test("manually closed tool sections stay closed while switching pages", async ({ page }) => {
   await page.goto("/");
 
-  await captainTreeButton(page).click();
+  await openTreeFile(page, /Captain Ilyra Captain Ilyra\.md/, "NPCs");
   const metadataHeader = toolsPanel(page).getByRole("button", { name: /^Metadata/ });
   await expect(metadataHeader).toHaveAttribute("aria-expanded", "false");
 
@@ -1103,7 +1094,7 @@ test("manually closed tool sections stay closed while switching pages", async ({
   await screenHeader.click();
   await expect(screenHeader).toHaveAttribute("aria-expanded", "false");
 
-  await captainTreeButton(page).click();
+  await openTreeFile(page, /Captain Ilyra Captain Ilyra\.md/, "NPCs");
   await expect(screenHeader).toHaveAttribute("aria-expanded", "false");
 });
 
@@ -1263,7 +1254,7 @@ test("fast screen slots without paths use the current active file", async ({ con
   await actions.getByLabel("Label").fill("Show current");
   await actions.getByRole("button", { name: "Save Slot" }).click();
 
-  await captainTreeButton(page).click();
+  await openTreeFile(page, /Captain Ilyra Captain Ilyra\.md/, "NPCs");
   await page.getByRole("button", { name: /Fast slot 1: Show current/ }).click();
   await expect(screen.getByRole("heading", { name: "Captain Ilyra" })).toBeVisible();
 
@@ -1343,7 +1334,7 @@ test("map preset fast slot and DMS command present saved maps", async ({ context
   await screen.goto("/screen");
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: /sample-map/ }).click();
+  await openTreeFile(page, /sample-map/, "Media");
   const map = await mapTool(page);
   await map.getByRole("button", { name: "Use Active Image" }).click();
   await expect(map.locator(".map-canvas-dm img")).toBeVisible();
@@ -1366,7 +1357,7 @@ test("map preset fast slot and DMS command present saved maps", async ({ context
   const mapAfterSlot = await mapTool(page);
   await mapAfterSlot.getByRole("button", { name: "Stop Map" }).click();
   await expect(screen.locator(".screen-map")).toBeHidden();
-  await worldTree(page).getByRole("button", { name: /map_preset_demo\.dms/ }).click();
+  await openTreeFile(page, /map_preset_demo\.dms/, "Scripts");
   await runActiveScript(page);
 
   await expect(screen.locator(".screen-map img")).toBeVisible();
@@ -1450,7 +1441,7 @@ test("DMS scripts can control screen and audio", async ({ page, context }) => {
   await filteredAudio.getByRole("searchbox", { name: "Music Search" }).fill("bard");
   await expect(filteredAudio.getByRole("button", { name: /bard-song/ })).toBeVisible();
 
-  await worldTree(page).getByRole("button", { name: /effects_demo\.dms/ }).click();
+  await openTreeFile(page, /effects_demo\.dms/, "Scripts");
   await runActiveScript(page);
 
   await expect(
@@ -1470,7 +1461,7 @@ test("DMS autocomplete inserts commands and world paths", async ({ page, context
   await screen.goto("/screen");
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: /effects_demo\.dms/ }).click();
+  await openTreeFile(page, /effects_demo\.dms/, "Scripts");
   await enterEditMode(page);
   await fillCodeEditor(page, "DMS editor", "screen_");
   await chooseCodeCompletion(page, "screen_fs");
@@ -1495,14 +1486,14 @@ test("DMS autocomplete inserts commands and world paths", async ({ page, context
 test("DMS script runs can be cancelled and show line-number errors", async ({ page }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: /slow_cancel\.dms/ }).click();
+  await openTreeFile(page, /slow_cancel\.dms/, "Scripts");
   await runActiveScript(page);
   const latestRun = toolsPanel(page).getByRole("region", { name: "Latest Script Run" });
   await expect(latestRun.getByRole("button", { name: "Cancel" })).toBeVisible();
   await latestRun.getByRole("button", { name: "Cancel" }).click();
   await expect(latestRun.getByText("Cancelled", { exact: true })).toBeVisible();
 
-  await worldTree(page).getByRole("button", { name: /syntax_error\.dms/ }).click();
+  await openTreeFile(page, /syntax_error\.dms/, "Scripts");
   await runActiveScript(page);
   await expect(toolsPanel(page).getByText(/line 2/)).toBeVisible();
   await expect(toolsPanel(page).getByText("Scripts/syntax_error.dms", { exact: true })).toBeVisible();
@@ -1511,7 +1502,7 @@ test("DMS script runs can be cancelled and show line-number errors", async ({ pa
 test("DMS file picker and core commands produce temporary output", async ({ page }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: /choose_file_demo\.dms/ }).click();
+  await openTreeFile(page, /choose_file_demo\.dms/, "Scripts");
   await runActiveScript(page);
   const form = page.getByRole("dialog", { name: "DMS Script Form" });
   await expect(form).toBeVisible();
@@ -1521,7 +1512,7 @@ test("DMS file picker and core commands produce temporary output", async ({ page
   await expect(page.getByRole("heading", { name: "Selected" })).toBeVisible();
   await expect(page.locator(".markdown-viewer").getByText("README.md", { exact: true })).toBeVisible();
 
-  await worldTree(page).getByRole("button", { name: /core_commands\.dms/ }).click();
+  await openTreeFile(page, /core_commands\.dms/, "Scripts");
   await runActiveScript(page);
 
   await expect(page.getByRole("heading", { name: "Core Commands" })).toBeVisible();
@@ -1531,7 +1522,7 @@ test("DMS file picker and core commands produce temporary output", async ({ page
 test("DMS temporary outputs can be saved and write commands refresh the world", async ({ page }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: /core_commands\.dms/ }).click();
+  await openTreeFile(page, /core_commands\.dms/, "Scripts");
   await runActiveScript(page);
   await expect(page.getByRole("heading", { name: "Core Commands" })).toBeVisible();
   await page.getByRole("button", { name: "Save As" }).click();
@@ -1546,7 +1537,7 @@ test("DMS temporary outputs can be saved and write commands refresh the world", 
   await expect(search.getByRole("button", { name: /Saved\/core-output\.md/ })).toBeVisible();
   await page.getByRole("button", { name: "Close Search" }).click();
 
-  await worldTree(page).getByRole("button", { name: /write_notes\.dms/ }).click();
+  await openTreeFile(page, /write_notes\.dms/, "Scripts");
   await runActiveScript(page);
   await expect(page.getByRole("heading", { name: "Writes Done" })).toBeVisible();
 
@@ -1562,7 +1553,7 @@ test("DMS temporary outputs can be saved and write commands refresh the world", 
 test("DMS card writes create cards only after successful scripts", async ({ page }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: /create_card_success\.dms/ }).click();
+  await openTreeFile(page, /create_card_success\.dms/, "Scripts");
   await runActiveScript(page);
   await expect(toolsPanel(page).getByRole("button", { name: /^Scripts success/ })).toBeVisible();
   await openCardsFile(page, "DMS Quartermaster\\.cs");
@@ -1580,7 +1571,7 @@ test("DMS card writes create cards only after successful scripts", async ({ page
   ).toBeVisible();
   await page.getByRole("button", { name: "Close Search" }).click();
 
-  await worldTree(page).getByRole("button", { name: /create_card_fail\.dms/ }).click();
+  await openTreeFile(page, /create_card_fail\.dms/, "Scripts");
   await runActiveScript(page);
   await expect(
     toolsPanel(page).getByRole("region", { name: "Latest Script Run" }).getByText("error", {
@@ -1661,7 +1652,7 @@ test("named workspaces isolate tabs and survive rename reload", async ({ page })
   await expect(page.getByLabel("Select workspace")).toHaveValue(createdWorkspace.workspaceId);
   await expect(page.getByLabel("Select workspace")).toContainText(workspaceName);
 
-  await captainTreeButton(page).click();
+  await openTreeFile(page, /Captain Ilyra Captain Ilyra\.md/, "NPCs");
   await expect(page.getByRole("tab", { name: "Captain Ilyra" })).toBeVisible();
 
   await page.getByLabel("Select workspace").selectOption({ label: "Default" });
@@ -1694,7 +1685,7 @@ test("workspace split panes show two files and persist layout", async ({ page })
   await worldTree(page).getByRole("button", { name: /Sample World Guide/ }).click();
   await workspaceControls.getByRole("button", { name: "Split", exact: true }).click();
   await page.getByRole("region", { name: "Secondary viewer pane" }).click();
-  await worldTree(page).getByRole("button", { name: "random-events.csv" }).click();
+  await openTreeFile(page, "random-events.csv", "Tables");
 
   await expect(page.getByRole("region", { name: "Main viewer pane" })).toContainText(
     "Sample World Guide"
@@ -1777,7 +1768,7 @@ test("tools panel can be resized and remembers local width", async ({ page }) =>
 test("edits metadata title and refreshes tab tree and search", async ({ page }) => {
   await page.goto("/");
 
-  await captainTreeButton(page).click();
+  await openTreeFile(page, /Captain Ilyra Captain Ilyra\.md/, "NPCs");
   await openToolSection(page, "Metadata");
   const metadata = metadataTool(page);
   await metadata.getByRole("button", { name: "Edit Metadata" }).click();
@@ -1796,7 +1787,7 @@ test("edits metadata title and refreshes tab tree and search", async ({ page }) 
 test("edits metadata tags and aliases and persists after reload", async ({ page }) => {
   await page.goto("/");
 
-  await captainTreeButton(page).click();
+  await openTreeFile(page, /Captain Ilyra Captain Ilyra\.md/, "NPCs");
   await openToolSection(page, "Metadata");
   const metadata = metadataTool(page);
   await metadata.getByRole("button", { name: "Edit Metadata" }).click();
@@ -1818,7 +1809,7 @@ test("edits metadata tags and aliases and persists after reload", async ({ page 
 test("adds and removes custom metadata fields", async ({ page }) => {
   await page.goto("/");
 
-  await captainTreeButton(page).click();
+  await openTreeFile(page, /Captain Ilyra Captain Ilyra\.md/, "NPCs");
   await openToolSection(page, "Metadata");
   const metadata = metadataTool(page);
   await metadata.getByRole("button", { name: "Edit Metadata" }).click();
@@ -1836,7 +1827,7 @@ test("adds and removes custom metadata fields", async ({ page }) => {
 test("shows metadata conflict and keeps unsaved values visible", async ({ page, request }) => {
   await page.goto("/");
 
-  await captainTreeButton(page).click();
+  await openTreeFile(page, /Captain Ilyra Captain Ilyra\.md/, "NPCs");
   await openToolSection(page, "Metadata");
   const metadata = metadataTool(page);
   await metadata.getByRole("button", { name: "Edit Metadata" }).click();
@@ -1916,7 +1907,7 @@ test("shows outgoing links and backlinks in metadata panel", async ({ page }) =>
   await expect(page.getByRole("tab", { name: "random-events.csv" })).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "result" })).toBeVisible();
 
-  await captainTreeButton(page).click();
+  await openTreeFile(page, /Captain Ilyra Captain Ilyra\.md/, "NPCs");
   await openToolSection(page, "Metadata");
   const backlinks = page.getByRole("region", { name: "Backlinks" });
   await expect(backlinks.getByRole("button", { name: "Sample World Guide" })).toBeVisible();
@@ -1925,7 +1916,7 @@ test("shows outgoing links and backlinks in metadata panel", async ({ page }) =>
 test("opens CSV as a table", async ({ page }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: "random-events.csv" }).click();
+  await openTreeFile(page, "random-events.csv", "Tables");
 
   await expect(page.getByRole("tab", { name: "random-events.csv" })).toBeVisible();
   await expect(page.getByRole("columnheader", { name: "result" })).toBeVisible();
@@ -1940,7 +1931,7 @@ test("opens CSV as a table", async ({ page }) => {
 test("opens links from CSV cells", async ({ page }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: "random-events.csv" }).click();
+  await openTreeFile(page, "random-events.csv", "Tables");
   await page.locator(".table-wrap").getByRole("link", { name: "Home" }).first().click();
 
   await expect(page.getByRole("tab", { name: "Sample World Guide" })).toBeVisible();
@@ -1989,7 +1980,7 @@ test("renders LaTeX and clickable wiki-links inside CSV cells", async ({ page, r
   });
 
   await page.goto("/");
-  await worldTree(page).getByRole("button", { name: "render-cells.csv" }).click();
+  await openTreeFile(page, "render-cells.csv", "Tables");
 
   await expect(page.locator(".table-wrap .katex").first()).toBeVisible();
   await page.locator(".table-wrap").getByRole("link", { name: "Home" }).click();
@@ -2022,6 +2013,8 @@ test("opens externally added unicode markdown and resolves outgoing links", asyn
 
   await request.get("/api/pages");
   await page.goto("/");
+  await ensureTreeFolderOpen(page, "NPCs");
+  await ensureTreeFolderOpen(page, "Tavern");
   const externalButton = worldTree(page).getByRole("button", { name: /External Tavern Copy/ });
   await expect(externalButton).toBeVisible({ timeout: 10_000 });
   await externalButton.click();
@@ -2143,7 +2136,7 @@ test("live sync shows a clear state when an open file is deleted externally", as
 test("edits metadata for CSV and media files", async ({ page }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: "random-events.csv" }).click();
+  await openTreeFile(page, "random-events.csv", "Tables");
   await openToolSection(page, "Metadata");
   const metadata = metadataTool(page);
   await metadata.getByRole("button", { name: "Edit Metadata" }).click();
@@ -2155,7 +2148,7 @@ test("edits metadata for CSV and media files", async ({ page }) => {
   await expect(worldTree(page).getByText("Random Event Table")).toBeVisible();
   await expect(metadata.getByText("tables, session")).toBeVisible();
 
-  await worldTree(page).getByRole("button", { name: "sample-map.svg" }).click();
+  await openTreeFile(page, "sample-map.svg", "Media");
   await metadata.getByRole("button", { name: "Edit Metadata" }).click();
   await metadata.getByRole("textbox", { name: "Metadata title" }).fill("Tavern District Map");
   await metadata.getByRole("button", { name: "Save Metadata" }).click();
@@ -2167,7 +2160,7 @@ test("edits metadata for CSV and media files", async ({ page }) => {
 test("opens SVG media visibly", async ({ page }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: "sample-map.svg" }).click();
+  await openTreeFile(page, "sample-map.svg", "Media");
 
   await expect(page.getByRole("tab", { name: "sample-map.svg" })).toBeVisible();
   await expect(page.getByRole("img", { name: "sample-map.svg" })).toBeVisible();
@@ -2176,7 +2169,7 @@ test("opens SVG media visibly", async ({ page }) => {
 test("opens MP4 media in a video tab", async ({ page }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: "animated-map.mp4" }).click();
+  await openTreeFile(page, "animated-map.mp4", "Media");
 
   await expect(page.getByRole("tab", { name: /animated-map/ })).toBeVisible();
   await expect(page.locator('video[aria-label="animated-map.mp4"]')).toBeVisible();
@@ -2230,7 +2223,7 @@ test("player screen shows fullscreen media and DM-controlled popups @smoke", asy
   await controls.getByRole("button", { name: "Show Active Fullscreen" }).click();
   await expect(screen.getByRole("img", { name: "animated-map" })).toBeVisible();
 
-  await worldTree(page).getByRole("button", { name: "animated-map.mp4" }).click();
+  await openTreeFile(page, "animated-map.mp4", "Media");
   controls = await screenTool(page);
   await controls.getByRole("button", { name: "Show Active Fullscreen" }).click();
   const video = screen.getByLabel("animated-map");
@@ -2247,7 +2240,7 @@ test("player screen shows fullscreen media and DM-controlled popups @smoke", asy
   await expect(homePopup).toHaveClass(/screen-popup-letter/);
 
   await ensureTreeFolderOpen(page, "NPCs");
-  await captainTreeButton(page).click();
+  await openTreeFile(page, /Captain Ilyra Captain Ilyra\.md/, "NPCs");
   controls = await screenTool(page);
   await controls.getByLabel("Popup preset").selectOption("plain");
   await controls.getByRole("button", { name: "Open Active as Popup" }).click();
@@ -2270,13 +2263,13 @@ test("player screen shows fullscreen media and DM-controlled popups @smoke", asy
   controls = await screenTool(page);
   await controls.getByRole("button", { name: "Open Active as Popup" }).click();
   await expect(screen.getByRole("region", { name: "Popup Sample World Guide" })).toBeVisible();
-  await captainTreeButton(page).click();
+  await openTreeFile(page, /Captain Ilyra Captain Ilyra\.md/, "NPCs");
   controls = await screenTool(page);
   await controls.getByRole("button", { name: /Clear \+ Show/ }).click();
   await expect(screen.getByRole("heading", { name: "Captain Ilyra" })).toBeVisible();
   await expect(screen.getByRole("region", { name: "Popup Sample World Guide" })).toBeHidden();
 
-  await captainTreeButton(page).click();
+  await openTreeFile(page, /Captain Ilyra Captain Ilyra\.md/, "NPCs");
   controls = await screenTool(page);
   await controls.getByRole("button", { name: "Open Active as Popup" }).click();
   await expect(screen.getByRole("region", { name: "Popup Captain Ilyra" })).toBeVisible();
@@ -2423,7 +2416,7 @@ test("player screen fills the viewport for markdown and CSV fullscreen content",
   const viewport = screen.viewportSize();
   expect(popupBox?.width ?? 0).toBeLessThan((viewport?.width ?? 0) * 0.9);
 
-  await worldTree(page).getByRole("button", { name: "random-events.csv" }).click();
+  await openTreeFile(page, "random-events.csv", "Tables");
   controls = await screenTool(page);
   await controls.getByRole("button", { name: "Show Active Fullscreen" }).click();
   await expectViewportFilling(screen, ".screen-fullscreen .screen-table-wrap");
@@ -2439,7 +2432,7 @@ test("interactive map presents image maps with fog reveals and pins on player sc
   await page.goto("/");
 
   await ensureTreeFolderOpen(page, "Media");
-  await worldTree(page).getByRole("button", { name: /sample-map/ }).click();
+  await openTreeFile(page, /sample-map/, "Media");
   const map = await mapTool(page);
   await map.getByRole("button", { name: "Use Active Image" }).click();
   await expect(map.locator(".map-canvas-dm img")).toBeVisible();
@@ -2557,6 +2550,7 @@ test("map tool ignores stale blank refresh after loading and presenting a map", 
   const screen = await context.newPage();
   await screen.goto("/screen");
   await page.goto("/");
+  await ensureTreeFolderOpen(page, "Media");
   await expect(worldTree(page).getByRole("button", { name: /sample-map/ })).toBeVisible();
 
   let releaseStaleMapState: (() => void) | null = null;
@@ -2587,7 +2581,7 @@ test("map tool ignores stale blank refresh after loading and presenting a map", 
     await route.continue();
   });
 
-  await worldTree(page).getByRole("button", { name: /sample-map/ }).click();
+  await openTreeFile(page, /sample-map/, "Media");
   const map = await mapTool(page);
   await expect.poll(() => staleMapStateRequested).toBe(true);
   await map.getByRole("button", { name: "Use Active Image" }).click();
@@ -2637,7 +2631,7 @@ test("interactive map supports grid visibility dm pins reveal undo and measure m
   await screen.goto("/screen");
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: /sample-map/ }).click();
+  await openTreeFile(page, /sample-map/, "Media");
   const map = await mapTool(page);
   await map.getByRole("button", { name: "Use Active Image" }).click();
   await expect(map.locator(".map-canvas-dm img")).toBeVisible();
@@ -2704,7 +2698,7 @@ test("interactive map supports grid visibility dm pins reveal undo and measure m
 test("interactive map keeps canvas focus and can save and load presets", async ({ page }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: /sample-map/ }).click();
+  await openTreeFile(page, /sample-map/, "Media");
   const map = await mapTool(page);
   await map.getByRole("button", { name: "Use Active Image" }).click();
   await expect(map.locator(".map-canvas-dm img")).toBeVisible();
@@ -2861,7 +2855,7 @@ test("player screen has no DM-only controls", async ({ page }) => {
 test("shows unsupported file state", async ({ page }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: "roll.bin" }).click();
+  await openTreeFile(page, "roll.bin", "Unsupported");
 
   await expect(page.getByRole("tab", { name: "roll.bin" })).toBeVisible();
   await expect(page.getByRole("heading", { name: "Unsupported File" })).toBeVisible();
@@ -2871,7 +2865,7 @@ test("opens multiple tabs, switches, and closes the active tab", async ({ page }
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: /Sample World Guide/ }).click();
-  await worldTree(page).getByRole("button", { name: "random-events.csv" }).click();
+  await openTreeFile(page, "random-events.csv", "Tables");
   await expect(page.getByRole("tab", { name: "Sample World Guide" })).toBeVisible();
   await expect(page.getByRole("tab", { name: "random-events.csv" })).toBeVisible();
 
@@ -3184,7 +3178,7 @@ test("Prep Check opens issue sources and drops fixed issues on rerun", async ({ 
 test("opening files creates recents", async ({ page }) => {
   await page.goto("/");
 
-  await captainTreeButton(page).click();
+  await openTreeFile(page, /Captain Ilyra Captain Ilyra\.md/, "NPCs");
 
   const recent = page.getByRole("region", { name: "Recent" });
   await recent.getByRole("button", { name: /Recent/ }).click();
@@ -3194,6 +3188,7 @@ test("opening files creates recents", async ({ page }) => {
 test("favorites survive reload", async ({ page }) => {
   await page.goto("/");
 
+  await ensureTreeFolderOpen(page, "NPCs");
   const captain = await captainTreeButton(page);
   await captain.click();
   await captain.click({ button: "right" });
@@ -3212,7 +3207,7 @@ test("open tabs and active tab survive reload", async ({ page }) => {
   await page.goto("/");
 
   await worldTree(page).getByRole("button", { name: /Sample World Guide/ }).click();
-  await worldTree(page).getByRole("button", { name: "random-events.csv" }).click();
+  await openTreeFile(page, "random-events.csv", "Tables");
   await page.getByRole("tab", { name: "Sample World Guide" }).click();
 
   await page.waitForTimeout(300);
@@ -3261,7 +3256,7 @@ test("reverts markdown changes before save", async ({ page }) => {
 test("edits a CSV cell, saves, reloads, and shows persisted value", async ({ page }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: "random-events.csv" }).click();
+  await openTreeFile(page, "random-events.csv", "Tables");
   await enterEditMode(page);
   await page.getByRole("textbox", { name: "Cell 1-2" }).fill("A fog bank rolls in");
   await saveActiveDraft(page);
@@ -3275,7 +3270,7 @@ test("edits a CSV cell, saves, reloads, and shows persisted value", async ({ pag
 test("adds a CSV row and column, saves, and previews the new shape", async ({ page }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: "random-events.csv" }).click();
+  await openTreeFile(page, "random-events.csv", "Tables");
   await enterEditMode(page);
   const addColumn = page.getByRole("button", { name: "Add Column" });
   const addRow = page.getByRole("button", { name: "Add Row" });
@@ -3316,7 +3311,7 @@ test.describe("table state snapshots V1", () => {
     await screen.goto("/screen");
     await page.goto("/");
 
-    await worldTree(page).getByRole("button", { name: /effects_demo\.dms/ }).click();
+    await openTreeFile(page, /effects_demo\.dms/, "Scripts");
     await runActiveScript(page);
     await expect(toolsPanel(page).getByRole("button", { name: /Screen sample-map/ })).toBeVisible();
     const audio = await audioTool(page);
@@ -3330,16 +3325,16 @@ test.describe("table state snapshots V1", () => {
     await screenControls.getByRole("button", { name: "Blank Screen" }).click();
     await screenControls.getByRole("button", { name: "Show Active Fullscreen" }).click();
 
-    await captainTreeButton(page).click();
+    await openTreeFile(page, /Captain Ilyra Captain Ilyra\.md/, "NPCs");
     screenControls = await screenTool(page);
     await screenControls.getByLabel("Popup preset").selectOption("letter");
     await screenControls.getByRole("button", { name: "Open Active as Popup" }).click();
 
-    await worldTree(page).getByRole("button", { name: /random-events\.csv/ }).click();
+    await openTreeFile(page, /random-events\.csv/, "Tables");
     screenControls = await screenTool(page);
     await screenControls.getByRole("button", { name: "Stage Active as Popup" }).click();
 
-    await worldTree(page).getByRole("button", { name: /sample-map/ }).click();
+    await openTreeFile(page, /sample-map/, "Media");
     const map = await mapTool(page);
     const sourceLoaded = page.waitForResponse((response) =>
       response.url().includes("/api/map/source")
@@ -3745,9 +3740,10 @@ test("DMS card_template can create a computed card from a world-local template",
 }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: /create_computed_card\.dms/ }).click();
+  await openTreeFile(page, /create_computed_card\.dms/, "Scripts");
   await runActiveScript(page);
 
+  await ensureTreeFolderOpen(page, "Cards");
   await expect(worldTree(page).getByRole("button", { name: /DMS Computed Sentinel\.cs/ })).toBeVisible(
     { timeout: 10000 }
   );
@@ -3801,7 +3797,7 @@ test("computed cards work with search, peek, and player screen display", async (
 test("DMS card_template can create a card from a world-local template", async ({ page }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: /create_card_success\.dms/ }).click();
+  await openTreeFile(page, /create_card_success\.dms/, "Scripts");
   await enterEditMode(page);
   await fillCodeEditor(
     page,
@@ -3816,6 +3812,7 @@ test("DMS card_template can create a card from a world-local template", async ({
   await expect(page.locator(".editor-status")).toHaveText(/Saved|Clean/);
   await runActiveScript(page);
 
+  await ensureTreeFolderOpen(page, "Cards");
   await expect(worldTree(page).getByRole("button", { name: /DMS Contact\.cs/ })).toBeVisible({
     timeout: 10000
   });
@@ -3827,7 +3824,7 @@ test("DMS card_template can create a card from a world-local template", async ({
 test("DMS card_template can create a V2 card from a world-local template", async ({ page }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: /create_card_success\.dms/ }).click();
+  await openTreeFile(page, /create_card_success\.dms/, "Scripts");
   await enterEditMode(page);
   await fillCodeEditor(
     page,
@@ -3846,6 +3843,7 @@ test("DMS card_template can create a V2 card from a world-local template", async
   await expect(page.locator(".editor-status")).toHaveText(/Saved|Clean/);
   await runActiveScript(page);
 
+  await ensureTreeFolderOpen(page, "Cards");
   await expect(worldTree(page).getByRole("button", { name: /DMS V2 Scout\.cs/ })).toBeVisible({
     timeout: 10000
   });
@@ -4079,6 +4077,7 @@ test("renames markdown and keeps the tab at the new path", async ({ page }) => {
 test("moves CSV to trash and removes it from tree and search", async ({ page }) => {
   await page.goto("/");
 
+  await ensureTreeFolderOpen(page, "Tables");
   const csv = worldTree(page).getByRole("button", { name: "random-events.csv" });
   await csv.click();
   await csv.click({ button: "right" });
@@ -4097,6 +4096,7 @@ test("moves CSV to trash and removes it from tree and search", async ({ page }) 
 test("trash manager restores and permanently deletes trashed files", async ({ page }) => {
   await page.goto("/");
 
+  await ensureTreeFolderOpen(page, "Tables");
   let csv = worldTree(page).getByRole("button", { name: "random-events.csv" });
   await csv.click();
   await csv.click({ button: "right" });
@@ -4158,14 +4158,14 @@ test("renames after live external save refreshes preconditions", async ({
 test("media and unsupported files stay read-only", async ({ page }) => {
   await page.goto("/");
 
-  await worldTree(page).getByRole("button", { name: "sample-map.svg" }).click();
+  await openTreeFile(page, "sample-map.svg", "Media");
   await expect(page.locator(".editor-toolbar")).toHaveCount(0);
   await expect(page.locator("img[alt='sample-map.svg']")).toBeVisible();
   await expect(page.getByRole("textbox", { name: "Markdown editor" })).toHaveCount(0);
   await openToolSection(page, "Metadata");
   await expect(page.getByRole("button", { name: "Edit Metadata" })).toBeVisible();
 
-  await worldTree(page).getByRole("button", { name: "roll.bin" }).click();
+  await openTreeFile(page, "roll.bin", "Unsupported");
   await expect(page.getByRole("heading", { name: "Unsupported File" })).toBeVisible();
   await expect(page.locator(".editor-toolbar")).toHaveCount(0);
   await expect(page.getByRole("textbox", { name: "Markdown editor" })).toHaveCount(0);
