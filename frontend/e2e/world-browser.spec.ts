@@ -960,13 +960,14 @@ test("world selector switches worlds and records recent worlds", async ({ page }
 test("open folder dialog and add new world work from the world library", async ({ page }) => {
   await page.goto("/");
 
-  await page.getByRole("button", { name: "Open Folder" }).click();
+  const worldPanelActions = page.locator(".panel-actions-row");
+  await worldPanelActions.getByRole("button", { name: "Open", exact: true }).click();
   let dialog = page.getByRole("dialog", { name: "Open Folder as World" });
   await expect(dialog.getByRole("button", { name: /^Side World/ })).toBeVisible();
   await dialog.getByRole("button", { name: /^Side World/ }).click();
   await expect(worldTree(page).getByRole("button", { name: /Side World Home/ })).toBeVisible();
 
-  await page.getByRole("button", { name: "New World" }).click();
+  await worldPanelActions.getByRole("button", { name: "New", exact: true }).click();
   dialog = page.getByRole("dialog", { name: "Add New World" });
   await dialog.getByLabel("World name").fill("Fresh Realm");
   await dialog.getByRole("button", { name: "Create World" }).click();
@@ -1772,7 +1773,7 @@ test("edits metadata title and refreshes tab tree and search", async ({ page }) 
   await openToolSection(page, "Metadata");
   const metadata = metadataTool(page);
   await metadata.getByRole("button", { name: "Edit Metadata" }).click();
-  await metadata.getByRole("textbox", { name: "Metadata title" }).fill("Captain Ilyra Prime");
+  await metadata.getByRole("textbox", { name: "Title" }).fill("Captain Ilyra Prime");
   await metadata.getByRole("button", { name: "Save Metadata" }).click();
 
   await expect(page.getByRole("tab", { name: "Captain Ilyra Prime" })).toBeVisible();
@@ -1792,10 +1793,10 @@ test("edits metadata tags and aliases and persists after reload", async ({ page 
   const metadata = metadataTool(page);
   await metadata.getByRole("button", { name: "Edit Metadata" }).click();
   await metadata
-    .getByRole("textbox", { name: "Metadata tags" })
+    .getByRole("textbox", { name: "Tags" })
     .fill("city-watch, ally, quest-hook");
   await metadata
-    .getByRole("textbox", { name: "Metadata aliases" })
+    .getByRole("textbox", { name: "Aliases" })
     .fill("Ilyra, Watch Captain, Gate Captain");
   await metadata.getByRole("button", { name: "Save Metadata" }).click();
   await page.waitForTimeout(300);
@@ -1832,7 +1833,7 @@ test("shows metadata conflict and keeps unsaved values visible", async ({ page, 
   const metadata = metadataTool(page);
   await metadata.getByRole("button", { name: "Edit Metadata" }).click();
   await metadata
-    .getByRole("textbox", { name: "Metadata title" })
+    .getByRole("textbox", { name: "Title" })
     .fill("Unsaved Metadata Title");
 
   const current = await (
@@ -1849,7 +1850,7 @@ test("shows metadata conflict and keeps unsaved values visible", async ({ page, 
   await metadata.getByRole("button", { name: "Save Metadata" }).click();
 
   await expect(metadata.getByText("World file changed on disk.")).toBeVisible();
-  await expect(metadata.getByRole("textbox", { name: "Metadata title" })).toHaveValue(
+  await expect(metadata.getByRole("textbox", { name: "Title" })).toHaveValue(
     "Unsaved Metadata Title"
   );
 });
@@ -2140,8 +2141,8 @@ test("edits metadata for CSV and media files", async ({ page }) => {
   await openToolSection(page, "Metadata");
   const metadata = metadataTool(page);
   await metadata.getByRole("button", { name: "Edit Metadata" }).click();
-  await metadata.getByRole("textbox", { name: "Metadata title" }).fill("Random Event Table");
-  await metadata.getByRole("textbox", { name: "Metadata tags" }).fill("tables, session");
+  await metadata.getByRole("textbox", { name: "Title" }).fill("Random Event Table");
+  await metadata.getByRole("textbox", { name: "Tags" }).fill("tables, session");
   await metadata.getByRole("button", { name: "Save Metadata" }).click();
 
   await expect(page.getByRole("tab", { name: "Random Event Table" })).toBeVisible();
@@ -2150,7 +2151,7 @@ test("edits metadata for CSV and media files", async ({ page }) => {
 
   await openTreeFile(page, "sample-map.svg", "Media");
   await metadata.getByRole("button", { name: "Edit Metadata" }).click();
-  await metadata.getByRole("textbox", { name: "Metadata title" }).fill("Tavern District Map");
+  await metadata.getByRole("textbox", { name: "Title" }).fill("Tavern District Map");
   await metadata.getByRole("button", { name: "Save Metadata" }).click();
 
   await expect(page.getByRole("tab", { name: "Tavern District Map" })).toBeVisible();
@@ -2181,13 +2182,13 @@ test("opens searches and persists PDF materials", async ({ page }) => {
   await openPdfFixture(page);
 
   await expect(page.getByRole("tab", { name: "session-handout.pdf" })).toBeVisible();
-  await expect(page.locator('iframe[aria-label="session-handout.pdf"]')).toBeVisible();
+  await expect(page.locator('canvas[aria-label="session-handout.pdf"]')).toBeVisible();
 
   await openToolSection(page, "Metadata");
   const metadata = metadataTool(page);
   await metadata.getByRole("button", { name: "Edit Metadata" }).click();
-  await metadata.getByRole("textbox", { name: "Metadata title" }).fill("Session Handout");
-  await metadata.getByRole("textbox", { name: "Metadata tags" }).fill("handout, pdf");
+  await metadata.getByRole("textbox", { name: "Title" }).fill("Session Handout");
+  await metadata.getByRole("textbox", { name: "Tags" }).fill("handout, pdf");
   await metadata.getByRole("button", { name: "Save Metadata" }).click();
   await expect(page.getByRole("tab", { name: "Session Handout" })).toBeVisible();
 
@@ -3313,7 +3314,9 @@ test.describe("table state snapshots V1", () => {
 
     await openTreeFile(page, /effects_demo\.dms/, "Scripts");
     await runActiveScript(page);
-    await expect(toolsPanel(page).getByRole("button", { name: /Screen sample-map/ })).toBeVisible();
+    await expect(
+      toolsPanel(page).getByRole("button", { name: /Screen Players currently see: Fullscreen - sample-map/ })
+    ).toBeVisible();
     const audio = await audioTool(page);
     const effectBus = audio.getByRole("region", { name: "Effect Bus" });
     await expect(effectBus.locator(".audio-bus-heading").getByText("broken-glass")).toBeVisible();
@@ -3369,7 +3372,7 @@ test.describe("table state snapshots V1", () => {
     await screenControls.getByRole("tab", { name: "Display" }).click();
     await screenControls.getByRole("button", { name: "Blank Screen" }).click();
     const mapAfterSnapshot = await mapTool(page);
-    await mapAfterSnapshot.getByRole("button", { name: "Stop Map" }).click();
+    await expect(mapAfterSnapshot.getByRole("button", { name: "Stop Map" })).toBeDisabled();
     await expect(screen.locator(".screen-map")).toBeHidden();
     await expect(screen.getByRole("region", { name: "Popup Captain Ilyra" })).toBeHidden();
     const audioAfterChanges = await audioTool(page);

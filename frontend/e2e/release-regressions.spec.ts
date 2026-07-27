@@ -558,6 +558,7 @@ test("Russian layout has no targeted English leftovers or clipped shell labels",
   await page.setViewportSize({ width: 1366, height: 768 });
   await page.goto("/");
   await switchToRussian(page);
+  await expect(page.getByRole("navigation", { name: "Файлы мира" })).toBeVisible();
 
   const shellText = await page.locator(".app-shell").innerText();
 
