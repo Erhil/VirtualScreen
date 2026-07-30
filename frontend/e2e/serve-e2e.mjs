@@ -1,5 +1,5 @@
 import { spawn } from "node:child_process";
-import { existsSync, mkdirSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, openSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import process from "node:process";
 import { fileURLToPath } from "node:url";
@@ -10,6 +10,7 @@ const backendDir = resolve(repoRoot, "backend");
 const stateDir = resolve(repoRoot, ".virtualscreen");
 const e2eWorldsDir = resolve(stateDir, "e2e-worlds");
 const e2eWorldRoot = resolve(e2eWorldsDir, "E2E World");
+const logDir = resolve(stateDir, "e2e-logs");
 const pidFile = resolve(stateDir, "e2e-pids.json");
 const stopMarker = resolve(stateDir, "e2e-stop");
 const pythonExecutable = existsSync(resolve(repoRoot, ".venv", "Scripts", "python.exe"))
@@ -36,16 +37,20 @@ const frontendCommand =
 
 mkdirSync(stateDir, { recursive: true });
 mkdirSync(e2eWorldRoot, { recursive: true });
+mkdirSync(logDir, { recursive: true });
 rmSync(stopMarker, { force: true });
 
 const children = [];
 let failed = false;
 
 function startChild(name, command, args, options) {
+  // These used to be "ignore", which discarded the backend traceback behind every
+  // 500 an e2e test hit. Keep both streams on disk so a failure can be explained.
+  const logFd = openSync(resolve(logDir, `${name}.log`), "w");
   const child = spawn(command, args, {
     ...options,
     env: options.env,
-    stdio: "ignore",
+    stdio: ["ignore", logFd, logFd],
     detached: true,
     windowsHide: true
   });
