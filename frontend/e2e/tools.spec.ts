@@ -44,6 +44,15 @@ test("search finds aliases and tags", async ({ page }) => {
   ).toBeVisible();
 });
 
+test("Escape closes the search dialog", async ({ page }) => {
+  await page.goto("/");
+
+  const search = await searchTool(page);
+  await expect(search).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(search).toBeHidden();
+});
+
 test("capture dialog stays closed until opened", async ({ page }) => {
   await page.goto("/");
 
