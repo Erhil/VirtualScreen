@@ -1,5 +1,6 @@
 import hashlib
 import json
+import os
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
@@ -199,13 +200,29 @@ def parse_page(root: Path, path: Path) -> PageData:
     )
 
 
+def _walk_world(root: Path) -> list[Path]:
+    # A world folder is live: directories can vanish between being listed and being
+    # visited (external edits, folder sync, a world being replaced). os.walk skips
+    # what it can no longer read, whereas one FileNotFoundError kills a
+    # pathlib.rglob generator and with it the whole rebuild.
+    paths: list[Path] = []
+    for directory, subdirectories, files in os.walk(root):
+        base = Path(directory)
+        paths.extend(base / name for name in subdirectories)
+        paths.extend(base / name for name in files)
+    return paths
+
+
 def scan_pages(root: Path) -> list[PageData]:
     if not root.exists():
         return []
 
     pages: list[PageData] = []
     ignored_names = {".music", ".virtualscreen", ".git", "__pycache__"}
-    for path in sorted(root.rglob("*"), key=lambda item: item.relative_to(root).as_posix().lower()):
+    def sort_key(item: Path) -> str:
+        return item.relative_to(root).as_posix().lower()
+
+    for path in sorted(_walk_world(root), key=sort_key):
         if any(part in ignored_names for part in path.relative_to(root).parts):
             continue
         if _has_link_or_reparse_part(root, path):
