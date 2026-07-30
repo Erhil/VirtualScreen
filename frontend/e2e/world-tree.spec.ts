@@ -264,6 +264,24 @@ test("world selector switches worlds and records recent worlds", async ({ page }
   await expect(worldTree(page).getByText("Sample World Guide")).toBeVisible();
 });
 
+test("a failed world switch reports why, not just that it failed", async ({ page }) => {
+  await page.goto("/");
+  await expect(worldTree(page).getByText("Sample World Guide")).toBeVisible();
+
+  await page.route("**/api/worlds/open", async (route) => {
+    await route.fulfill({ status: 503, contentType: "application/json", body: "{}" });
+  });
+
+  await page.getByLabel("Select world").selectOption("Side World");
+
+  // The headline alone is not enough: without the cause a user (and a failing
+  // e2e run) cannot tell a locked world from a crashed backend.
+  const failure = worldTree(page).getByRole("alert");
+  await expect(failure).toContainText("Could not load world.");
+  await expect(failure).toContainText("503");
+  await expect(failure).toContainText("/api/worlds/open");
+});
+
 test("open folder dialog and add new world work from the world library", async ({ page }) => {
   await page.goto("/");
 

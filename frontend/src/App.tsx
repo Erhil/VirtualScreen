@@ -487,7 +487,11 @@ import {
   type ContextHelpTopic
 } from "./lib/contextHelp";
 
-type LoadState = "idle" | "loading" | "ready" | "error";
+type LoadState =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "ready" }
+  | { status: "error"; message: string };
 type AuthGateState =
   | { status: "checking" }
   | { status: "unlocked"; auth: AuthStatus }
@@ -1186,6 +1190,12 @@ function assistantSavedCardContent(
 
 function systemPackErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : "System pack import failed.";
+}
+
+// A failed world load used to render a bare "Could not load world." with the cause
+// discarded, which left both users and failing e2e runs with nothing to act on.
+function worldLoadErrorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function isCardPath(path: string, extension?: string | null): boolean {
@@ -7912,7 +7922,7 @@ export function App() {
   const contextHelpReturnFocusRef = useRef<HTMLElement | null>(null);
   const lastHelpContextRef = useRef<string | null>(null);
   const [authState, setAuthState] = useState<AuthGateState>({ status: "checking" });
-  const [loadState, setLoadState] = useState<LoadState>("idle");
+  const [loadState, setLoadState] = useState<LoadState>({ status: "idle" });
   const [worldLibrary, setWorldLibrary] = useState<WorldLibraryState | null>(null);
   const [worldTree, setWorldTree] = useState<WorldEntry | null>(null);
   const [pages, setPages] = useState<PageSummary[]>([]);
@@ -8204,7 +8214,7 @@ export function App() {
     async function loadStatus() {
       const fastSlotsRevisionAtStart = fastSlotsRevision.current;
       const hpRevisionAtStart = hpEditVersionRef.current;
-      setLoadState("loading");
+      setLoadState({ status: "loading" });
       try {
         const [
           nextWorldLibrary,
@@ -8265,10 +8275,11 @@ export function App() {
         );
         setExpandedPaths(new Set([""]));
         setWorkspaceReady(true);
-        setLoadState("ready");
-      } catch {
+        setLoadState({ status: "ready" });
+      } catch (error) {
+        console.error("Loading the world failed", error);
         if (mounted) {
-          setLoadState("error");
+          setLoadState({ status: "error", message: worldLoadErrorMessage(error) });
         }
       }
     }
@@ -11416,7 +11427,7 @@ export function App() {
   }
 
   function prepareWorldSwitch() {
-    setLoadState("loading");
+    setLoadState({ status: "loading" });
     setWorkspaceReady(false);
     setToolPanelState(createToolPanelState());
     setSearchQuery("");
@@ -11515,7 +11526,7 @@ export function App() {
     setExpandedPaths(new Set([""]));
     setWorkspaceReady(true);
     setSearchRevision((revision) => revision + 1);
-    setLoadState("ready");
+    setLoadState({ status: "ready" });
   }
 
   async function handleOpenWorld(worldId: string) {
@@ -11526,8 +11537,9 @@ export function App() {
     try {
       const nextWorldLibrary = await openWorld(worldId);
       await finishWorldSwitch(nextWorldLibrary);
-    } catch {
-      setLoadState("error");
+    } catch (error) {
+      console.error(`Switching to world "${worldId}" failed`, error);
+      setLoadState({ status: "error", message: worldLoadErrorMessage(error) });
     }
   }
 
@@ -12506,8 +12518,11 @@ export function App() {
             </button>
           </div>
           {worldTreeStatus && <p className="world-tree-status">{worldTreeStatus}</p>}
-          {loadState === "error" ? (
-            <p className="load-error">{t("side.couldNotLoadWorld")}</p>
+          {loadState.status === "error" ? (
+            <div className="load-error" role="alert">
+              <p>{t("side.couldNotLoadWorld")}</p>
+              <p className="load-error-reason">{loadState.message}</p>
+            </div>
           ) : worldTree ? (
             <ul>
               <WorldTree

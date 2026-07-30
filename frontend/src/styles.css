@@ -291,6 +291,18 @@ select {
   padding: 8px;
 }
 
+.load-error p {
+  margin: 0;
+}
+
+/* The failure cause is raw text from the API, so let it wrap instead of overflowing. */
+.load-error-reason {
+  font-size: 0.85em;
+  margin-top: 4px;
+  opacity: 0.85;
+  overflow-wrap: anywhere;
+}
+
 .world-tree {
   min-height: 0;
   overflow: auto;
