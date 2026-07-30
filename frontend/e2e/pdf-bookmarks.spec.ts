@@ -2,7 +2,11 @@ import { expect, test } from "@playwright/test";
 import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
-import { copySampleWorldSeed, resetWorldDirectory } from "./world-fixtures";
+import {
+  copySampleWorldSeed,
+  removeWorldPath,
+  resetWorldDirectory
+} from "./world-fixtures";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(currentDir, "../..");
@@ -46,7 +50,7 @@ function resetPdfWorld() {
   mkdirSync(e2eWorldsRoot, { recursive: true });
   for (const entry of readdirSync(e2eWorldsRoot)) {
     if (entry !== "E2E World") {
-      rmSync(resolve(e2eWorldsRoot, entry), { force: true, recursive: true });
+      removeWorldPath(resolve(e2eWorldsRoot, entry));
     }
   }
   resetWorldDirectory(e2eWorld);

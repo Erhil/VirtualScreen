@@ -6,6 +6,7 @@ import { fileURLToPath } from "node:url";
 import {
   copySampleWorldSeed,
   createSystemPackArchive,
+  removeWorldPath,
   resetWorldDirectory
 } from "./world-fixtures";
 
@@ -24,7 +25,7 @@ function resetE2eWorld() {
   mkdirSync(e2eWorldsRoot, { recursive: true });
   for (const entry of readdirSync(e2eWorldsRoot)) {
     if (entry !== "E2E World" && entry !== "Side World") {
-      rmSync(resolve(e2eWorldsRoot, entry), { force: true, recursive: true });
+      removeWorldPath(resolve(e2eWorldsRoot, entry));
     }
   }
 

@@ -47,6 +47,16 @@ function shouldCopySeedPath(relativePath: string): boolean {
   return seedFiles.some((seedFile) => seedFile === relativePath || seedFile.startsWith(`${relativePath}/`));
 }
 
+/**
+ * Windows refuses a delete with EPERM while another process still holds the
+ * file open - here the backend, which keeps the watcher and the index database
+ * on whichever world is active and releases them only after switching away. rmSync's own retries ride out that transient lock; without
+ * them a world reset fails intermittently and takes the whole test with it.
+ */
+export function removeWorldPath(path: string) {
+  rmSync(path, { force: true, recursive: true, maxRetries: 40, retryDelay: 100 });
+}
+
 export function copySampleWorldSeed(sampleWorld: string, targetWorld: string) {
   cpSync(sampleWorld, targetWorld, {
     recursive: true,
@@ -68,11 +78,11 @@ export function resetWorldDirectory(worldPath: string) {
             if (stateEntry.startsWith("virtualscreen.sqlite3")) {
               continue;
             }
-            rmSync(resolve(statePath, stateEntry), { force: true, recursive: true });
+            removeWorldPath(resolve(statePath, stateEntry));
           }
           continue;
         }
-        rmSync(resolve(worldPath, entry), { force: true, recursive: true });
+        removeWorldPath(resolve(worldPath, entry));
       }
       break;
     } catch (error) {
