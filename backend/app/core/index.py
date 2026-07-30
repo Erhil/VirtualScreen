@@ -350,6 +350,11 @@ def ensure_page_indexed(root: Path, file_path: Path) -> PageData:
         indexed_page is None
         or indexed_page.hash != current_page.hash
         or indexed_page.modified_at != current_page.modified_at
+        # A CSV or media page keeps its metadata in a sidecar, so editing it
+        # changes neither the file's hash nor its mtime. Without this the index
+        # can hold a stale copy forever: the freshly parsed metadata is the
+        # authority, and _json_dump is the same canonical form the index stores.
+        or _json_dump(indexed_page.metadata) != _json_dump(current_page.metadata)
     ):
         refresh_index(root, changed_paths=[current_page.path])
         return get_indexed_page(root, current_page.path) or current_page

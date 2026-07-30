@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 
 import frontmatter
@@ -186,6 +187,31 @@ def test_metadata_update_writes_sidecar_metadata_for_csv_and_media(tmp_path: Pat
     assert image_response.status_code == 200
     assert image_response.json()["page"]["title"] == "Harbor Map"
     assert (world / ".virtualscreen/metadata/image.png.json").exists()
+
+
+def test_sidecar_edited_outside_the_api_is_picked_up_on_the_next_read(tmp_path: Path) -> None:
+    # A sidecar edit changes neither the file's hash nor its mtime, so the index
+    # has no signal that the page went stale. It can be rewritten by anything the
+    # app does not go through: folder sync, a backup restore, or a full rebuild
+    # that raced an API write. Reading the page must not report the old metadata.
+    world = tmp_path / "world"
+    world.mkdir()
+    (world / "table.csv").write_text("result,event\n1,Fog bank\n", encoding="utf-8")
+    client = make_client(world)
+
+    assert client.get("/api/page", params={"path": "table.csv"}).json()["fields"] == {}
+
+    sidecar = world / ".virtualscreen" / "metadata" / "table.csv.json"
+    sidecar.parent.mkdir(parents=True, exist_ok=True)
+    sidecar.write_text(
+        json.dumps({"title": "Harbor Encounters", "fields": {"Status": "Done"}}),
+        encoding="utf-8",
+    )
+
+    page = client.get("/api/page", params={"path": "table.csv"}).json()
+
+    assert page["fields"] == {"Status": "Done"}
+    assert page["title"] == "Harbor Encounters"
 
 
 def test_metadata_update_accepts_frontend_csv_payload_with_optional_lists(

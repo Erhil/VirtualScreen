@@ -261,7 +261,10 @@ test("folder kanban groups direct files, persists metadata moves, and creates a 
     // status is read back through the index, which is refreshed asynchronously
     // after the write, so this needs more room than the default poll timeout.
     await expect
-      .poll(async () => statusField(await pageFields(request, path)), { timeout: 15000 })
+      .poll(async () => statusField(await pageFields(request, path)), {
+        timeout: 15000,
+        message: `${path} never reported Status=Done`
+      })
       .toBe("Done");
   }
 
