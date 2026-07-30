@@ -2877,16 +2877,21 @@ td {
 .peek-dialog .table-wrap,
 .peek-dialog .text-viewer,
 .peek-dialog .media-viewer,
-.peek-dialog .pdf-viewer {
+.peek-dialog .pdf-viewer,
+.peek-dialog .card-surface {
   min-height: 0;
 }
 
+/* The peek dialog itself is overflow: hidden, so whichever viewer FileViewer
+   renders as its grid child has to do the scrolling. Structured cards render as
+   .card-surface; without it here a tall card is clipped with no scrollbar. */
 .peek-dialog > .viewer-surface,
 .peek-dialog > .markdown-viewer,
 .peek-dialog > .table-wrap,
 .peek-dialog > .text-viewer,
 .peek-dialog > .media-viewer,
 .peek-dialog > .pdf-viewer,
+.peek-dialog > .card-surface,
 .peek-dialog > .empty-surface {
   overflow: auto;
 }
