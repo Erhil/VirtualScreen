@@ -318,6 +318,7 @@ import {
   planWorldEventUpdate,
   type WorldEvent
 } from "./lib/liveSync";
+import { isLocalWrite, markLocalWrite, unmarkLocalWrite } from "./lib/localWrites";
 import {
   createDisplayEventClient,
   hasResidualPopupsAfterBlank,
@@ -2928,6 +2929,7 @@ function FolderKanbanView({
     }
     const path = kanbanCardPath(tab.path, name);
     setStatus({ status: "saving", message: null });
+    markLocalWrite([path]);
     try {
       const file = await createWorldFile({
         path,
@@ -2940,6 +2942,7 @@ function FolderKanbanView({
       setCardNames((names) => ({ ...names, [columnValue]: "" }));
       setStatus({ status: "ready", message: t("kanban.created", { path: file.path }) });
     } catch (error: unknown) {
+      unmarkLocalWrite([path]);
       setStatus({
         status: "error",
         message: error instanceof Error ? error.message : t("kanban.createError")
@@ -3652,6 +3655,11 @@ function SettingsDialog({
         file: packState.file,
         decisions: packState.decisions
       });
+      markLocalWrite(
+        summary.files
+          .filter((file) => ["imported", "overwritten", "renamed"].includes(file.status))
+          .map((file) => file.target_path)
+      );
       await onImportComplete(summary);
       setPackState((state) => ({
         ...state,
@@ -8825,7 +8833,6 @@ export function App() {
     activeTab,
     tabState
   });
-  const localWritePathsRef = useRef<Set<string>>(new Set());
   syncStateRef.current = {
     activeContentDirty,
     activeDraft,
@@ -8835,37 +8842,9 @@ export function App() {
     tabState
   };
 
-  function markLocalWrite(paths: string[]) {
-    for (const path of paths) {
-      localWritePathsRef.current.add(path);
-    }
-    window.setTimeout(() => {
-      for (const path of paths) {
-        localWritePathsRef.current.delete(path);
-      }
-    }, 15000);
-  }
-
-  function unmarkLocalWrite(paths: string[]) {
-    for (const path of paths) {
-      localWritePathsRef.current.delete(path);
-    }
-  }
-
   function discardLocalWriteEvent(event: WorldEvent): WorldEvent | null {
-    const localPaths = localWritePathsRef.current;
-    const paths = event.paths.filter((path) => {
-      if (localPaths.has(path)) {
-        return false;
-      }
-      return true;
-    });
-    const deletedPaths = event.deleted_paths.filter((path) => {
-      if (localPaths.has(path)) {
-        return false;
-      }
-      return true;
-    });
+    const paths = event.paths.filter((path) => !isLocalWrite(path));
+    const deletedPaths = event.deleted_paths.filter((path) => !isLocalWrite(path));
 
     if (paths.length === 0 && deletedPaths.length === 0) {
       return null;
@@ -8928,7 +8907,7 @@ export function App() {
       if (!currentDraft) {
         return { ...drafts, [file.path]: createEditorDraft(file) };
       }
-      if (localWritePathsRef.current.has(file.path)) {
+      if (isLocalWrite(file.path)) {
         return drafts;
       }
       if (currentDraft.status === "saving" || currentDraft.status === "saved") {
@@ -10354,6 +10333,7 @@ export function App() {
     setDmsOutputSaveDialog((state) =>
       state.open ? { ...state, status: "submitting", error: null } : state
     );
+    markLocalWrite([path]);
     try {
       const createdFile = await createWorldFile({
         path,
@@ -10383,6 +10363,7 @@ export function App() {
       );
       setDmsOutputSaveDialog({ open: false });
     } catch (error: unknown) {
+      unmarkLocalWrite([path]);
       setDmsOutputSaveDialog((state) =>
         state.open
           ? { ...state, status: "idle", error: managementErrorMessage(error) }
@@ -11741,6 +11722,7 @@ export function App() {
         category: submittedDraft.category,
         text: submittedDraft.text
       });
+      markLocalWrite([response.path]);
       const nextPages = await refreshWorldStructure([response.path]);
       setExpandedPaths((paths) => revealWorldTreePaths(paths, [response.path]));
       const logTab = captureLogTab(response.path, nextPages);
