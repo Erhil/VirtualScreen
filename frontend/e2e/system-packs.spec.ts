@@ -20,7 +20,7 @@ function resetE2eWorld() {
   mkdirSync(e2eWorldsRoot, { recursive: true });
   for (const entry of readdirSync(e2eWorldsRoot)) {
     if (entry !== "E2E World") {
-      rmSync(resolve(e2eWorldsRoot, entry), { force: true, recursive: true });
+      rmSync(resolve(e2eWorldsRoot, entry), { force: true, recursive: true, maxRetries: 10, retryDelay: 100 });
     }
   }
   resetWorldDirectory(e2eWorld);
@@ -41,12 +41,14 @@ function worldTree(page: Page) {
 }
 
 function removeImportedPackFiles() {
-  rmSync(resolve(e2eWorld, "Cards", "E2E Pack Card.cs"), { force: true });
-  rmSync(resolve(e2eWorld, "Tables", "e2e-pack-table.csv"), { force: true });
-  rmSync(resolve(e2eWorld, "Media", "e2e-pack-map.svg"), { force: true });
-  rmSync(resolve(e2eWorld, ".music", "ambient", "E2E Pack"), { force: true, recursive: true });
+  rmSync(resolve(e2eWorld, "Cards", "E2E Pack Card.cs"), { force: true, maxRetries: 10, retryDelay: 100 });
+  rmSync(resolve(e2eWorld, "Tables", "e2e-pack-table.csv"), { force: true, maxRetries: 10, retryDelay: 100 });
+  rmSync(resolve(e2eWorld, "Media", "e2e-pack-map.svg"), { force: true, maxRetries: 10, retryDelay: 100 });
+  rmSync(resolve(e2eWorld, ".music", "ambient", "E2E Pack"), { force: true, recursive: true, maxRetries: 10, retryDelay: 100 });
   rmSync(resolve(e2eWorld, ".virtualscreen", "card-templates", "e2e-pack-template.json"), {
-    force: true
+    force: true,
+    maxRetries: 10,
+    retryDelay: 100
   });
 }
 
@@ -63,8 +65,11 @@ async function openSettings(page: Page) {
 async function openPackPreview(page: Page, archivePath: string) {
   const dialog = await openSettings(page);
   await dialog.locator("input[type='file']").setInputFiles(archivePath);
+  // Wait for the parsed pack's own heading, not an alternation that also matches
+  // the dialog's "Import Pack" title - once the preview renders, both are present
+  // and the locator resolves to two elements.
   await expect(
-    dialog.getByRole("heading", { name: /E2E Content Pack|Harbor Starter Pack|Import Pack|Импорт набора/ })
+    dialog.getByRole("heading", { name: /E2E Content Pack|Harbor Starter Pack/ })
   ).toBeVisible();
   return dialog;
 }
