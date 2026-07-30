@@ -1,5 +1,6 @@
 import json
 import os
+import shutil
 import sqlite3
 from pathlib import Path
 
@@ -158,6 +159,27 @@ def test_schema_initialization_is_idempotent(tmp_path: Path) -> None:
     initialize_database(world).close()
 
     assert database_path(world).exists()
+
+
+def test_schema_is_rebuilt_after_the_world_directory_is_replaced(tmp_path: Path) -> None:
+    # A world folder can be deleted and restored under a running server (sync,
+    # backup restore, e2e fixtures). The second initialize_database must not
+    # assume the schema survived just because this process built it once.
+    world = tmp_path / "world"
+    world.mkdir()
+    initialize_database(world).close()
+
+    shutil.rmtree(world)
+    world.mkdir()
+
+    conn = initialize_database(world)
+    try:
+        rows = conn.execute("select name from sqlite_master where type = 'table'").fetchall()
+        tables = {row["name"] for row in rows}
+    finally:
+        conn.close()
+
+    assert {"pages", "links", "named_workspaces"} <= tables
 
 
 def test_rebuild_index_ignores_virtualscreen_directory(tmp_path: Path) -> None:

@@ -6,8 +6,16 @@ from pathlib import Path
 DATABASE_DIR = ".virtualscreen"
 DATABASE_NAME = "virtualscreen.sqlite3"
 
-_initialized_paths: set[Path] = set()
+# Bump whenever initialize_database gains DDL or a migration that existing
+# databases must pick up.
+SCHEMA_VERSION = 1
+
 _init_lock = threading.Lock()
+
+
+def _schema_version(conn: sqlite3.Connection) -> int:
+    row = conn.execute("pragma user_version").fetchone()
+    return int(row[0]) if row is not None else 0
 
 
 def _legacy_snapshot_value(raw_value: object, fallback: object) -> object:
@@ -67,10 +75,14 @@ def connect_database(root: Path) -> sqlite3.Connection:
 
 def initialize_database(root: Path) -> sqlite3.Connection:
     conn = connect_database(root)
-    db_path = database_path(root).resolve()
-    if db_path not in _initialized_paths:
+    # The "already initialized" marker lives in the database file, not in process
+    # memory. A world directory can be deleted, restored, or replaced under a
+    # running server (sync, backup restore, test fixtures); an in-memory cache
+    # would then skip the DDL against the new empty file and leave every query
+    # failing with "no such table".
+    if _schema_version(conn) < SCHEMA_VERSION:
         with _init_lock:
-            if db_path not in _initialized_paths:
+            if _schema_version(conn) < SCHEMA_VERSION:
                 conn.executescript(
                     """
         create table if not exists app_meta (
@@ -206,6 +218,6 @@ def initialize_database(root: Path) -> sqlite3.Connection:
                         "alter table pages add column content_hash text not null default ''"
                     )
                 _migrate_table_snapshots(conn)
+                conn.execute(f"pragma user_version = {SCHEMA_VERSION}")
                 conn.commit()
-                _initialized_paths.add(db_path)
     return conn
