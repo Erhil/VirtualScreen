@@ -429,10 +429,13 @@ def refresh_index_for_disk_changes(root: Path) -> RebuildResult:
     disk_paths = _indexable_disk_paths(root)
     changed_paths: list[str] = []
     for path in sorted(disk_paths, key=str.lower):
-        file_path = resolve_under_root(root, path)
         try:
-            stat = file_path.stat()
-        except OSError:
+            # A file deleted between the listing above and this line resolves to
+            # wherever the filesystem parked it - on NTFS that is a pending-delete
+            # folder outside the world - which reads as an escape. It is simply
+            # gone, and one gone file must not fail the whole refresh.
+            stat = resolve_under_root(root, path).stat()
+        except (OSError, WorldPathError):
             continue
         indexed_page = indexed_pages.get(path)
         if (

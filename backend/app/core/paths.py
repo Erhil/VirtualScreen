@@ -70,17 +70,42 @@ def normalize_relative_path(raw_path: str | Path) -> str:
     return "/".join(parts)
 
 
+_EXTENDED_PATH_PREFIX = "\\\\?\\"
+_EXTENDED_UNC_PREFIX = "\\\\?\\UNC\\"
+
+
+def without_extended_length_prefix(path: Path) -> Path:
+    r"""Drop Windows' \\?\ prefix, which resolve() only sometimes leaves behind.
+
+    ntpath.realpath re-resolves the stripped form to check it names the same
+    file, and keeps the prefix when that second call fails - a sharing violation,
+    or the file being replaced at that instant. A world folder is written to
+    constantly, so this happens at random and made resolve_under_root reject
+    perfectly ordinary files as escaping the root. The prefix means nothing for
+    an already-resolved path, but relative_to compares text.
+    """
+    text = str(path)
+    if text.startswith(_EXTENDED_UNC_PREFIX):
+        return Path("\\\\" + text[len(_EXTENDED_UNC_PREFIX) :])
+    if text.startswith(_EXTENDED_PATH_PREFIX):
+        return Path(text[len(_EXTENDED_PATH_PREFIX) :])
+    return path
+
+
 def resolve_under_root(root: Path, raw_path: str | Path) -> Path:
     """Resolve a user path and guarantee the result remains inside the world root."""
 
-    resolved_root = root.expanduser().resolve()
+    resolved_root = without_extended_length_prefix(root.expanduser().resolve())
     relative_path = normalize_relative_path(raw_path)
     target = (
         resolved_root
         if relative_path == ""
         else resolved_root.joinpath(*relative_path.split("/"))
     )
-    resolved_target = target.resolve()
+    # Both sides go through the same normalisation, so containment is still
+    # decided on fully resolved paths - this only removes a formatting
+    # difference, never a directory boundary.
+    resolved_target = without_extended_length_prefix(target.resolve())
 
     try:
         resolved_target.relative_to(resolved_root)

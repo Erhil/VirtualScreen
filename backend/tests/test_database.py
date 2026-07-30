@@ -14,7 +14,9 @@ from app.core.index import (
     list_indexed_pages,
     rebuild_index,
     refresh_index,
+    refresh_index_for_disk_changes,
 )
+from app.core.paths import WorldPathError
 from app.core.search import search_index
 
 
@@ -195,6 +197,36 @@ def test_rebuild_index_ignores_virtualscreen_directory(tmp_path: Path) -> None:
 
     assert result.pages_indexed == 1
     assert [page.path for page in pages] == ["visible.md"]
+
+
+def test_disk_refresh_skips_a_file_that_disappears_while_it_is_being_resolved(
+    tmp_path: Path,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    # Deleting an open file on NTFS moves it outside the world, so resolving it
+    # reports an escape. That is one gone file, not a reason to fail the refresh.
+    world = tmp_path / "world"
+    world.mkdir()
+    (world / "keeper.md").write_text("# Keeper\n", encoding="utf-8")
+    (world / "vanishing.md").write_text("# Vanishing\n", encoding="utf-8")
+    rebuild_index(world)
+    (world / "keeper.md").write_text("# Keeper\n\nNow with a body.\n", encoding="utf-8")
+
+    from app.core import index as index_module
+
+    unpatched = index_module.resolve_under_root
+
+    def resolve_but_lose_the_vanishing_file(root: Path, path: str | Path) -> Path:
+        if str(path).endswith("vanishing.md"):
+            raise WorldPathError("Resolved path escapes the world root.")
+        return unpatched(root, path)
+
+    monkeypatch.setattr(index_module, "resolve_under_root", resolve_but_lose_the_vanishing_file)
+
+    refresh_index_for_disk_changes(world)
+
+    titles = {page.path: page.body for page in list_indexed_pages(world)}
+    assert "Now with a body." in titles["keeper.md"]
 
 
 def test_rebuild_index_caps_large_text_and_sidecar_metadata_reads(
