@@ -4,46 +4,35 @@ import { IconButton } from "../IconButton";
 import { InnerToolTabs } from "../InnerToolTabs";
 import { MapTool } from "../map/MapTool";
 import { useMapContext } from "../../contexts/MapContext";
+import { useDisplayContext } from "../../contexts/DisplayContext";
 import type { DisplayState, DisplayPopupPreset } from "../../lib/api";
 import { canSendToScreen, type ScreenToolTabId } from "../../lib/toolPanel";
 import { screenPrimaryMode, screenPrimaryTitle } from "../../lib/display";
 import type { OpenTab } from "../../lib/tabs";
-import type { Translator } from "../../lang";
-import type { WorldPathPickerFilter } from "../../lib/worldPathPicker";
 
 export function ScreenTool({
   activeTab,
-  displayState,
-  onBlank,
-  onClearPopups,
-  onClosePopup,
-  onPopupVisibleChange,
-  onOpenPopup,
-  onStagePopup,
-  onClearAndShowFullscreen,
-  onShowFullscreen,
   onTabChange,
-  onPickPath,
-  onRotatePrimary,
-  tab,
-  t
+  tab
 }: {
   activeTab: OpenTab | null;
-  displayState: DisplayState | null;
-  onBlank: () => void;
-  onClearPopups: () => void;
-  onClosePopup: (popupId: string) => void;
-  onPopupVisibleChange: (popupId: string, visible: boolean) => void;
-  onOpenPopup: (preset: DisplayPopupPreset, path?: string) => void;
-  onStagePopup: (preset: DisplayPopupPreset, path?: string) => void;
-  onClearAndShowFullscreen: (path?: string) => void;
-  onShowFullscreen: (path?: string) => void;
   onTabChange: (tab: ScreenToolTabId) => void;
-  onPickPath: (filter: WorldPathPickerFilter, title: string, onSelect: (path: string) => void) => void;
-  onRotatePrimary: () => void;
   tab: ScreenToolTabId;
-  t: Translator;
 }) {
+  const {
+    displayState,
+    handleClearDisplayPopups: onClearPopups,
+    handleCloseDisplayPopup: onClosePopup,
+    handleDisplayPopupVisibleChange: onPopupVisibleChange,
+    handleOpenActivePopup: onOpenPopup,
+    handleStageActivePopup: onStagePopup,
+    onBlank,
+    onClearAndShowFullscreen,
+    onPickPath,
+    onRotatePrimary,
+    onShowFullscreen,
+    t
+  } = useDisplayContext();
   const { visibleMapState: mapState } = useMapContext();
   const displayable = canSendToScreen(activeTab?.mediaKind);
   const [popupPreset, setPopupPreset] = useState<DisplayPopupPreset>("plain");

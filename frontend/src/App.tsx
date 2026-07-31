@@ -39,6 +39,7 @@ import { Modal } from "./components/Modal";
 import { PdfViewer } from "./components/PdfViewer";
 import { ScreenTool } from "./components/screen/ScreenTool";
 import { MapProvider, useMapContext } from "./contexts/MapContext";
+import { DisplayProvider, useDisplayContext } from "./contexts/DisplayContext";
 import { UnlockScreen } from "./UnlockScreen";
 import { WorldPathPicker } from "./WorldPathPicker";
 import { useAudio } from "./hooks/useAudio";
@@ -6578,7 +6579,6 @@ function ToolsPanel({
   actionBindings,
   actionBindingMessage,
   contentDirty,
-  displayState,
   diceHistory,
   diceStatus,
   fileReady,
@@ -6594,7 +6594,6 @@ function ToolsPanel({
   midiLearnedControl,
   midiLearning,
   midiStatus,
-  onBlankDisplay,
   onAssistantCheckProvider,
   onAssistantContextChange,
   onAssistantCopy,
@@ -6618,26 +6617,18 @@ function ToolsPanel({
   onHpUpdate,
   onChangeMetadataEdit,
   onCancelScript,
-  onClearDisplayPopups,
-  onCloseDisplayPopup,
-  onDisplayPopupVisibleChange,
   onClearFastSlot,
   onPickPath,
-  onRotatePrimaryScreen,
   onClearMidiLearned,
   onConnectMidi,
   onDeleteMidiBinding,
   onMidiBindingRun,
   onMidiBindingSave,
   onOpenBacklink,
-  onOpenDisplayPopup,
-  onStageDisplayPopup,
   onOpenOutgoing,
   onReloadMetadataEdit,
   onRevertMetadataEdit,
   onSaveMetadataEdit,
-  onClearAndShowFullscreen,
-  onShowFullscreen,
   onStartMetadataEdit,
   onCancelMetadataEdit,
   onScreenToolTabChange,
@@ -6679,7 +6670,6 @@ function ToolsPanel({
   actionBindings: ActionBinding[];
   actionBindingMessage: string | null;
   contentDirty: boolean;
-  displayState: DisplayState | null;
   diceHistory: DiceHistoryEntry[];
   diceStatus: DiceStatus;
   fastSlotError: string | null;
@@ -6695,7 +6685,6 @@ function ToolsPanel({
   midiLearnedControl: MidiLearnedControl | null;
   midiLearning: boolean;
   midiStatus: MidiStatus;
-  onBlankDisplay: () => void;
   onAssistantCheckProvider: () => void;
   onAssistantContextChange: (context: string) => void;
   onAssistantCopy: () => void;
@@ -6720,26 +6709,18 @@ function ToolsPanel({
   onCancelMetadataEdit: () => void;
   onCancelScript: (runId: string) => void;
   onChangeMetadataEdit: (form: MetadataFormState) => void;
-  onClearDisplayPopups: () => void;
-  onCloseDisplayPopup: (popupId: string) => void;
-  onDisplayPopupVisibleChange: (popupId: string, visible: boolean) => void;
   onClearFastSlot: (position: number) => void;
   onPickPath: (filter: WorldPathPickerFilter, title: string, onSelect: (path: string) => void) => void;
-  onRotatePrimaryScreen: () => void;
   onClearMidiLearned: () => void;
   onConnectMidi: () => void;
   onDeleteMidiBinding: (bindingId: string) => void;
   onMidiBindingRun: (binding: MidiBinding) => void;
   onMidiBindingSave: (binding: MidiBinding) => void;
   onOpenBacklink: (link: PageLink) => void;
-  onOpenDisplayPopup: (preset: DisplayPopupPreset, path?: string) => void;
-  onStageDisplayPopup: (preset: DisplayPopupPreset, path?: string) => void;
   onOpenOutgoing: (link: PageLink) => void;
   onReloadMetadataEdit: () => void;
   onRevertMetadataEdit: () => void;
   onSaveMetadataEdit: () => void;
-  onClearAndShowFullscreen: (path?: string) => void;
-  onShowFullscreen: (path?: string) => void;
   onStartMetadataEdit: () => void;
   onScreenToolTabChange: (tab: ScreenToolTabId) => void;
   onToolPin: (tool: ToolId) => void;
@@ -6767,6 +6748,7 @@ function ToolsPanel({
   const metadataLocked = metadataEditState.mode === "edit";
   const { audioMixer } = useAudioContext();
   const { visibleMapState: mapState } = useMapContext();
+  const { displayState } = useDisplayContext();
 
   return (
     <aside className="tools-panel" aria-label={t("tools.panel")}>
@@ -6967,20 +6949,8 @@ function ToolsPanel({
       >
         <ScreenTool
           activeTab={activeTab}
-          displayState={displayState}
-          onBlank={onBlankDisplay}
-          onClearPopups={onClearDisplayPopups}
-          onClosePopup={onCloseDisplayPopup}
-          onPopupVisibleChange={onDisplayPopupVisibleChange}
-          onOpenPopup={onOpenDisplayPopup}
-          onStagePopup={onStageDisplayPopup}
-          onClearAndShowFullscreen={onClearAndShowFullscreen}
-          onShowFullscreen={onShowFullscreen}
-          onPickPath={onPickPath}
-          onRotatePrimary={onRotatePrimaryScreen}
           onTabChange={onScreenToolTabChange}
           tab={screenToolTab}
-          t={t}
         />
       </ToolSection>
     </aside>
@@ -11372,6 +11342,17 @@ export function App() {
   return (
     <AudioProvider value={{ ...audio, t, onPickPath: handleOpenWorldPathPicker }}>
     <MapProvider value={{ ...map, t, onPickPath: handleOpenWorldPathPicker }}>
+    <DisplayProvider
+      value={{
+        ...display,
+        onBlank: () => void handleBlankDisplay(),
+        onClearAndShowFullscreen: (path) => void handleClearAndShowActiveFullscreen(path),
+        onRotatePrimary: () => void handleRotatePrimaryScreen(),
+        onShowFullscreen: (path) => void handleShowActiveFullscreen(path),
+        t,
+        onPickPath: handleOpenWorldPathPicker
+      }}
+    >
     <main className="app-shell" style={appShellStyle}>
       <aside className="side-panel">
         <div className="side-top">
@@ -11652,7 +11633,6 @@ export function App() {
               actionBindings={actionBindings}
               actionBindingMessage={actionBindingMessage}
               contentDirty={activeContentDirty}
-              displayState={display.displayState}
               diceHistory={diceHistory}
               diceStatus={diceStatus}
               fastSlotError={fastSlotError}
@@ -11671,7 +11651,6 @@ export function App() {
               midiLearnedControl={midiLearnedControl}
               midiLearning={midiLearning}
               midiStatus={midiStatus}
-              onBlankDisplay={() => void handleBlankDisplay()}
               onAssistantCheckProvider={() => void handleAssistantCheckProvider()}
               onAssistantContextChange={handleAssistantContextChange}
               onAssistantCopy={() => void handleAssistantCopy()}
@@ -11696,21 +11675,14 @@ export function App() {
               onCancelMetadataEdit={handleCancelMetadataEdit}
               onCancelScript={(runId) => void handleCancelDmsScript(runId)}
               onChangeMetadataEdit={handleChangeMetadataEdit}
-              onClearDisplayPopups={() => void display.handleClearDisplayPopups()}
               onClearFastSlot={handleClearFastSlot}
               onPickPath={handleOpenWorldPathPicker}
-              onCloseDisplayPopup={(popupId) => void display.handleCloseDisplayPopup(popupId)}
-              onDisplayPopupVisibleChange={(popupId, visible) =>
-                void display.handleDisplayPopupVisibleChange(popupId, visible)
-              }
               onClearMidiLearned={handleClearMidiLearned}
               onConnectMidi={() => void handleConnectMidi()}
               onDeleteMidiBinding={handleDeleteMidiBinding}
               onMidiBindingRun={(binding) => void handleMidiBindingTrigger(binding)}
               onMidiBindingSave={handleSaveMidiBinding}
               onOpenBacklink={openBacklink}
-              onOpenDisplayPopup={(preset, path) => void display.handleOpenActivePopup(preset, path)}
-              onStageDisplayPopup={(preset, path) => void display.handleStageActivePopup(preset, path)}
               onOpenOutgoing={openResolvedLink}
               onReloadMetadataEdit={() => void handleReloadMetadataEdit()}
               onRevertMetadataEdit={handleRevertMetadataEdit}
@@ -11726,9 +11698,6 @@ export function App() {
                 setTableSnapshotStatus({ status: "idle", message: null });
               }}
               onScriptRun={(path) => void handleRunDmsScript(path)}
-              onClearAndShowFullscreen={(path) => void handleClearAndShowActiveFullscreen(path)}
-              onShowFullscreen={(path) => void handleShowActiveFullscreen(path)}
-              onRotatePrimaryScreen={() => void handleRotatePrimaryScreen()}
               onStartMetadataEdit={handleStartMetadataEdit}
               onScreenToolTabChange={setScreenToolTab}
               onToolPin={handleToolPin}
@@ -11963,6 +11932,7 @@ export function App() {
       />
     </main>
     <PluginToolsHost t={t} worldId={worldLibrary?.current?.id ?? null} />
+    </DisplayProvider>
     </MapProvider>
     </AudioProvider>
   );
