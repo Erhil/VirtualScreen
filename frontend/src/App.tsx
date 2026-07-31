@@ -41,6 +41,7 @@ import { MapTool } from "./components/map/MapTool";
 import { UnlockScreen } from "./UnlockScreen";
 import { WorldPathPicker } from "./WorldPathPicker";
 import { useAudio } from "./hooks/useAudio";
+import { useMap } from "./hooks/useMap";
 import {
   addCardField,
   addCardSection,
@@ -328,28 +329,11 @@ import {
   visibleScreenPopupCount
 } from "./lib/display";
 import {
-  addMapPin,
-  addMapReveal,
-  buildMapEventsUrl,
-  clearMapReveals,
-  createPinPayload,
-  createMapEventClient,
-  deleteMapPreset,
-  deleteMapReveal,
-  deleteMapPin,
   fetchMapState,
   fetchMapPresets,
-  isImageMapCandidate,
-  loadMapPreset,
-  planViewportSync,
   presentMap,
-  rotateMap,
-  saveMapPreset,
   setMapFog,
-  setMapGrid,
   setMapSource,
-  setMapViewport,
-  shouldAdoptMapState,
   stopMap,
   type MapActionStatus,
   type MapGrid,
@@ -7629,20 +7613,12 @@ export function App() {
   const [worldTreeStatus, setWorldTreeStatus] = useState<string | null>(null);
   const [trashDialog, setTrashDialog] = useState<TrashDialogState>({ open: false });
   const [displayState, setDisplayState] = useState<DisplayState | null>(null);
-  const [mapState, setMapState] = useState<MapState | null>(null);
-  const [mapActionStatus, setMapActionStatus] = useState<MapActionStatus>({
-    status: "idle",
-    message: null
-  });
-  const [mapPresets, setMapPresets] = useState<MapPreset[]>([]);
-  const [localMapViewport, setLocalMapViewport] = useState<MapViewport | null>(null);
   const [worldOpenDialog, setWorldOpenDialog] = useState(false);
   const [worldCreateDialog, setWorldCreateDialog] = useState<WorldCreateDialogState>({
     open: false
   });
   const [metadataEdits, setMetadataEdits] = useState<Record<string, MetadataEditState>>({});
   const fastSlotsRevision = useRef(0);
-  const mapViewportSyncRef = useRef({ lastSyncedAt: 0 });
   const hpEditVersionRef = useRef(0);
   const hpRowsRef = useRef<HpTrackerRow[]>([]);
   const midiBindingsRef = useRef<MidiBinding[]>([]);
@@ -7686,14 +7662,6 @@ export function App() {
     [assistantForms, t]
   );
   const availableLanguageOptions = appConfig?.available_languages ?? AVAILABLE_LANGUAGES;
-
-  function adoptMapState(nextMapState: MapState) {
-    setMapState((current) => (shouldAdoptMapState(current, nextMapState) ? nextMapState : current));
-  }
-
-  function mapActionErrorMessage(error: unknown, fallback: string): string {
-    return error instanceof Error ? error.message : fallback;
-  }
 
   function applyLanguage(language: UiLanguage, catalog: TranslationCatalog, persist: boolean) {
     setUiLanguage(language);
@@ -7838,7 +7806,7 @@ export function App() {
         setFavorites(workspace.favorites);
         setRecentFiles(workspace.recentFiles);
         setDisplayState(nextDisplayState);
-        adoptMapState(nextMapState);
+        map.adoptMapState(nextMapState);
         const sortedTableSnapshots = sortTableSnapshots(nextTableSnapshots);
         setTableSnapshots(sortedTableSnapshots);
         setSelectedTableSnapshotId(sortedTableSnapshots[0]?.id ?? "");
@@ -8201,10 +8169,10 @@ export function App() {
       return;
     }
     fetchMapState()
-      .then(adoptMapState)
+      .then(map.adoptMapState)
       .catch(() => {});
     fetchMapPresets()
-      .then((response) => setMapPresets(response.presets))
+      .then((response) => map.setMapPresets(response.presets))
       .catch(() => {});
   }, [actionsToolOpen, screenToolOpen, worldLibrary?.current?.id]);
 
@@ -8213,6 +8181,12 @@ export function App() {
     tabState.tabs.map(openTabToWorkspaceTab)
   );
   const activeTab = tabState.tabs.find((tab) => tab.path === tabState.activePath) ?? null;
+  const map = useMap({
+    activeTab,
+    authReady: authState.status === "unlocked",
+    t,
+    refreshDisplayState: async () => setDisplayState(await fetchDisplayState())
+  });
   const mainPaneTab =
     tabState.tabs.find(
       (tab) => tab.path === activePathForPane(normalizedWorkspaceLayout, "main")
@@ -8297,11 +8271,11 @@ export function App() {
         activePath: activeTab?.path ?? null,
         audioActive: hasLoadedAudio(audio.audioMixer),
         displayState,
-        mapState,
+        mapState: map.mapState,
         metadataEditing: activeMetadataEdit.mode === "edit"
       })
     );
-  }, [activeTab?.path, activeMetadataEdit.mode, audio.audioMixer, displayState, mapState]);
+  }, [activeTab?.path, activeMetadataEdit.mode, audio.audioMixer, displayState, map.mapState]);
 
   useEffect(() => {
     if (searchToolOpen) {
@@ -9180,14 +9154,14 @@ export function App() {
     setTableSnapshotStatus({ status: "saving", message: "Saving..." });
     try {
       await flushCurrentWorkspaceState();
-      const [workspace, display, map] = await Promise.all([
+      const [workspace, display, mapSnapshot] = await Promise.all([
         fetchWorkspace(),
         fetchDisplayState(),
         fetchMapState()
       ]);
       const saved = await saveTableSnapshot({
         name,
-        state: buildTableSnapshotState(display, map, workspace, audio.audioMixer)
+        state: buildTableSnapshotState(display, mapSnapshot, workspace, audio.audioMixer)
       });
       setTableSnapshots((snapshots) => saveTableSnapshotInList(snapshots, saved));
       setSelectedTableSnapshotId(saved.id);
@@ -9209,9 +9183,8 @@ export function App() {
     try {
       const restored = await restoreTableSnapshot(snapshotId);
       setDisplayState(restored.display);
-      adoptMapState(restored.map);
-      setLocalMapViewport(null);
-      mapViewportSyncRef.current.lastSyncedAt = 0;
+      map.adoptMapState(restored.map);
+      map.resetViewport();
       applyWorkspaceState(restored.workspace);
       audio.setAudioMixer((state) => applyAudioSnapshot(state, restored.audio));
       setTableSnapshots((snapshots) =>
@@ -9277,22 +9250,11 @@ export function App() {
     }
   }
 
-  async function loadMapPresetForAutomation(presetId: string, present: boolean) {
-    let nextMapState = await loadMapPreset(presetId);
-    if (present) {
-      nextMapState = await presentMap();
-      setDisplayState(await fetchDisplayState());
-    } else if (nextMapState.presenting) {
-      nextMapState = await stopMap();
-    }
-    adoptMapState(nextMapState);
-  }
-
   async function applyDmsEffects(run: DmsRunState) {
     for (const effect of run.effects) {
       if (effect.kind === "screen_fullscreen") {
         setDisplayState(await setDisplayFullscreen(effect.path));
-        adoptMapState(await fetchMapState());
+        map.adoptMapState(await fetchMapState());
         setScreenToolTab("display");
       } else if (effect.kind === "screen_popup") {
         setDisplayState(await openDisplayPopup(effect.path));
@@ -9303,24 +9265,24 @@ export function App() {
           nextMapState = await presentMap();
           setDisplayState(await fetchDisplayState());
         }
-        adoptMapState(nextMapState);
+        map.adoptMapState(nextMapState);
         setScreenToolTab("map");
         setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       } else if (effect.kind === "map_preset") {
-        await loadMapPresetForAutomation(effect.preset_id, effect.present);
+        await map.loadMapPresetForAutomation(effect.preset_id, effect.present);
         setScreenToolTab("map");
         setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       } else if (effect.kind === "map_present") {
-        adoptMapState(await presentMap());
+        map.adoptMapState(await presentMap());
         setDisplayState(await fetchDisplayState());
         setScreenToolTab("map");
         setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       } else if (effect.kind === "map_stop") {
-        adoptMapState(await stopMap());
+        map.adoptMapState(await stopMap());
         setScreenToolTab("map");
         setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       } else if (effect.kind === "map_fog") {
-        adoptMapState(await setMapFog(effect.enabled));
+        map.adoptMapState(await setMapFog(effect.enabled));
         setScreenToolTab("map");
         setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       } else if (effect.kind === "audio_play") {
@@ -9523,7 +9485,7 @@ export function App() {
         return;
       }
       setDisplayState(await setDisplayFullscreen(resolved.path));
-      adoptMapState(await fetchMapState());
+      map.adoptMapState(await fetchMapState());
       setScreenToolTab("display");
       setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       return;
@@ -9560,7 +9522,7 @@ export function App() {
       return;
     }
     if (dispatchAction.kind === "map_preset") {
-      await loadMapPresetForAutomation(dispatchAction.preset_id, dispatchAction.present);
+      await map.loadMapPresetForAutomation(dispatchAction.preset_id, dispatchAction.present);
       setScreenToolTab("map");
       setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       return;
@@ -11039,11 +11001,7 @@ export function App() {
     setFavorites([]);
     setRecentFiles([]);
     setDisplayState(null);
-    setMapState(null);
-    setMapActionStatus({ status: "idle", message: null });
-    setMapPresets([]);
-    setLocalMapViewport(null);
-    mapViewportSyncRef.current.lastSyncedAt = 0;
+    map.reset();
     setFolderMenuPath(null);
     setWorldOpenDialog(false);
   }
@@ -11089,14 +11047,13 @@ export function App() {
     setFavorites(workspace.favorites);
     setRecentFiles(workspace.recentFiles);
     setDisplayState(nextDisplayState);
-    adoptMapState(nextMapState);
+    map.adoptMapState(nextMapState);
     const sortedTableSnapshots = sortTableSnapshots(nextTableSnapshots);
     setTableSnapshots(sortedTableSnapshots);
     setSelectedTableSnapshotId(sortedTableSnapshots[0]?.id ?? "");
     setTableSnapshotStatus({ status: "idle", message: null });
-    setMapPresets([]);
-    setLocalMapViewport(null);
-    mapViewportSyncRef.current.lastSyncedAt = 0;
+    map.setMapPresets([]);
+    map.resetViewport();
     setFastSlots(visibleFastSlots(nextFastSlots));
     setTabState({ tabs: workspaceTabs, activePath });
     setWorkspaceLayout(normalizeWorkspaceLayout(workspace.layout, workspace.tabs));
@@ -11169,7 +11126,7 @@ export function App() {
     }
     try {
       setDisplayState(await setDisplayFullscreen(path));
-      adoptMapState(await fetchMapState());
+      map.adoptMapState(await fetchMapState());
     } catch {
     }
   }
@@ -11216,14 +11173,14 @@ export function App() {
           clear_existing: true
         })
       );
-      adoptMapState(await fetchMapState());
+      map.adoptMapState(await fetchMapState());
     } catch {
     }
   }
 
   async function handleRotatePrimaryScreen() {
-    if (screenPrimaryMode(displayState, mapState) === "map") {
-      await handleMapRotate();
+    if (screenPrimaryMode(displayState, map.mapState) === "map") {
+      await map.handleMapRotate();
       return;
     }
     if (!displayState?.fullscreen) {
@@ -11238,7 +11195,7 @@ export function App() {
   async function handleBlankDisplay() {
     try {
       const nextDisplayState = await blankDisplay();
-      adoptMapState(await fetchMapState());
+      map.adoptMapState(await fetchMapState());
       if (hasResidualPopupsAfterBlank(nextDisplayState)) {
         const clearedState = await clearDisplayPopups();
         setDisplayState({ ...clearedState, fullscreen: null, popups: [] });
@@ -11463,245 +11420,6 @@ export function App() {
     persistHpRows(hpRowsRef.current);
   }
 
-  async function handleMapLoadSource(path: string) {
-    const trimmedPath = path.trim();
-    if (!trimmedPath) {
-      return;
-    }
-    try {
-      adoptMapState(await setMapSource(trimmedPath));
-      setLocalMapViewport(null);
-      mapViewportSyncRef.current.lastSyncedAt = 0;
-      setMapActionStatus({ status: "ready", message: `Loaded map: ${trimmedPath}` });
-    } catch (error: unknown) {
-      setMapActionStatus({
-        status: "error",
-        message: mapActionErrorMessage(error, "Could not load map.")
-      });
-    }
-  }
-
-  async function handleUseActiveImageAsMap() {
-    if (!activeTab || !isImageMapCandidate(activeTab.mediaKind)) {
-      return;
-    }
-    await handleMapLoadSource(activeTab.path);
-  }
-
-  async function syncMapViewport(viewport: MapViewport) {
-    try {
-      adoptMapState(await setMapViewport(viewport));
-    } catch (error: unknown) {
-      setMapActionStatus({
-        status: "error",
-        message: mapActionErrorMessage(error, "Could not update map view.")
-      });
-    }
-  }
-
-  function handleMapViewportPreview(viewport: MapViewport) {
-    const decision = planViewportSync({
-      viewport,
-      now: Date.now(),
-      lastSyncedAt: mapViewportSyncRef.current.lastSyncedAt
-    });
-    setLocalMapViewport(decision.preview);
-    if (decision.sync) {
-      mapViewportSyncRef.current.lastSyncedAt = decision.lastSyncedAt;
-      void syncMapViewport(decision.sync);
-    }
-  }
-
-  function handleMapViewportCommit(viewport: MapViewport) {
-    const decision = planViewportSync({
-      viewport,
-      now: Date.now(),
-      lastSyncedAt: mapViewportSyncRef.current.lastSyncedAt,
-      flush: true
-    });
-    setLocalMapViewport(decision.preview);
-    mapViewportSyncRef.current.lastSyncedAt = decision.lastSyncedAt;
-    if (decision.sync) {
-      void syncMapViewport(decision.sync);
-    }
-  }
-
-  async function handleMapFogChange(enabled: boolean) {
-    try {
-      adoptMapState(await setMapFog(enabled));
-      setMapActionStatus({ status: "ready", message: enabled ? t("map.fogEnabled") : t("map.fogDisabled") });
-    } catch (error: unknown) {
-      setMapActionStatus({
-        status: "error",
-        message: mapActionErrorMessage(error, "Could not update fog.")
-      });
-    }
-  }
-
-  async function handleMapGridChange(grid: MapGrid) {
-    try {
-      adoptMapState(await setMapGrid(grid));
-      setMapActionStatus({ status: "ready", message: "Grid updated." });
-    } catch (error: unknown) {
-      setMapActionStatus({
-        status: "error",
-        message: mapActionErrorMessage(error, "Could not update grid.")
-      });
-    }
-  }
-
-  async function handleMapRevealCreate(reveal: MapRevealPayload) {
-    try {
-      adoptMapState(await addMapReveal(reveal));
-      setMapActionStatus({
-        status: "ready",
-        message: reveal.action === "hide" ? t("map.hideAdded") : t("map.revealAdded")
-      });
-    } catch (error: unknown) {
-      setMapActionStatus({
-        status: "error",
-        message: mapActionErrorMessage(error, "Could not add reveal.")
-      });
-    }
-  }
-
-  async function handleMapUndoReveal() {
-    const latestReveal = mapState?.reveals.at(-1);
-    if (!latestReveal) {
-      return;
-    }
-    try {
-      adoptMapState(await deleteMapReveal(latestReveal.id));
-      setMapActionStatus({ status: "ready", message: "Reveal undone." });
-    } catch (error: unknown) {
-      setMapActionStatus({
-        status: "error",
-        message: mapActionErrorMessage(error, "Could not undo reveal.")
-      });
-    }
-  }
-
-  async function handleMapPinCreate(
-    point: MapPoint,
-    label: string,
-    visibility: MapPinVisibility
-  ) {
-    const trimmedLabel = label.trim();
-    if (!trimmedLabel) {
-      return;
-    }
-    try {
-      adoptMapState(await addMapPin(createPinPayload(point, trimmedLabel, visibility)));
-      setMapActionStatus({ status: "ready", message: "Pin added." });
-    } catch (error: unknown) {
-      setMapActionStatus({
-        status: "error",
-        message: mapActionErrorMessage(error, "Could not add pin.")
-      });
-    }
-  }
-
-  async function handleMapDeletePin(pinId: string) {
-    try {
-      adoptMapState(await deleteMapPin(pinId));
-      setMapActionStatus({ status: "ready", message: "Pin removed." });
-    } catch (error: unknown) {
-      setMapActionStatus({
-        status: "error",
-        message: mapActionErrorMessage(error, "Could not remove pin.")
-      });
-    }
-  }
-
-  async function handleMapClearReveals() {
-    try {
-      adoptMapState(await clearMapReveals());
-      setMapActionStatus({ status: "ready", message: "Reveals cleared." });
-    } catch (error: unknown) {
-      setMapActionStatus({
-        status: "error",
-        message: mapActionErrorMessage(error, "Could not clear reveals.")
-      });
-    }
-  }
-
-  async function handleMapPresent() {
-    try {
-      adoptMapState(await presentMap());
-      setDisplayState(await fetchDisplayState());
-      setMapActionStatus({ status: "ready", message: "Map presented to player screen." });
-    } catch (error: unknown) {
-      setMapActionStatus({
-        status: "error",
-        message: mapActionErrorMessage(error, "Could not present map.")
-      });
-    }
-  }
-
-  async function handleMapRotate() {
-    try {
-      adoptMapState(await rotateMap());
-      setMapActionStatus({ status: "ready", message: t("map.rotated") });
-    } catch (error: unknown) {
-      setMapActionStatus({
-        status: "error",
-        message: mapActionErrorMessage(error, "Could not rotate map.")
-      });
-    }
-  }
-
-  async function handleMapStop() {
-    try {
-      adoptMapState(await stopMap());
-      setMapActionStatus({ status: "ready", message: "Map stopped." });
-    } catch (error: unknown) {
-      setMapActionStatus({
-        status: "error",
-        message: mapActionErrorMessage(error, "Could not stop map.")
-      });
-    }
-  }
-
-  async function handleMapSavePreset(name: string, state: MapState) {
-    try {
-      const preset = await saveMapPreset(name, state);
-      setMapPresets((currentPresets) => [
-        preset,
-        ...currentPresets.filter((currentPreset) => currentPreset.id !== preset.id)
-      ]);
-      setMapActionStatus({ status: "ready", message: `Saved map preset: ${name}` });
-    } catch (error: unknown) {
-      setMapActionStatus({
-        status: "error",
-        message: mapActionErrorMessage(error, "Could not save map preset.")
-      });
-    }
-  }
-
-  async function handleMapLoadPreset(presetId: string) {
-    try {
-      adoptMapState(await loadMapPreset(presetId));
-      setLocalMapViewport(null);
-      mapViewportSyncRef.current.lastSyncedAt = 0;
-      setMapActionStatus({ status: "ready", message: "Map preset loaded." });
-    } catch (error: unknown) {
-      setMapActionStatus({
-        status: "error",
-        message: mapActionErrorMessage(error, "Could not load map preset.")
-      });
-    }
-  }
-
-  async function handleMapDeletePreset(presetId: string) {
-    try {
-      await deleteMapPreset(presetId);
-      setMapPresets((currentPresets) =>
-        currentPresets.filter((currentPreset) => currentPreset.id !== presetId)
-      );
-    } catch {
-    }
-  }
-
   function handleToolsResizePointerDown(event: PointerEvent<HTMLDivElement>) {
     event.preventDefault();
     const startX = event.clientX;
@@ -11797,19 +11515,6 @@ export function App() {
     });
   }, [authState.status]);
 
-  useEffect(() => {
-    if (authState.status !== "unlocked") {
-      return;
-    }
-    fetchMapState()
-      .then(adoptMapState)
-      .catch(() => {});
-    return createMapEventClient({
-      onEvent: adoptMapState,
-      url: buildMapEventsUrl()
-    });
-  }, [authState.status]);
-
   const currentWorldName = worldLibrary?.current?.name ?? worldTree?.name ?? "No world loaded";
   const appShellStyle = {
     "--tree-panel-width": `${treePanelWidth}px`
@@ -11817,8 +11522,6 @@ export function App() {
   const contentLayoutStyle = {
     "--tools-panel-width": `${toolsPanelWidth}px`
   } as CSSProperties;
-  const visibleMapState =
-    mapState && localMapViewport ? { ...mapState, viewport: localMapViewport } : mapState;
 
   function handleOpenWorldPathPicker(
     filter: WorldPathPickerFilter,
@@ -12322,9 +12025,9 @@ export function App() {
                 hasPageSavePreconditions(activePageState.page)
               }
               linksState={activeLinksState}
-              mapActionStatus={mapActionStatus}
-              mapPresets={mapPresets}
-              mapState={visibleMapState}
+              mapActionStatus={map.mapActionStatus}
+              mapPresets={map.mapPresets}
+              mapState={map.visibleMapState}
               metadataEditState={activeMetadataEdit}
               midiBindingMessage={midiBindingMessage}
               midiBindings={midiBindings}
@@ -12364,25 +12067,25 @@ export function App() {
               onDisplayPopupVisibleChange={(popupId, visible) =>
                 void handleDisplayPopupVisibleChange(popupId, visible)
               }
-              onMapClearReveals={() => void handleMapClearReveals()}
-              onMapDeletePin={(pinId) => void handleMapDeletePin(pinId)}
-              onMapDeletePreset={(presetId) => void handleMapDeletePreset(presetId)}
-              onMapFogChange={(enabled) => void handleMapFogChange(enabled)}
-              onMapGridChange={(grid) => void handleMapGridChange(grid)}
-              onMapLoadSource={(path) => void handleMapLoadSource(path)}
-              onMapLoadPreset={(presetId) => void handleMapLoadPreset(presetId)}
+              onMapClearReveals={() => void map.handleMapClearReveals()}
+              onMapDeletePin={(pinId) => void map.handleMapDeletePin(pinId)}
+              onMapDeletePreset={(presetId) => void map.handleMapDeletePreset(presetId)}
+              onMapFogChange={(enabled) => void map.handleMapFogChange(enabled)}
+              onMapGridChange={(grid) => void map.handleMapGridChange(grid)}
+              onMapLoadSource={(path) => void map.handleMapLoadSource(path)}
+              onMapLoadPreset={(presetId) => void map.handleMapLoadPreset(presetId)}
               onMapPinCreate={(point, label, visibility) =>
-                void handleMapPinCreate(point, label, visibility)
+                void map.handleMapPinCreate(point, label, visibility)
               }
-              onMapPresent={() => void handleMapPresent()}
-              onMapRevealCreate={(reveal) => void handleMapRevealCreate(reveal)}
-              onMapRotate={() => void handleMapRotate()}
-              onMapSavePreset={(name, state) => void handleMapSavePreset(name, state)}
-              onMapStop={() => void handleMapStop()}
-              onMapUndoReveal={() => void handleMapUndoReveal()}
-              onMapUseActiveImage={() => void handleUseActiveImageAsMap()}
-              onMapViewportCommit={(viewport) => void handleMapViewportCommit(viewport)}
-              onMapViewportPreview={handleMapViewportPreview}
+              onMapPresent={() => void map.handleMapPresent()}
+              onMapRevealCreate={(reveal) => void map.handleMapRevealCreate(reveal)}
+              onMapRotate={() => void map.handleMapRotate()}
+              onMapSavePreset={(name, state) => void map.handleMapSavePreset(name, state)}
+              onMapStop={() => void map.handleMapStop()}
+              onMapUndoReveal={() => void map.handleMapUndoReveal()}
+              onMapUseActiveImage={() => void map.handleUseActiveImageAsMap()}
+              onMapViewportCommit={(viewport) => void map.handleMapViewportCommit(viewport)}
+              onMapViewportPreview={map.handleMapViewportPreview}
               onClearMidiLearned={handleClearMidiLearned}
               onConnectMidi={() => void handleConnectMidi()}
               onDeleteMidiBinding={handleDeleteMidiBinding}
