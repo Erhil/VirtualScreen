@@ -19,23 +19,53 @@ def default_worlds_root() -> Path:
     return Path.home() / ".vscreen" / "worlds"
 
 
-_ACTIVE_WORLDS: dict[str, Path] = {}
+# None means "this library has been looked up and has no active world", which is
+# what keeps get_active_world_root off the disk after the first call.
+_ACTIVE_WORLDS: dict[str, Path | None] = {}
 
 
 def _library_key(worlds_root: Path) -> str:
     return str(worlds_root.expanduser().resolve())
 
 
+def _restore_active_world_root(worlds_root: Path) -> Path | None:
+    stored = _read_state(worlds_root).get("active_world")
+    if not isinstance(stored, str):
+        return None
+    try:
+        return resolve_library_world(worlds_root, stored)
+    except (ValueError, FileNotFoundError, OSError):
+        # The state file is ordinary JSON on disk and can be stale, hand-edited,
+        # or left over from another machine. It must never be able to widen
+        # where the app reads from, so anything that does not resolve to a
+        # directory inside this library is discarded in favour of the fallback.
+        return None
+
+
 def get_active_world_root(worlds_root: Path, fallback_root: Path) -> Path:
-    return _ACTIVE_WORLDS.get(_library_key(worlds_root), fallback_root.expanduser().resolve())
+    key = _library_key(worlds_root)
+    if key not in _ACTIVE_WORLDS:
+        # The active world used to live only in this process, so every restart -
+        # a crash, the appliance watchdog, a reboot after Windows Update - put
+        # the DM console and the player screen back on the fallback world
+        # without saying so. Reload the choice instead.
+        _ACTIVE_WORLDS[key] = _restore_active_world_root(worlds_root)
+    active = _ACTIVE_WORLDS[key]
+    return active if active is not None else fallback_root.expanduser().resolve()
 
 
 def set_active_world_root(worlds_root: Path, world_root: Path) -> None:
-    _ACTIVE_WORLDS[_library_key(worlds_root)] = world_root.expanduser().resolve()
-
-
-def clear_active_world_root(worlds_root: Path) -> None:
-    _ACTIVE_WORLDS.pop(_library_key(worlds_root), None)
+    resolved = world_root.expanduser().resolve()
+    _ACTIVE_WORLDS[_library_key(worlds_root)] = resolved
+    try:
+        state = _read_state(worlds_root)
+        state["active_world"] = resolved.name
+        _write_state(worlds_root, state)
+    except OSError:
+        # Remembering the choice is best-effort. A full disk or a locked file
+        # must not stop the world from opening - the switch has already happened
+        # in memory above, and the only thing lost is surviving a restart.
+        pass
 
 
 def app_state_path(worlds_root: Path) -> Path:
@@ -48,7 +78,11 @@ def _read_state(worlds_root: Path) -> dict[str, object]:
         return {}
     try:
         loaded = json.loads(path.read_text(encoding="utf-8"))
-    except (json.JSONDecodeError, OSError):
+    except (ValueError, OSError):
+        # ValueError rather than JSONDecodeError: a file saved as UTF-16 or ANSI
+        # raises UnicodeDecodeError, which is a ValueError and not a JSON error.
+        # This is read during startup, so letting it escape would turn one
+        # mis-encoded file into an appliance that restarts forever.
         return {}
     return loaded if isinstance(loaded, dict) else {}
 
@@ -101,10 +135,12 @@ def resolve_library_world(worlds_root: Path, world_id: str) -> Path:
     safe_id = validate_world_id(world_id)
     root = worlds_root.expanduser().resolve()
     candidate = (root / safe_id).resolve()
-    try:
-        candidate.relative_to(root)
-    except ValueError as exc:
-        raise ValueError("World path escapes the world library.") from exc
+    if candidate.parent != root:
+        # relative_to alone is not enough: a world is always a direct child, and
+        # a drive-relative id like "C:" joins to the library root itself, which
+        # is trivially relative to itself and would hand back every world at
+        # once as if it were one.
+        raise ValueError("World path escapes the world library.")
     if not candidate.exists() or not candidate.is_dir():
         raise FileNotFoundError(safe_id)
     return candidate

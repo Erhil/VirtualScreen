@@ -39,6 +39,10 @@ mkdirSync(stateDir, { recursive: true });
 mkdirSync(e2eWorldRoot, { recursive: true });
 mkdirSync(logDir, { recursive: true });
 rmSync(stopMarker, { force: true });
+// The backend now remembers which world was open, in a state file beside the
+// library. Left behind, it would carry the last run's world into the next one
+// before any spec has reset it.
+rmSync(resolve(stateDir, "virtualscreen-state.json"), { force: true });
 
 const children = [];
 let failed = false;
