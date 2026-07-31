@@ -126,6 +126,11 @@ export type LocationLike = {
   host: string;
 };
 
+export type MapActionStatus =
+  | { status: "idle"; message: string | null }
+  | { status: "ready"; message: string }
+  | { status: "error"; message: string };
+
 export const blankMapState: MapState = {
   image_path: null,
   title: null,
