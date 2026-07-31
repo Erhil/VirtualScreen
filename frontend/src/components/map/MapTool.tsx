@@ -3,72 +3,43 @@ import { useEffect, useState } from "react";
 import { InnerToolTabs } from "../InnerToolTabs";
 import { IconButton } from "../IconButton";
 import { MapCanvas, type MapCanvasTool } from "../../MapCanvas";
+import { useMapContext } from "../../contexts/MapContext";
 import {
   buildMapMediaUrl,
   isImageMapCandidate,
   normalizeMapPolygon,
-  type MapActionStatus,
   type MapGrid,
   type MapPinVisibility,
   type MapPoint,
-  type MapPreset,
-  type MapRevealPayload,
-  type MapState,
-  type MapViewport
+  type MapState
 } from "../../lib/map";
 import type { OpenTab } from "../../lib/tabs";
-import type { Translator } from "../../lang";
-import type { WorldPathPickerFilter } from "../../lib/worldPathPicker";
 
-export function MapTool({
-  activeTab,
-  actionStatus,
-  presets,
-  state,
-  onClearReveals,
-  onDeletePin,
-  onDeletePreset,
-  onFogChange,
-  onGridChange,
-  onLoadSource,
-  onLoadPreset,
-  onPinCreate,
-  onPickPath,
-  onPresent,
-  onRevealCreate,
-  onRotate,
-  onSavePreset,
-  onStop,
-  onUndoReveal,
-  onUseActiveImage,
-  onViewportCommit,
-  onViewportPreview,
-  t
-}: {
-  activeTab: OpenTab | null;
-  actionStatus: MapActionStatus;
-  presets: MapPreset[];
-  state: MapState | null;
-  onClearReveals: () => void;
-  onDeletePin: (pinId: string) => void;
-  onDeletePreset: (presetId: string) => void;
-  onFogChange: (enabled: boolean) => void;
-  onGridChange: (grid: MapGrid) => void;
-  onLoadSource: (path: string) => void;
-  onLoadPreset: (presetId: string) => void;
-  onPinCreate: (point: MapPoint, label: string, visibility: MapPinVisibility) => void;
-  onPickPath: (filter: WorldPathPickerFilter, title: string, onSelect: (path: string) => void) => void;
-  onPresent: () => void;
-  onRevealCreate: (reveal: MapRevealPayload) => void;
-  onRotate: () => void;
-  onSavePreset: (name: string, state: MapState) => void;
-  onStop: () => void;
-  onUndoReveal: () => void;
-  onUseActiveImage: () => void;
-  onViewportCommit: (viewport: MapViewport) => void;
-  onViewportPreview: (viewport: MapViewport) => void;
-  t: Translator;
-}) {
+export function MapTool({ activeTab }: { activeTab: OpenTab | null }) {
+  const {
+    mapActionStatus: actionStatus,
+    mapPresets: presets,
+    visibleMapState: state,
+    handleMapClearReveals: onClearReveals,
+    handleMapDeletePin: onDeletePin,
+    handleMapDeletePreset: onDeletePreset,
+    handleMapFogChange: onFogChange,
+    handleMapGridChange: onGridChange,
+    handleMapLoadSource: onLoadSource,
+    handleMapLoadPreset: onLoadPreset,
+    handleMapPinCreate: onPinCreate,
+    onPickPath,
+    handleMapPresent: onPresent,
+    handleMapRevealCreate: onRevealCreate,
+    handleMapRotate: onRotate,
+    handleMapSavePreset: onSavePreset,
+    handleMapStop: onStop,
+    handleMapUndoReveal: onUndoReveal,
+    handleUseActiveImageAsMap: onUseActiveImage,
+    handleMapViewportCommit: onViewportCommit,
+    handleMapViewportPreview: onViewportPreview,
+    t
+  } = useMapContext();
   const currentMap = state ?? {
     image_path: null,
     title: null,

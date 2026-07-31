@@ -38,6 +38,7 @@ import { InnerToolTabs } from "./components/InnerToolTabs";
 import { Modal } from "./components/Modal";
 import { PdfViewer } from "./components/PdfViewer";
 import { MapTool } from "./components/map/MapTool";
+import { MapProvider, useMapContext } from "./contexts/MapContext";
 import { UnlockScreen } from "./UnlockScreen";
 import { WorldPathPicker } from "./WorldPathPicker";
 import { useAudio } from "./hooks/useAudio";
@@ -335,14 +336,7 @@ import {
   setMapFog,
   setMapSource,
   stopMap,
-  type MapActionStatus,
-  type MapGrid,
-  type MapPinVisibility,
-  type MapPoint,
-  type MapPreset,
-  type MapRevealPayload,
-  type MapState,
-  type MapViewport
+  type MapState
 } from "./lib/map";
 import {
   buildFolderKanbanColumns,
@@ -4116,9 +4110,6 @@ function TrashManagerDialog({
 function ScreenTool({
   activeTab,
   displayState,
-  mapActionStatus,
-  mapPresets,
-  mapState,
   onBlank,
   onClearPopups,
   onClosePopup,
@@ -4127,23 +4118,6 @@ function ScreenTool({
   onStagePopup,
   onClearAndShowFullscreen,
   onShowFullscreen,
-  onMapClearReveals,
-  onMapDeletePin,
-  onMapDeletePreset,
-  onMapFogChange,
-  onMapGridChange,
-  onMapLoadSource,
-  onMapLoadPreset,
-  onMapPinCreate,
-  onMapPresent,
-  onMapRevealCreate,
-  onMapRotate,
-  onMapSavePreset,
-  onMapStop,
-  onMapUndoReveal,
-  onMapUseActiveImage,
-  onMapViewportCommit,
-  onMapViewportPreview,
   onTabChange,
   onPickPath,
   onRotatePrimary,
@@ -4152,9 +4126,6 @@ function ScreenTool({
 }: {
   activeTab: OpenTab | null;
   displayState: DisplayState | null;
-  mapActionStatus: MapActionStatus;
-  mapPresets: MapPreset[];
-  mapState: MapState | null;
   onBlank: () => void;
   onClearPopups: () => void;
   onClosePopup: (popupId: string) => void;
@@ -4163,29 +4134,13 @@ function ScreenTool({
   onStagePopup: (preset: DisplayPopupPreset, path?: string) => void;
   onClearAndShowFullscreen: (path?: string) => void;
   onShowFullscreen: (path?: string) => void;
-  onMapClearReveals: () => void;
-  onMapDeletePin: (pinId: string) => void;
-  onMapDeletePreset: (presetId: string) => void;
-  onMapFogChange: (enabled: boolean) => void;
-  onMapGridChange: (grid: MapGrid) => void;
-  onMapLoadSource: (path: string) => void;
-  onMapLoadPreset: (presetId: string) => void;
-  onMapPinCreate: (point: MapPoint, label: string, visibility: MapPinVisibility) => void;
-  onMapPresent: () => void;
-  onMapRevealCreate: (reveal: MapRevealPayload) => void;
-  onMapRotate: () => void;
-  onMapSavePreset: (name: string, state: MapState) => void;
-  onMapStop: () => void;
-  onMapUndoReveal: () => void;
-  onMapUseActiveImage: () => void;
-  onMapViewportCommit: (viewport: MapViewport) => void;
-  onMapViewportPreview: (viewport: MapViewport) => void;
   onTabChange: (tab: ScreenToolTabId) => void;
   onPickPath: (filter: WorldPathPickerFilter, title: string, onSelect: (path: string) => void) => void;
   onRotatePrimary: () => void;
   tab: ScreenToolTabId;
   t: Translator;
 }) {
+  const { visibleMapState: mapState } = useMapContext();
   const displayable = canSendToScreen(activeTab?.mediaKind);
   const [popupPreset, setPopupPreset] = useState<DisplayPopupPreset>("plain");
   const [displayTargetPath, setDisplayTargetPath] = useState("");
@@ -4248,31 +4203,7 @@ function ScreenTool({
         ]}
       />
       {tab === "map" ? (
-        <MapTool
-          activeTab={activeTab}
-          actionStatus={mapActionStatus}
-          onClearReveals={onMapClearReveals}
-          onDeletePin={onMapDeletePin}
-          onDeletePreset={onMapDeletePreset}
-          onFogChange={onMapFogChange}
-          onGridChange={onMapGridChange}
-          onLoadSource={onMapLoadSource}
-          onLoadPreset={onMapLoadPreset}
-          onPinCreate={onMapPinCreate}
-          onPickPath={onPickPath}
-          onPresent={onMapPresent}
-          onRevealCreate={onMapRevealCreate}
-          onRotate={onMapRotate}
-          onSavePreset={onMapSavePreset}
-          onStop={onMapStop}
-          onUndoReveal={onMapUndoReveal}
-          onUseActiveImage={onMapUseActiveImage}
-          onViewportCommit={onMapViewportCommit}
-          onViewportPreview={onMapViewportPreview}
-          presets={mapPresets}
-          state={mapState}
-          t={t}
-        />
+        <MapTool activeTab={activeTab} />
       ) : (
         <>
       <label>
@@ -4619,7 +4550,6 @@ function ActionsTool({
   activeTab,
   actionBindings,
   bindingMessage,
-  mapPresets,
   message,
   midiBindingMessage,
   midiBindings,
@@ -4654,7 +4584,6 @@ function ActionsTool({
   activeTab: OpenTab | null;
   actionBindings: ActionBinding[];
   bindingMessage: string | null;
-  mapPresets: MapPreset[];
   message: string | null;
   midiBindingMessage: string | null;
   midiBindings: MidiBinding[];
@@ -4686,6 +4615,7 @@ function ActionsTool({
   onSaveSlot: (slot: FastSlot) => void;
   t: Translator;
 }) {
+  const { mapPresets } = useMapContext();
   const [position, setPosition] = useState(1);
   const [kind, setKind] = useState<FastSlotAction["kind"]>("open_file");
   const [label, setLabel] = useState("");
@@ -6840,9 +6770,6 @@ function ToolsPanel({
   linksState,
   hpRows,
   hpStatus,
-  mapActionStatus,
-  mapPresets,
-  mapState,
   metadataEditState,
   midiBindingMessage,
   midiBindings,
@@ -6880,23 +6807,6 @@ function ToolsPanel({
   onClearFastSlot,
   onPickPath,
   onRotatePrimaryScreen,
-  onMapClearReveals,
-  onMapDeletePin,
-  onMapDeletePreset,
-  onMapFogChange,
-  onMapGridChange,
-  onMapLoadSource,
-  onMapLoadPreset,
-  onMapPinCreate,
-  onMapPresent,
-  onMapRevealCreate,
-  onMapRotate,
-  onMapSavePreset,
-  onMapStop,
-  onMapUndoReveal,
-  onMapUseActiveImage,
-  onMapViewportCommit,
-  onMapViewportPreview,
   onClearMidiLearned,
   onConnectMidi,
   onDeleteMidiBinding,
@@ -6961,9 +6871,6 @@ function ToolsPanel({
   linksState: LinksLoadState;
   hpRows: HpTrackerRow[];
   hpStatus: HpToolStatus;
-  mapActionStatus: MapActionStatus;
-  mapPresets: MapPreset[];
-  mapState: MapState | null;
   metadataEditState: MetadataEditState;
   midiBindingMessage: string | null;
   midiBindings: MidiBinding[];
@@ -7002,23 +6909,6 @@ function ToolsPanel({
   onClearFastSlot: (position: number) => void;
   onPickPath: (filter: WorldPathPickerFilter, title: string, onSelect: (path: string) => void) => void;
   onRotatePrimaryScreen: () => void;
-  onMapClearReveals: () => void;
-  onMapDeletePin: (pinId: string) => void;
-  onMapDeletePreset: (presetId: string) => void;
-  onMapFogChange: (enabled: boolean) => void;
-  onMapGridChange: (grid: MapGrid) => void;
-  onMapLoadSource: (path: string) => void;
-  onMapLoadPreset: (presetId: string) => void;
-  onMapPinCreate: (point: MapPoint, label: string, visibility: MapPinVisibility) => void;
-  onMapPresent: () => void;
-  onMapRevealCreate: (reveal: MapRevealPayload) => void;
-  onMapRotate: () => void;
-  onMapSavePreset: (name: string, state: MapState) => void;
-  onMapStop: () => void;
-  onMapUndoReveal: () => void;
-  onMapUseActiveImage: () => void;
-  onMapViewportCommit: (viewport: MapViewport) => void;
-  onMapViewportPreview: (viewport: MapViewport) => void;
   onClearMidiLearned: () => void;
   onConnectMidi: () => void;
   onDeleteMidiBinding: (bindingId: string) => void;
@@ -7059,6 +6949,7 @@ function ToolsPanel({
 }) {
   const metadataLocked = metadataEditState.mode === "edit";
   const { audioMixer } = useAudioContext();
+  const { visibleMapState: mapState } = useMapContext();
 
   return (
     <aside className="tools-panel" aria-label={t("tools.panel")}>
@@ -7197,7 +7088,6 @@ function ToolsPanel({
           activeTab={activeTab}
           actionBindings={actionBindings}
           bindingMessage={actionBindingMessage}
-          mapPresets={mapPresets}
           message={fastSlotError}
           midiBindingMessage={midiBindingMessage}
           midiBindings={midiBindings}
@@ -7261,9 +7151,6 @@ function ToolsPanel({
         <ScreenTool
           activeTab={activeTab}
           displayState={displayState}
-          mapActionStatus={mapActionStatus}
-          mapPresets={mapPresets}
-          mapState={mapState}
           onBlank={onBlankDisplay}
           onClearPopups={onClearDisplayPopups}
           onClosePopup={onCloseDisplayPopup}
@@ -7272,24 +7159,7 @@ function ToolsPanel({
           onStagePopup={onStageDisplayPopup}
           onClearAndShowFullscreen={onClearAndShowFullscreen}
           onShowFullscreen={onShowFullscreen}
-          onMapClearReveals={onMapClearReveals}
-          onMapDeletePin={onMapDeletePin}
-          onMapDeletePreset={onMapDeletePreset}
-          onMapFogChange={onMapFogChange}
-          onMapGridChange={onMapGridChange}
-          onMapLoadSource={onMapLoadSource}
-          onMapLoadPreset={onMapLoadPreset}
-          onMapPinCreate={onMapPinCreate}
           onPickPath={onPickPath}
-          onMapPresent={onMapPresent}
-          onMapRevealCreate={onMapRevealCreate}
-          onMapRotate={onMapRotate}
-          onMapSavePreset={onMapSavePreset}
-          onMapStop={onMapStop}
-          onMapUndoReveal={onMapUndoReveal}
-          onMapUseActiveImage={onMapUseActiveImage}
-          onMapViewportCommit={onMapViewportCommit}
-          onMapViewportPreview={onMapViewportPreview}
           onRotatePrimary={onRotatePrimaryScreen}
           onTabChange={onScreenToolTabChange}
           tab={screenToolTab}
@@ -11733,6 +11603,7 @@ export function App() {
 
   return (
     <AudioProvider value={{ ...audio, t, onPickPath: handleOpenWorldPathPicker }}>
+    <MapProvider value={{ ...map, t, onPickPath: handleOpenWorldPathPicker }}>
     <main className="app-shell" style={appShellStyle}>
       <aside className="side-panel">
         <div className="side-top">
@@ -12025,9 +11896,6 @@ export function App() {
                 hasPageSavePreconditions(activePageState.page)
               }
               linksState={activeLinksState}
-              mapActionStatus={map.mapActionStatus}
-              mapPresets={map.mapPresets}
-              mapState={map.visibleMapState}
               metadataEditState={activeMetadataEdit}
               midiBindingMessage={midiBindingMessage}
               midiBindings={midiBindings}
@@ -12067,25 +11935,6 @@ export function App() {
               onDisplayPopupVisibleChange={(popupId, visible) =>
                 void handleDisplayPopupVisibleChange(popupId, visible)
               }
-              onMapClearReveals={() => void map.handleMapClearReveals()}
-              onMapDeletePin={(pinId) => void map.handleMapDeletePin(pinId)}
-              onMapDeletePreset={(presetId) => void map.handleMapDeletePreset(presetId)}
-              onMapFogChange={(enabled) => void map.handleMapFogChange(enabled)}
-              onMapGridChange={(grid) => void map.handleMapGridChange(grid)}
-              onMapLoadSource={(path) => void map.handleMapLoadSource(path)}
-              onMapLoadPreset={(presetId) => void map.handleMapLoadPreset(presetId)}
-              onMapPinCreate={(point, label, visibility) =>
-                void map.handleMapPinCreate(point, label, visibility)
-              }
-              onMapPresent={() => void map.handleMapPresent()}
-              onMapRevealCreate={(reveal) => void map.handleMapRevealCreate(reveal)}
-              onMapRotate={() => void map.handleMapRotate()}
-              onMapSavePreset={(name, state) => void map.handleMapSavePreset(name, state)}
-              onMapStop={() => void map.handleMapStop()}
-              onMapUndoReveal={() => void map.handleMapUndoReveal()}
-              onMapUseActiveImage={() => void map.handleUseActiveImageAsMap()}
-              onMapViewportCommit={(viewport) => void map.handleMapViewportCommit(viewport)}
-              onMapViewportPreview={map.handleMapViewportPreview}
               onClearMidiLearned={handleClearMidiLearned}
               onConnectMidi={() => void handleConnectMidi()}
               onDeleteMidiBinding={handleDeleteMidiBinding}
@@ -12346,6 +12195,7 @@ export function App() {
       />
     </main>
     <PluginToolsHost t={t} worldId={worldLibrary?.current?.id ?? null} />
+    </MapProvider>
     </AudioProvider>
   );
 }
