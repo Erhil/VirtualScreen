@@ -20,18 +20,57 @@ The appliance is the **runtime and the display**. Your laptop stays the **author
 you already have (an agent working directly on plain files in a folder) is preserved exactly. The old "copy
 the folder to a USB stick and carry it home" step is replaced by continuous sync.
 
+## 0. What has to be on the appliance before any of this
+
+There is no copy-this-folder-and-run artifact, and packaging one is not as simple as zipping the
+checkout: `.venv` and `node_modules` do not survive being moved between machines, and
+`frontend/dist` is a build output that is not in the repository at all. `start-appliance.ps1`
+refuses to start without `frontend/dist/index.html`. So the appliance needs a real install:
+
+**Python.** 3.11 or newer, plus a virtual environment created **on the appliance** — a `.venv`
+copied from another machine has absolute paths baked in and will not run. `start-appliance.ps1`
+requires `.venv\Scripts\python.exe` and will not fall back to a Python on `PATH`, so this is not
+optional.
+
+```powershell
+python -m venv .venv
+.\.venv\Scripts\python -m pip install --upgrade pip
+.\.venv\Scripts\python -m pip install -e .\backend
+```
+
+Note the missing `[dev]`: pytest, ruff and mypy are for the authoring machine. Add it only if you
+intend to run the test suite here.
+
+**The built frontend.** Either install Node on the appliance and build it there (`npm install` then
+`npm run build` in `frontend/`), or build on your authoring machine and copy `frontend/dist` across.
+Copying is the smaller footprint and keeps Node off the appliance entirely — the build output is
+plain static files with nothing machine-specific in it. Either way, **rebuild and re-copy whenever
+you update the code**; `start-appliance.ps1` does not build.
+
+**`.env`.** Copy `.env.example` to `.env` and set at least these two:
+
+| | |
+|---|---|
+| `VIRTUALSCREEN_WORLDS_ROOT` | The folder holding your worlds. Unset, it defaults into the Documents folder of whichever account the scheduled task runs as. Set it explicitly and point Syncthing (§4) at the same path. |
+| `VIRTUALSCREEN_ACCESS_TOKEN` | Required. `start-appliance.ps1` refuses to bind a non-loopback host without it. |
+
+**Sanity check before going further** — from the repo root on the appliance:
+
+```powershell
+.\.venv\Scripts\python -m uvicorn app.main:app --app-dir backend --host 127.0.0.1 --port 8000
+```
+
+Open `http://127.0.0.1:8000/api/health`. If that answers, the Python side is real and everything
+below is configuration rather than installation.
+
 ## 1. Build the frontend and enable production mode
 
 In dev, the UI is served by the Vite dev server on a second port. An appliance should run **one process on
-one port** — the backend serves the built SPA:
+one port** — the backend serves the built SPA it already has from §0.
 
-```bash
-cd frontend && npm run build
-```
-
-Then set `VIRTUALSCREEN_STATIC_DIR` to the build output (`frontend/dist`). `scripts/start-appliance.ps1` does
-this for you. When the variable is unset the backend behaves exactly as before, so the dev workflow is
-unchanged.
+What makes that happen is `VIRTUALSCREEN_STATIC_DIR` pointing at the build output (`frontend/dist`).
+`scripts/start-appliance.ps1` sets it for you. When the variable is unset the backend behaves exactly as
+before, so the dev workflow is unchanged.
 
 > ⚠️ Point it at `frontend/dist` and nothing else. Whatever directory you name is served **publicly and
 > recursively, without a token** — that is correct for a built SPA and wrong for anything else. Do not set it
@@ -159,15 +198,22 @@ folder and never touches yours.
 2. `http://<tailscale-ip>:8000/screen` — player screen loads (SPA route served by the backend).
 3. Edit a file in the synced folder on your laptop → it appears in the console within seconds (the watcher
    reindexes automatically).
-4. Kill the server process → the watchdog brings it back; check `.virtualscreen/appliance.log`.
-5. **Reboot the appliance, close the lid, walk away, and come back.** Everything should still be up. If this
-   step passes, the deployment is real.
+4. Kill the server process → the watchdog brings it back; check `.virtualscreen/appliance.log`. Then
+   check **which world it came back on**, not just that it answers. The watchdog also restarts on a
+   crash or a hung health probe, unattended and mid-session, and the active world is server-global —
+   it is what the player screen shows. It is remembered in `virtualscreen-state.json` beside the
+   world library; if that file is not writable, the choice will not survive.
+5. **Reboot the appliance, close the lid, walk away, and come back.** Everything should still be up,
+   still on the same world. If this step passes, the deployment is real.
 
 ## Troubleshooting
 
 | Symptom | Look at |
 |---|---|
 | Nothing responds after a reboot | Did the scheduled task run? Is auto-login on? `.virtualscreen/appliance.log` |
+| It came back on the wrong world | `virtualscreen-state.json` beside the world library holds the open world; check it is writable and that `VIRTUALSCREEN_WORLDS_ROOT` is the same folder you opened the world from |
+| `FATAL: missing frontend/dist/index.html` | The build output never made it across, or was wiped by an update. See §0 — `start-appliance.ps1` does not build |
+| `FATAL: missing virtual environment` | `.venv` was copied from another machine instead of created here. See §0 |
 | Reachable at home, not from outside | Both machines signed into the same tailnet; using the `100.x` address, not the LAN one |
 | Machine disappears after a while | Sleep/hibernate or lid action re-enabled (Windows Update can reset power plans — re-run `setup-appliance.ps1`) |
 | UI loads but API 401s | Access token mismatch between `.env` and what the browser stored; re-enter the unlock code |
