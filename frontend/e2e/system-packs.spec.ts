@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
 import type { Locator, Page } from "@playwright/test";
-import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -42,15 +42,14 @@ function worldTree(page: Page) {
 }
 
 function removeImportedPackFiles() {
-  rmSync(resolve(e2eWorld, "Cards", "E2E Pack Card.cs"), { force: true, maxRetries: 10, retryDelay: 100 });
-  rmSync(resolve(e2eWorld, "Tables", "e2e-pack-table.csv"), { force: true, maxRetries: 10, retryDelay: 100 });
-  rmSync(resolve(e2eWorld, "Media", "e2e-pack-map.svg"), { force: true, maxRetries: 10, retryDelay: 100 });
-  rmSync(resolve(e2eWorld, ".music", "ambient", "E2E Pack"), { force: true, recursive: true, maxRetries: 10, retryDelay: 100 });
-  rmSync(resolve(e2eWorld, ".virtualscreen", "card-templates", "e2e-pack-template.json"), {
-    force: true,
-    maxRetries: 10,
-    retryDelay: 100
-  });
+  // The backend reindexes the world after an import, so these files can still be
+  // open when the test deletes them and Windows answers EPERM. removeWorldPath
+  // is the shared helper that waits it out.
+  removeWorldPath(resolve(e2eWorld, "Cards", "E2E Pack Card.cs"));
+  removeWorldPath(resolve(e2eWorld, "Tables", "e2e-pack-table.csv"));
+  removeWorldPath(resolve(e2eWorld, "Media", "e2e-pack-map.svg"));
+  removeWorldPath(resolve(e2eWorld, ".music", "ambient", "E2E Pack"));
+  removeWorldPath(resolve(e2eWorld, ".virtualscreen", "card-templates", "e2e-pack-template.json"));
 }
 
 async function openSettings(page: Page) {
