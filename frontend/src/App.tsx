@@ -42,6 +42,7 @@ import { MapProvider, useMapContext } from "./contexts/MapContext";
 import { UnlockScreen } from "./UnlockScreen";
 import { WorldPathPicker } from "./WorldPathPicker";
 import { useAudio } from "./hooks/useAudio";
+import { useDisplay } from "./hooks/useDisplay";
 import { useMap } from "./hooks/useMap";
 import {
   addCardField,
@@ -85,7 +86,6 @@ import {
   blankDisplay,
   cancelDmsRun,
   clearDisplayPopups,
-  closeDisplayPopup,
   createCapture,
   createWorkspace,
   createWorld,
@@ -144,7 +144,6 @@ import {
   saveWorkspaceTabs,
   searchWorld,
   setDisplayFullscreen,
-  setDisplayPopupVisible,
   showActiveOnDisplay,
   submitDmsForm,
   trashWorldPath,
@@ -323,7 +322,6 @@ import {
 } from "./lib/liveSync";
 import { isLocalWrite, markLocalWrite, unmarkLocalWrite } from "./lib/localWrites";
 import {
-  createDisplayEventClient,
   hasResidualPopupsAfterBlank,
   screenPrimaryMode,
   screenPrimaryTitle,
@@ -7301,7 +7299,6 @@ export function App() {
   const [worldTreeDropPath, setWorldTreeDropPath] = useState<string | null>(null);
   const [worldTreeStatus, setWorldTreeStatus] = useState<string | null>(null);
   const [trashDialog, setTrashDialog] = useState<TrashDialogState>({ open: false });
-  const [displayState, setDisplayState] = useState<DisplayState | null>(null);
   const [worldOpenDialog, setWorldOpenDialog] = useState(false);
   const [worldCreateDialog, setWorldCreateDialog] = useState<WorldCreateDialogState>({
     open: false
@@ -7494,7 +7491,7 @@ export function App() {
         }
         setFavorites(workspace.favorites);
         setRecentFiles(workspace.recentFiles);
-        setDisplayState(nextDisplayState);
+        display.setDisplayState(nextDisplayState);
         map.adoptMapState(nextMapState);
         const sortedTableSnapshots = sortTableSnapshots(nextTableSnapshots);
         setTableSnapshots(sortedTableSnapshots);
@@ -7870,11 +7867,15 @@ export function App() {
     tabState.tabs.map(openTabToWorkspaceTab)
   );
   const activeTab = tabState.tabs.find((tab) => tab.path === tabState.activePath) ?? null;
+  const display = useDisplay({
+    activeTab,
+    authReady: authState.status === "unlocked"
+  });
   const map = useMap({
     activeTab,
     authReady: authState.status === "unlocked",
     t,
-    refreshDisplayState: async () => setDisplayState(await fetchDisplayState())
+    refreshDisplayState: display.refreshDisplayState
   });
   const mainPaneTab =
     tabState.tabs.find(
@@ -7959,12 +7960,12 @@ export function App() {
       applyToolAutoOpenRules(state, {
         activePath: activeTab?.path ?? null,
         audioActive: hasLoadedAudio(audio.audioMixer),
-        displayState,
+        displayState: display.displayState,
         mapState: map.mapState,
         metadataEditing: activeMetadataEdit.mode === "edit"
       })
     );
-  }, [activeTab?.path, activeMetadataEdit.mode, audio.audioMixer, displayState, map.mapState]);
+  }, [activeTab?.path, activeMetadataEdit.mode, audio.audioMixer, display.displayState, map.mapState]);
 
   useEffect(() => {
     if (searchToolOpen) {
@@ -8622,11 +8623,11 @@ export function App() {
   }
 
   function handleStageSearchResult(result: SearchResult) {
-    void openDisplayPopup(result.path, "plain", false).then(setDisplayState).catch(() => {});
+    void openDisplayPopup(result.path, "plain", false).then(display.setDisplayState).catch(() => {});
   }
 
   function handleShowSearchResult(result: SearchResult) {
-    void openDisplayPopup(result.path).then(setDisplayState).catch(() => {});
+    void openDisplayPopup(result.path).then(display.setDisplayState).catch(() => {});
   }
 
   async function refreshWorkspaceSummaries() {
@@ -8843,14 +8844,14 @@ export function App() {
     setTableSnapshotStatus({ status: "saving", message: "Saving..." });
     try {
       await flushCurrentWorkspaceState();
-      const [workspace, display, mapSnapshot] = await Promise.all([
+      const [workspace, displaySnapshot, mapSnapshot] = await Promise.all([
         fetchWorkspace(),
         fetchDisplayState(),
         fetchMapState()
       ]);
       const saved = await saveTableSnapshot({
         name,
-        state: buildTableSnapshotState(display, mapSnapshot, workspace, audio.audioMixer)
+        state: buildTableSnapshotState(displaySnapshot, mapSnapshot, workspace, audio.audioMixer)
       });
       setTableSnapshots((snapshots) => saveTableSnapshotInList(snapshots, saved));
       setSelectedTableSnapshotId(saved.id);
@@ -8871,7 +8872,7 @@ export function App() {
     setTableSnapshotStatus({ status: "loading", message: "Loading..." });
     try {
       const restored = await restoreTableSnapshot(snapshotId);
-      setDisplayState(restored.display);
+      display.setDisplayState(restored.display);
       map.adoptMapState(restored.map);
       map.resetViewport();
       applyWorkspaceState(restored.workspace);
@@ -8942,17 +8943,17 @@ export function App() {
   async function applyDmsEffects(run: DmsRunState) {
     for (const effect of run.effects) {
       if (effect.kind === "screen_fullscreen") {
-        setDisplayState(await setDisplayFullscreen(effect.path));
+        display.setDisplayState(await setDisplayFullscreen(effect.path));
         map.adoptMapState(await fetchMapState());
         setScreenToolTab("display");
       } else if (effect.kind === "screen_popup") {
-        setDisplayState(await openDisplayPopup(effect.path));
+        display.setDisplayState(await openDisplayPopup(effect.path));
         setScreenToolTab("display");
       } else if (effect.kind === "map_load") {
         let nextMapState = await setMapSource(effect.path);
         if (effect.present) {
           nextMapState = await presentMap();
-          setDisplayState(await fetchDisplayState());
+          display.setDisplayState(await fetchDisplayState());
         }
         map.adoptMapState(nextMapState);
         setScreenToolTab("map");
@@ -8963,7 +8964,7 @@ export function App() {
         setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       } else if (effect.kind === "map_present") {
         map.adoptMapState(await presentMap());
-        setDisplayState(await fetchDisplayState());
+        display.setDisplayState(await fetchDisplayState());
         setScreenToolTab("map");
         setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       } else if (effect.kind === "map_stop") {
@@ -9173,7 +9174,7 @@ export function App() {
         setToolPanelState((state) => openToolSectionByUser(state, "actions"));
         return;
       }
-      setDisplayState(await setDisplayFullscreen(resolved.path));
+      display.setDisplayState(await setDisplayFullscreen(resolved.path));
       map.adoptMapState(await fetchMapState());
       setScreenToolTab("display");
       setToolPanelState((state) => openToolSectionByUser(state, "screen"));
@@ -9186,7 +9187,7 @@ export function App() {
         setToolPanelState((state) => openToolSectionByUser(state, "actions"));
         return;
       }
-      setDisplayState(await openDisplayPopup(resolved.path, dispatchAction.preset ?? "plain"));
+      display.setDisplayState(await openDisplayPopup(resolved.path, dispatchAction.preset ?? "plain"));
       setScreenToolTab("display");
       setToolPanelState((state) => openToolSectionByUser(state, "screen"));
       return;
@@ -10689,7 +10690,7 @@ export function App() {
     setMetadataEdits({});
     setFavorites([]);
     setRecentFiles([]);
-    setDisplayState(null);
+    display.reset();
     map.reset();
     setFolderMenuPath(null);
     setWorldOpenDialog(false);
@@ -10735,7 +10736,7 @@ export function App() {
     setHpStatus({ status: "idle", message: null });
     setFavorites(workspace.favorites);
     setRecentFiles(workspace.recentFiles);
-    setDisplayState(nextDisplayState);
+    display.setDisplayState(nextDisplayState);
     map.adoptMapState(nextMapState);
     const sortedTableSnapshots = sortTableSnapshots(nextTableSnapshots);
     setTableSnapshots(sortedTableSnapshots);
@@ -10808,43 +10809,17 @@ export function App() {
     }
   }
 
+  // These four handlers stay in App because they span both the display and map domains:
+  // each one also drives the map (adopting map state after a display change, or reading
+  // map state / rotating the map), so they don't fit cleanly into either domain hook alone.
   async function handleShowActiveFullscreen(pathOverride?: string) {
     const path = pathOverride?.trim() || activeTab?.path;
     if (!path) {
       return;
     }
     try {
-      setDisplayState(await setDisplayFullscreen(path));
+      display.setDisplayState(await setDisplayFullscreen(path));
       map.adoptMapState(await fetchMapState());
-    } catch {
-    }
-  }
-
-  async function handleOpenActivePopup(preset: DisplayPopupPreset = "plain", pathOverride?: string) {
-    const path = pathOverride?.trim() || activeTab?.path;
-    if (!path) {
-      return;
-    }
-    try {
-      setDisplayState(await openDisplayPopup(path, preset));
-    } catch {
-    }
-  }
-
-  async function handleStageActivePopup(preset: DisplayPopupPreset = "plain", pathOverride?: string) {
-    const path = pathOverride?.trim() || activeTab?.path;
-    if (!path) {
-      return;
-    }
-    try {
-      setDisplayState(await openDisplayPopup(path, preset, false));
-    } catch {
-    }
-  }
-
-  async function handleDisplayPopupVisibleChange(popupId: string, visible: boolean) {
-    try {
-      setDisplayState(await setDisplayPopupVisible(popupId, visible));
     } catch {
     }
   }
@@ -10855,7 +10830,7 @@ export function App() {
       return;
     }
     try {
-      setDisplayState(
+      display.setDisplayState(
         await showActiveOnDisplay({
           path,
           mode: "fullscreen",
@@ -10868,15 +10843,15 @@ export function App() {
   }
 
   async function handleRotatePrimaryScreen() {
-    if (screenPrimaryMode(displayState, map.mapState) === "map") {
+    if (screenPrimaryMode(display.displayState, map.mapState) === "map") {
       await map.handleMapRotate();
       return;
     }
-    if (!displayState?.fullscreen) {
+    if (!display.displayState?.fullscreen) {
       return;
     }
     try {
-      setDisplayState(await rotateDisplayFullscreen());
+      display.setDisplayState(await rotateDisplayFullscreen());
     } catch {
     }
   }
@@ -10887,24 +10862,10 @@ export function App() {
       map.adoptMapState(await fetchMapState());
       if (hasResidualPopupsAfterBlank(nextDisplayState)) {
         const clearedState = await clearDisplayPopups();
-        setDisplayState({ ...clearedState, fullscreen: null, popups: [] });
+        display.setDisplayState({ ...clearedState, fullscreen: null, popups: [] });
         return;
       }
-      setDisplayState(nextDisplayState);
-    } catch {
-    }
-  }
-
-  async function handleCloseDisplayPopup(popupId: string) {
-    try {
-      setDisplayState(await closeDisplayPopup(popupId));
-    } catch {
-    }
-  }
-
-  async function handleClearDisplayPopups() {
-    try {
-      setDisplayState(await clearDisplayPopups());
+      display.setDisplayState(nextDisplayState);
     } catch {
     }
   }
@@ -11189,18 +11150,6 @@ export function App() {
         void handleWorldEvent(event);
       },
       onStatus: () => {}
-    });
-  }, [authState.status]);
-
-  useEffect(() => {
-    if (authState.status !== "unlocked") {
-      return;
-    }
-    fetchDisplayState()
-      .then(setDisplayState)
-      .catch(() => {});
-    return createDisplayEventClient({
-      onEvent: setDisplayState
     });
   }, [authState.status]);
 
@@ -11703,7 +11652,7 @@ export function App() {
               actionBindings={actionBindings}
               actionBindingMessage={actionBindingMessage}
               contentDirty={activeContentDirty}
-              displayState={displayState}
+              displayState={display.displayState}
               diceHistory={diceHistory}
               diceStatus={diceStatus}
               fastSlotError={fastSlotError}
@@ -11747,12 +11696,12 @@ export function App() {
               onCancelMetadataEdit={handleCancelMetadataEdit}
               onCancelScript={(runId) => void handleCancelDmsScript(runId)}
               onChangeMetadataEdit={handleChangeMetadataEdit}
-              onClearDisplayPopups={() => void handleClearDisplayPopups()}
+              onClearDisplayPopups={() => void display.handleClearDisplayPopups()}
               onClearFastSlot={handleClearFastSlot}
               onPickPath={handleOpenWorldPathPicker}
-              onCloseDisplayPopup={(popupId) => void handleCloseDisplayPopup(popupId)}
+              onCloseDisplayPopup={(popupId) => void display.handleCloseDisplayPopup(popupId)}
               onDisplayPopupVisibleChange={(popupId, visible) =>
-                void handleDisplayPopupVisibleChange(popupId, visible)
+                void display.handleDisplayPopupVisibleChange(popupId, visible)
               }
               onClearMidiLearned={handleClearMidiLearned}
               onConnectMidi={() => void handleConnectMidi()}
@@ -11760,8 +11709,8 @@ export function App() {
               onMidiBindingRun={(binding) => void handleMidiBindingTrigger(binding)}
               onMidiBindingSave={handleSaveMidiBinding}
               onOpenBacklink={openBacklink}
-              onOpenDisplayPopup={(preset, path) => void handleOpenActivePopup(preset, path)}
-              onStageDisplayPopup={(preset, path) => void handleStageActivePopup(preset, path)}
+              onOpenDisplayPopup={(preset, path) => void display.handleOpenActivePopup(preset, path)}
+              onStageDisplayPopup={(preset, path) => void display.handleStageActivePopup(preset, path)}
               onOpenOutgoing={openResolvedLink}
               onReloadMetadataEdit={() => void handleReloadMetadataEdit()}
               onRevertMetadataEdit={handleRevertMetadataEdit}
@@ -11964,12 +11913,12 @@ export function App() {
         onPeek={openLinkPeek}
         onShowPopup={(link) => {
           if (link.target_path) {
-            void openDisplayPopup(link.target_path).then(setDisplayState).catch(() => {});
+            void openDisplayPopup(link.target_path).then(display.setDisplayState).catch(() => {});
           }
         }}
         onStagePopup={(link) => {
           if (link.target_path) {
-            void openDisplayPopup(link.target_path, "plain", false).then(setDisplayState).catch(() => {});
+            void openDisplayPopup(link.target_path, "plain", false).then(display.setDisplayState).catch(() => {});
           }
         }}
         state={linkContextMenu}
