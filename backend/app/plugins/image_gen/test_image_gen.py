@@ -15,6 +15,7 @@ from pytest import MonkeyPatch
 from app.core.config import get_settings
 from app.main import create_app
 from app.plugins.image_gen import plugin as image_gen_plugin
+from app.plugins.image_gen.plugin import DEFAULT_BASE_URL, ImageGenSettings
 
 
 @pytest.fixture(autouse=True)
@@ -38,14 +39,12 @@ def make_client(
     monkeypatch.setenv("VIRTUALSCREEN_WORLD_ROOT", str(world))
     monkeypatch.setenv("VIRTUALSCREEN_ACCESS_TOKEN", " ")
 
-    for key in (image_gen_plugin.ENV_URL, image_gen_plugin.ENV_TOKEN, image_gen_plugin.ENV_MODEL):
-        monkeypatch.delenv(key, raising=False)
-    if url is not None:
-        monkeypatch.setenv(image_gen_plugin.ENV_URL, url)
-    if token is not None:
-        monkeypatch.setenv(image_gen_plugin.ENV_TOKEN, token)
-    if model is not None:
-        monkeypatch.setenv(image_gen_plugin.ENV_MODEL, model)
+    # Set all three every time rather than deleting the unused ones: the plugin also reads
+    # the repo `.env`, so an unset variable would let the developer's own configuration
+    # decide what these tests see. The environment wins over the file.
+    monkeypatch.setenv(image_gen_plugin.ENV_URL, url if url is not None else DEFAULT_BASE_URL)
+    monkeypatch.setenv(image_gen_plugin.ENV_TOKEN, token if token is not None else "")
+    monkeypatch.setenv(image_gen_plugin.ENV_MODEL, model if model is not None else "")
 
     get_settings.cache_clear()
     return TestClient(create_app())
@@ -702,3 +701,40 @@ def test_preview_refuses_a_response_that_is_not_an_image(
 
     # Echoing the upstream type verbatim would render HTML on the console's own origin.
     assert response.status_code == 502
+
+
+def clear_image_gen_env(monkeypatch: MonkeyPatch) -> None:
+    for key in (image_gen_plugin.ENV_URL, image_gen_plugin.ENV_TOKEN, image_gen_plugin.ENV_MODEL):
+        monkeypatch.delenv(key, raising=False)
+
+
+def test_settings_fall_back_to_the_documented_defaults(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
+    clear_image_gen_env(monkeypatch)
+    # `.env` is resolved against the working directory, so move somewhere without one
+    # rather than letting the developer's own file decide what this asserts.
+    monkeypatch.chdir(tmp_path)
+
+    settings = ImageGenSettings()
+
+    assert settings.url == DEFAULT_BASE_URL
+    assert settings.token == ""
+    assert settings.model == ""
+
+
+def test_settings_are_read_from_a_dotenv_file(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+    clear_image_gen_env(monkeypatch)
+    (tmp_path / ".env").write_text(
+        "VIRTUALSCREEN_IMAGE_GEN_URL=http://sdxl.local:8337\n"
+        "VIRTUALSCREEN_IMAGE_GEN_MODEL=sdxl\\dvine_v108.safetensors\n",
+        encoding="utf-8",
+    )
+    monkeypatch.chdir(tmp_path)
+
+    # Neither dev.ps1 nor start-appliance.ps1 exports arbitrary keys out of .env, so
+    # reading only os.environ would silently ignore the obvious place to configure this.
+    settings = ImageGenSettings()
+
+    assert settings.url == "http://sdxl.local:8337"
+    assert settings.model == "sdxl\\dvine_v108.safetensors"

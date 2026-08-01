@@ -16,7 +16,6 @@ code changes:
 
 from __future__ import annotations
 
-import os
 from dataclasses import dataclass
 from typing import Annotated, Any
 from urllib.parse import quote
@@ -25,6 +24,7 @@ import httpx
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
 from pydantic import BaseModel, Field
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 from app.core.config import Settings, get_settings
 from app.core.file_safety import atomic_write_bytes
@@ -70,19 +70,41 @@ class ImageGenRuntime:
         return {}
 
 
-def _resolve_runtime() -> ImageGenRuntime:
-    """Read the upstream service's configuration from the environment.
+class ImageGenSettings(BaseSettings):
+    """The plugin's own settings, deliberately separate from core `Settings`.
 
-    Read at request time (not module import time) so tests can monkeypatch the
-    environment and so a running server picks up a changed `.env` on restart.
+    Reads the process environment *and* the repo `.env`, exactly as core does - reading
+    only `os.environ` looked equivalent but was not: neither dev.ps1 nor
+    start-appliance.ps1 exports arbitrary keys from `.env`, so the file that is the
+    obvious place to configure this would have been silently ignored.
+
+    A local settings class rather than fields on core `Settings`, so that deleting the
+    plugin folder leaves nothing behind.
     """
 
-    base_url = os.environ.get(ENV_URL, DEFAULT_BASE_URL).strip() or DEFAULT_BASE_URL
-    if base_url.endswith("/"):
-        base_url = base_url[:-1]
-    token = os.environ.get(ENV_TOKEN, "").strip()
-    model = os.environ.get(ENV_MODEL, "").strip()
-    return ImageGenRuntime(base_url=base_url, token=token, model=model)
+    model_config = SettingsConfigDict(
+        env_prefix="VIRTUALSCREEN_IMAGE_GEN_",
+        env_file=".env",
+        extra="ignore",
+        # `model` would otherwise collide with pydantic's own `model_` namespace.
+        protected_namespaces=(),
+    )
+
+    url: str = DEFAULT_BASE_URL
+    token: str = ""
+    model: str = ""
+
+
+def _resolve_runtime() -> ImageGenRuntime:
+    """Read the upstream service's configuration.
+
+    Read at request time (not module import time), so a restart is enough to pick up a
+    changed `.env` and tests can set the environment per case.
+    """
+
+    raw = ImageGenSettings()
+    base_url = raw.url.strip().rstrip("/") or DEFAULT_BASE_URL
+    return ImageGenRuntime(base_url=base_url, token=raw.token.strip(), model=raw.model.strip())
 
 
 def _client(
