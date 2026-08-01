@@ -32,6 +32,20 @@ def restart_server(world: Path, worlds_root: Path) -> TestClient:
     return make_client(world, worlds_root)
 
 
+def test_world_isolation_fixture_lives_where_every_test_root_can_see_it() -> None:
+    # pyproject collects two roots, `tests` and `app/plugins`, so a conftest inside either
+    # one does not reach the other. This fixture spent a while in tests/conftest.py, where
+    # it protected everything except plugin tests - and the first plugin test that wrote to
+    # a world put a file into a real campaign. Moving it back would leave the sandbox test
+    # below passing while plugin tests silently lost cover, so pin the location itself.
+    backend_root = Path(__file__).resolve().parents[1]
+
+    assert "isolated_world_library" in (backend_root / "conftest.py").read_text(encoding="utf-8")
+    assert "isolated_world_library" not in (backend_root / "tests" / "conftest.py").read_text(
+        encoding="utf-8"
+    )
+
+
 def test_settings_without_a_worlds_root_stay_inside_the_test_sandbox(tmp_path: Path) -> None:
     # Twenty test modules build Settings with only world_root overridden. The
     # active world is now restored from a state file under worlds_root, so if the
