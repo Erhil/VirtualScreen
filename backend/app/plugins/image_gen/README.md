@@ -11,7 +11,7 @@ that reason — nothing about this plugin should be left behind in core files.
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `VIRTUALSCREEN_IMAGE_GEN_URL` | `http://127.0.0.1:8000` | Base URL of the SDXL service. No trailing slash needed. |
+| `VIRTUALSCREEN_IMAGE_GEN_URL` | `http://127.0.0.1:8000` | Base URL of the SDXL service, resolved **from the machine running VirtualScreen** — not from the browser. Loopback only when both run on the same box; otherwise the GPU machine's LAN address. No trailing slash needed. |
 | `VIRTUALSCREEN_IMAGE_GEN_TOKEN` | *(empty)* | Sent as `Authorization: Bearer …`. Only needed if the service has its token auth enabled. |
 | `VIRTUALSCREEN_IMAGE_GEN_MODEL` | *(empty)* | Model name to preselect in the panel, e.g. `sdxl\dvine_v108.safetensors`. |
 
@@ -37,3 +37,16 @@ world — a captive portal or a proxy login page otherwise lands in a campaign a
 ## Requirements
 
 The service must be running and have the model available. Nothing here starts it.
+
+When it lives on another machine, three things have to line up beyond the URL, and each fails
+differently:
+
+- the service must bind a non-loopback address (`0.0.0.0`), or nothing outside the box can connect;
+- its host firewall must allow the port inbound on the profile that network is classified as —
+  Windows blocks inbound by default, and a rule that exists only for "Private" does nothing on a
+  network marked "Public";
+- a VPN on either machine must not swallow the LAN subnet. This setup has already lost LAN access
+  once to a client that installed a route for the local `/24` at metric 0.
+
+The service has no authentication unless its own token is enabled, so anything on that network can
+spend the GPU. That is fine on a home LAN and not fine anywhere the network is shared.
