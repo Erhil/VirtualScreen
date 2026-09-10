@@ -42,6 +42,8 @@
   "contentPack.status.invalid": "Недопустимо",
   "card.noRows": "Нет строк.",
   "contextMenu.copyPath": "Копировать путь",
+  "contextMenu.showFullscreen": "Показать на весь экран",
+  "contextMenu.useAsMap": "Сделать картой",
   "contextMenu.openOtherPane": "Открыть в другой панели",
   "contextMenu.showOnScreen": "Показать на экран",
   "contextMenu.stageOnScreen": "Подготовить на экран",

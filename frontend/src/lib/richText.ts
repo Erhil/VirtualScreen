@@ -73,6 +73,15 @@ function linkIndex(links: PageLink[], rawTarget: string, linkType: PageLink["lin
   );
 }
 
+/* An image carrying the link index is reachable by the same click, middle-click and
+   right-click handlers that already serve world links, so opening one in a tab, peeking
+   it or sending it to the screen needs no separate mechanism. An index of -1 means the
+   image resolved to no indexed link; it then renders exactly as it always did. */
+function renderWorldImage(index: number, label: string, source: string): string {
+  const reference = index >= 0 ? ` data-world-link-index="${index}"` : "";
+  return `<img alt="${escapeHtml(label)}" src="${escapeHtml(source)}"${reference}>`;
+}
+
 function renderWorldAnchor(index: number, label: string): string {
   return `<a class="inline-link" href="#" data-world-link-index="${index}">${escapeHtml(label)}</a>`;
 }
@@ -128,7 +137,7 @@ function replaceWikiLinks(
     const link = index >= 0 ? links[index] : null;
 
     if (link?.target_kind === "image" && link.target_path) {
-      return `<img alt="${escapeHtml(label)}" src="${mediaUrlBuilder(link.target_path)}">`;
+      return renderWorldImage(index, label, mediaUrlBuilder(link.target_path));
     }
     if (link?.target_kind === "video" && link.target_path) {
       return renderWorldVideo(link.target_path, label, mediaUrlBuilder);
@@ -219,7 +228,7 @@ markdown.renderer.rules.image = (tokens, index, _options, env: RichEnv) => {
     return renderWorldVideo(resolvedSource, alt, env.mediaUrlBuilder);
   }
   const finalSource = /^[a-z]+:/i.test(src) ? src : env.mediaUrlBuilder(resolvedSource);
-  return `<img alt="${escapeHtml(alt)}" src="${escapeHtml(finalSource)}">`;
+  return renderWorldImage(linkIndex(env.links, src, "embed"), alt, finalSource);
 };
 
 export function renderRichMarkdown(

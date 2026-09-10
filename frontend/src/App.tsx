@@ -426,6 +426,7 @@ import {
 import type { CodeEditorCompletion } from "./CodeEditor";
 import {
   applyToolAutoOpenRules,
+  canSendToScreen,
   createToolPanelState,
   DEFAULT_ACTIONS_TOOL_TAB,
   DEFAULT_SCREEN_TOOL_TAB,
@@ -3792,8 +3793,10 @@ function LinkContextMenu({
   onOpen,
   onOpenOtherPane,
   onPeek,
+  onShowFullscreen,
   onShowPopup,
   onStagePopup,
+  onUseAsMap,
   t
 }: {
   state: LinkContextMenuState;
@@ -3802,8 +3805,10 @@ function LinkContextMenu({
   onOpen: (link: PageLink) => void;
   onOpenOtherPane: (link: PageLink) => void;
   onPeek: (link: PageLink) => void;
+  onShowFullscreen: (link: PageLink) => void;
   onShowPopup: (link: PageLink) => void;
   onStagePopup: (link: PageLink) => void;
+  onUseAsMap: (link: PageLink) => void;
   t: Translator;
 }) {
   if (!state.open) {
@@ -3831,6 +3836,18 @@ function LinkContextMenu({
       <button disabled={disabled} onClick={() => { onShowPopup(state.link); onClose(); }} type="button">
         {t("search.showOnScreen")}
       </button>
+      <button
+        disabled={disabled || !canSendToScreen(state.link.target_kind)}
+        onClick={() => { onShowFullscreen(state.link); onClose(); }}
+        type="button"
+      >
+        {t("contextMenu.showFullscreen")}
+      </button>
+      {state.link.target_kind === "image" ? (
+        <button disabled={disabled} onClick={() => { onUseAsMap(state.link); onClose(); }} type="button">
+          {t("contextMenu.useAsMap")}
+        </button>
+      ) : null}
       <button onClick={() => { onCopyPath(state.link); onClose(); }} type="button">
         {t("contextMenu.copyPath")}
       </button>
@@ -10827,6 +10844,11 @@ export function App() {
         onOpen={openResolvedLink}
         onOpenOtherPane={openLinkInOtherPane}
         onPeek={openLinkPeek}
+        onShowFullscreen={(link) => {
+          if (link.target_path) {
+            void handleShowActiveFullscreen(link.target_path);
+          }
+        }}
         onShowPopup={(link) => {
           if (link.target_path) {
             void openDisplayPopup(link.target_path).then(display.setDisplayState).catch(() => {});
@@ -10835,6 +10857,11 @@ export function App() {
         onStagePopup={(link) => {
           if (link.target_path) {
             void openDisplayPopup(link.target_path, "plain", false).then(display.setDisplayState).catch(() => {});
+          }
+        }}
+        onUseAsMap={(link) => {
+          if (link.target_path) {
+            void map.handleMapLoadSource(link.target_path);
           }
         }}
         state={linkContextMenu}

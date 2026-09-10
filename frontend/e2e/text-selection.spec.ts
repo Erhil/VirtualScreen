@@ -66,3 +66,29 @@ test("a selection survives an unrelated re-render", async ({ page }) => {
 
   expect(await selectionText(page)).toContain(PARAGRAPH);
 });
+
+test("an embedded image offers the same actions as a link", async ({ page }) => {
+  writeFileSync(
+    resolve(e2eWorld, "Notes", "with-image.md"),
+    "# With Image\n\n![map](../Media/animated-map.gif)\n",
+    "utf-8"
+  );
+
+  await page.goto("/");
+  await openNotesFile(page, "with-image\.md");
+
+  const image = page.locator(".markdown-viewer img").first();
+  await expect(image).toBeVisible();
+
+  // Same convention as a world link: right-click opens the context menu. The image is
+  // tagged with its link index, so the existing handlers serve it - including the two
+  // entries that only make sense for a picture.
+  await image.click({ button: "right" });
+  const menu = page.getByRole("menu");
+  await expect(menu).toBeVisible();
+  await expect(menu.getByRole("button", { name: "Show fullscreen" })).toBeVisible();
+  await expect(menu.getByRole("button", { name: "Use as map" })).toBeVisible();
+
+  await menu.getByRole("button", { name: "Use as map" }).click();
+  await expect(menu).toHaveCount(0);
+});

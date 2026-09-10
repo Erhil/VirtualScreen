@@ -121,3 +121,42 @@ describe("rich text rendering", () => {
     expect(html).not.toContain("/api/world/media");
   });
 });
+
+describe("image references", () => {
+  const imageLink: PageLink = {
+    source_path: "Notes/page.md",
+    raw_target: "Media/hero.png",
+    label: "hero",
+    link_type: "embed",
+    target_path: "Media/hero.png",
+    target_title: null,
+    target_kind: "image",
+    resolved: true,
+    heading: null
+  };
+
+  it("marks a markdown image embed with its link index so it behaves like a link", () => {
+    // Click, middle-click and right-click on rendered content are all routed by this
+    // attribute, so tagging the image is what gives it the same actions as a link
+    // without inventing a second mechanism.
+    const html = renderRichMarkdown("![hero](Media/hero.png)", [imageLink], "Notes/page.md");
+
+    expect(html).toContain("<img");
+    expect(html).toContain('data-world-link-index="0"');
+  });
+
+  it("marks a wiki image embed the same way", () => {
+    const wikiLink: PageLink = { ...imageLink, raw_target: "Media/hero" };
+    const html = renderRichMarkdown("![[Media/hero]]", [wikiLink], "Notes/page.md");
+
+    expect(html).toContain("<img");
+    expect(html).toContain('data-world-link-index="0"');
+  });
+
+  it("leaves an image with no indexed link exactly as it was", () => {
+    const html = renderRichMarkdown("![hero](Media/hero.png)", [], "Notes/page.md");
+
+    expect(html).toContain("<img");
+    expect(html).not.toContain("data-world-link-index");
+  });
+});

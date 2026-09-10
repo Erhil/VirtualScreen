@@ -42,6 +42,8 @@
   "contentPack.status.invalid": "Invalid",
   "card.noRows": "No rows.",
   "contextMenu.copyPath": "Copy Path",
+  "contextMenu.showFullscreen": "Show fullscreen",
+  "contextMenu.useAsMap": "Use as map",
   "contextMenu.openOtherPane": "Open in Other Pane",
   "contextMenu.showOnScreen": "Show on Screen",
   "contextMenu.stageOnScreen": "Stage on Screen",
