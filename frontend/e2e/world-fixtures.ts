@@ -48,13 +48,36 @@ function shouldCopySeedPath(relativePath: string): boolean {
 }
 
 /**
- * Windows refuses a delete with EPERM while another process still holds the
- * file open - here the backend, which keeps the watcher and the index database
- * on whichever world is active and releases them only after switching away. rmSync's own retries ride out that transient lock; without
- * them a world reset fails intermittently and takes the whole test with it.
+ * Windows refuses a delete with EPERM while another process still holds the file open -
+ * here the backend, which keeps the watcher and the index database on whichever world is
+ * active and reindexes in the background after anything writes to it. rmSync's own
+ * retries ride out that transient lock.
+ *
+ * The budget is deliberately generous. An earlier 4s was measured against this spec in
+ * isolation and then failed inside a full suite run, where the machine is busy enough
+ * that the indexer takes noticeably longer to let go. Calibrate this against the loaded
+ * case, never the isolated one - the isolated case passes at almost any value.
  */
+const REMOVE_RETRY_DELAY_MS = 100;
+const REMOVE_MAX_RETRIES = 150;
+
 export function removeWorldPath(path: string) {
-  rmSync(path, { force: true, recursive: true, maxRetries: 40, retryDelay: 100 });
+  try {
+    rmSync(path, {
+      force: true,
+      recursive: true,
+      maxRetries: REMOVE_MAX_RETRIES,
+      retryDelay: REMOVE_RETRY_DELAY_MS
+    });
+  } catch (error) {
+    const seconds = (REMOVE_MAX_RETRIES * REMOVE_RETRY_DELAY_MS) / 1000;
+    throw new Error(
+      `Could not delete ${path} within ${seconds}s. On Windows this means the backend ` +
+        "still holds it open - almost always a reindex that has not finished. Raise the " +
+        "budget above, or stop the test deleting a file the server is still reading.",
+      { cause: error }
+    );
+  }
 }
 
 export function copySampleWorldSeed(sampleWorld: string, targetWorld: string) {
