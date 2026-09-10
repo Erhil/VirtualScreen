@@ -390,7 +390,8 @@ import {
   recordRecentItem,
   retargetLayoutAfterTabClose,
   searchResultToTab,
-  toggleFavorite
+  toggleFavorite,
+  workspacePersistPayload
 } from "./lib/workspace";
 import { renderRichInline, renderRichMarkdown } from "./lib/richText";
 import {
@@ -7648,14 +7649,13 @@ export function App() {
       if (currentWorkspaceIdRef.current !== scheduledWorkspaceId) {
         return;
       }
-      const persistedTabs = tabState.tabs.filter(shouldPersistTab);
-      const activePath = persistedTabs.some((tab) => tab.path === tabState.activePath)
-        ? tabState.activePath
-        : persistedTabs[0]?.path ?? null;
-      void saveWorkspaceTabs(
-        persistedTabs.map(openTabToWorkspaceTab),
-        activePath
-      ).catch(() => {});
+      const payload = workspacePersistPayload(
+        tabState.tabs.map(openTabToWorkspaceTab),
+        tabState.activePath,
+        workspaceLayoutRef.current,
+        shouldPersistTab
+      );
+      void saveWorkspaceTabs(payload.tabs, payload.activePath).catch(() => {});
     }, 150);
 
     return () => window.clearTimeout(timeout);
@@ -7666,9 +7666,11 @@ export function App() {
       return;
     }
 
-    const layout = normalizeWorkspaceLayout(
+    const { layout } = workspacePersistPayload(
+      tabState.tabs.map(openTabToWorkspaceTab),
+      tabState.activePath,
       workspaceLayout,
-      tabState.tabs.map(openTabToWorkspaceTab)
+      shouldPersistTab
     );
     const scheduledWorkspaceId = currentWorkspaceId;
     const timeout = window.setTimeout(() => {
@@ -8636,15 +8638,15 @@ export function App() {
     }
     const latestTabState = tabStateRef.current;
     const latestWorkspaceLayout = workspaceLayoutRef.current;
-    const persistedTabs = latestTabState.tabs.filter(shouldPersistTab);
-    const workspaceTabs = persistedTabs.map(openTabToWorkspaceTab);
-    const activePath = persistedTabs.some((tab) => tab.path === latestTabState.activePath)
-      ? latestTabState.activePath
-      : persistedTabs[0]?.path ?? null;
-    const layout = normalizeWorkspaceLayout(latestWorkspaceLayout, workspaceTabs);
+    const payload = workspacePersistPayload(
+      latestTabState.tabs.map(openTabToWorkspaceTab),
+      latestTabState.activePath,
+      latestWorkspaceLayout,
+      shouldPersistTab
+    );
     await Promise.all([
-      saveWorkspaceTabs(workspaceTabs, activePath),
-      saveWorkspaceLayout(layout)
+      saveWorkspaceTabs(payload.tabs, payload.activePath),
+      saveWorkspaceLayout(payload.layout)
     ]).catch(() => {});
   }
 

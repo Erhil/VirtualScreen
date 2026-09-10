@@ -184,3 +184,35 @@ export function switchWorkspaceSession(
     recentFiles: current.recentFiles
   };
 }
+
+export type WorkspacePersistPayload = {
+  tabs: WorkspaceTab[];
+  activePath: string | null;
+  layout: WorkspaceLayout;
+};
+
+/**
+ * Decide what actually gets sent to the server for a workspace.
+ *
+ * The backend validates every tab path against the filesystem and then requires each
+ * pane's activePath to be among the tabs it just stored, so temporary tabs have to be
+ * dropped from the tab list *and* from the layout that is normalized against it. Doing
+ * only the first leaves a pane pointing at a path the server has never heard of, which
+ * it rejects - and the caller swallows that rejection, so the layout quietly stops
+ * being saved for as long as such a tab is focused.
+ */
+export function workspacePersistPayload(
+  tabs: WorkspaceTab[],
+  activePath: string | null,
+  layout: WorkspaceLayout | null | undefined,
+  isPersistable: (tab: WorkspaceTab) => boolean
+): WorkspacePersistPayload {
+  const persistedTabs = tabs.filter(isPersistable);
+  return {
+    tabs: persistedTabs,
+    activePath: persistedTabs.some((tab) => tab.path === activePath)
+      ? activePath
+      : persistedTabs[0]?.path ?? null,
+    layout: normalizeWorkspaceLayout(layout, persistedTabs)
+  };
+}

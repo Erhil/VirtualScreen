@@ -13,6 +13,7 @@ import {
   retargetLayoutAfterTabClose,
   searchResultToTab,
   switchWorkspaceSession,
+  workspacePersistPayload,
   toggleFavorite
 } from "./workspace";
 
@@ -205,5 +206,67 @@ describe("workspace helpers", () => {
       favorites: [captain],
       recentFiles: [home]
     });
+  });
+});
+
+describe("workspacePersistPayload", () => {
+  const home: WorkspaceTab = {
+    path: "Home.md",
+    name: "Home.md",
+    title: null,
+    mediaKind: "markdown"
+  };
+  const scratch: WorkspaceTab = {
+    path: "dms://run/output.md",
+    name: "output.md",
+    title: null,
+    mediaKind: "markdown"
+  };
+
+  it("keeps a temporary tab out of the layout it sends, not only out of the tab list", () => {
+    // The backend rejects the whole layout when a pane points at a tab it was never
+    // given, and the caller swallows that rejection - so filtering the tabs but not the
+    // layout made saving fail silently for as long as the temporary tab was focused.
+    const payload = workspacePersistPayload(
+      [home, scratch],
+      scratch.path,
+      {
+        mode: "vertical_split",
+        activePaneId: "secondary",
+        panes: [
+          { id: "main", activePath: home.path },
+          { id: "secondary", activePath: scratch.path }
+        ],
+        splitRatio: 0.5
+      },
+      (tab) => !tab.path.startsWith("dms://")
+    );
+
+    expect(payload.tabs).toEqual([home]);
+    expect(payload.layout.panes).toEqual([
+      { id: "main", activePath: "Home.md" },
+      { id: "secondary", activePath: null }
+    ]);
+    const paths = new Set(payload.tabs.map((tab) => tab.path));
+    for (const pane of payload.layout.panes) {
+      expect(pane.activePath === null || paths.has(pane.activePath)).toBe(true);
+    }
+  });
+
+  it("falls back to the first surviving tab when the active one is not persistable", () => {
+    const payload = workspacePersistPayload([home, scratch], scratch.path, null, (tab) =>
+      !tab.path.startsWith("dms://")
+    );
+
+    expect(payload.activePath).toBe("Home.md");
+  });
+
+  it("reports no active path when nothing survives", () => {
+    const payload = workspacePersistPayload([scratch], scratch.path, null, (tab) =>
+      !tab.path.startsWith("dms://")
+    );
+
+    expect(payload.tabs).toEqual([]);
+    expect(payload.activePath).toBeNull();
   });
 });
