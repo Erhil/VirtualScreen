@@ -24,7 +24,7 @@ export function openTab(state: TabState, tab: OpenTab): TabState {
 }
 
 export function activateTab(state: TabState, path: string): TabState {
-  if (!state.tabs.some((tab) => tab.path === path)) {
+  if (state.activePath === path || !state.tabs.some((tab) => tab.path === path)) {
     return state;
   }
 

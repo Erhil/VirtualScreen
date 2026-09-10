@@ -50,6 +50,15 @@ describe("tab helpers", () => {
     });
   });
 
+  it("returns the same state when the requested tab is already active", () => {
+    // Identity matters, not just equality: this runs on the click ending every text
+    // drag, and a new object re-renders the tree, which rewrites the rendered HTML and
+    // destroys the selection the user was making.
+    const state = { tabs: [first, second], activePath: second.path };
+
+    expect(activateTab(state, second.path)).toBe(state);
+  });
+
   it("requires confirmation only for dirty tab closes", () => {
     expect(shouldConfirmDirtyTabClose(first.path, new Set())).toBe(false);
     expect(shouldConfirmDirtyTabClose(first.path, new Set([first.path]))).toBe(true);

@@ -1,4 +1,4 @@
-import { useEffect, useState, type MouseEvent, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 
 import { MapCanvas } from "./MapCanvas";
 import { PluginScreenHost } from "./components/PluginScreenHost";
@@ -41,10 +41,18 @@ function ScreenRichHtml({ className, html }: { className: string; html: string }
     }
   }
 
+  // Memoised on the string, not rebuilt inline, and that is load-bearing rather than an
+  // optimisation. React 19 compares this prop by object IDENTITY and then assigns
+  // innerHTML unconditionally (react-dom setProp: `domElement.innerHTML = key`), where
+  // React 18 compared the html string first. A fresh `{ __html }` on every render
+  // therefore tore down and rebuilt every child node on any re-render - taking the
+  // user's text selection with it, so page text could not be selected or copied.
+  const innerHtml = useMemo(() => ({ __html: html }), [html]);
+
   return (
     <div
       className={className}
-      dangerouslySetInnerHTML={{ __html: html }}
+      dangerouslySetInnerHTML={innerHtml}
       onClick={handleClick}
     />
   );

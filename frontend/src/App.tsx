@@ -1497,11 +1497,19 @@ function RichHtml({
     }
   }
 
+  // Memoised on the string, not rebuilt inline, and that is load-bearing rather than an
+  // optimisation. React 19 compares this prop by object IDENTITY and then assigns
+  // innerHTML unconditionally (react-dom setProp: `domElement.innerHTML = key`), where
+  // React 18 compared the html string first. A fresh `{ __html }` on every render
+  // therefore tore down and rebuilt every child node on any re-render - taking the
+  // user's text selection with it, so page text could not be selected or copied.
+  const innerHtml = useMemo(() => ({ __html: html }), [html]);
+
   return (
     <div
       className={className}
       data-help-context={helpContext}
-      dangerouslySetInnerHTML={{ __html: html }}
+      dangerouslySetInnerHTML={innerHtml}
       onAuxClick={handleAuxClick}
       onClick={handleClick}
       onContextMenu={handleContextMenu}
@@ -8299,7 +8307,13 @@ export function App() {
   }
 
   function handleActivatePane(paneId: WorkspacePaneId, path: string | null) {
-    setWorkspaceLayout((layout) => ({ ...layout, activePaneId: paneId }));
+    // Returning the same object when nothing changes matters here: this runs on the
+    // click that ends every text drag inside a pane, and a state update whose value only
+    // differs by identity still re-renders the whole tree - and each such re-render also
+    // queued two pointless workspace saves.
+    setWorkspaceLayout((layout) =>
+      layout.activePaneId === paneId ? layout : { ...layout, activePaneId: paneId }
+    );
     if (path) {
       setTabState((state) => activateTab(state, path));
     }
