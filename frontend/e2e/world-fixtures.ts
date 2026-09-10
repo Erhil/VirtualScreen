@@ -49,35 +49,47 @@ function shouldCopySeedPath(relativePath: string): boolean {
 
 /**
  * Windows refuses a delete with EPERM while another process still holds the file open -
- * here the backend, which keeps the watcher and the index database on whichever world is
- * active and reindexes in the background after anything writes to it. rmSync's own
- * retries ride out that transient lock.
+ * here the backend, which watches the world and reindexes in the background after
+ * anything writes to it.
  *
- * The budget is deliberately generous. An earlier 4s was measured against this spec in
- * isolation and then failed inside a full suite run, where the machine is busy enough
- * that the indexer takes noticeably longer to let go. Calibrate this against the loaded
- * case, never the isolated one - the isolated case passes at almost any value.
+ * Be honest about what this is: a wait, not a cure. The cause has never been reproduced
+ * in isolation - the system-pack conflict spec passes 6/6 on its own and fails perhaps
+ * one full run in three, so the hold is load-dependent and its real duration is unknown.
+ * Two previous budgets (4s, then 15s) were guesses and both were eventually exceeded, so
+ * this one stops guessing and measures instead: it waits far longer than should ever be
+ * needed, and prints how long it actually waited whenever that exceeds a second. The
+ * next full-suite failure will therefore arrive with a number attached rather than
+ * another shrug.
  */
-const REMOVE_RETRY_DELAY_MS = 100;
-const REMOVE_MAX_RETRIES = 150;
+const REMOVE_TIMEOUT_MS = 60_000;
+const REMOVE_POLL_MS = 100;
 
 export function removeWorldPath(path: string) {
-  try {
-    rmSync(path, {
-      force: true,
-      recursive: true,
-      maxRetries: REMOVE_MAX_RETRIES,
-      retryDelay: REMOVE_RETRY_DELAY_MS
-    });
-  } catch (error) {
-    const seconds = (REMOVE_MAX_RETRIES * REMOVE_RETRY_DELAY_MS) / 1000;
-    throw new Error(
-      `Could not delete ${path} within ${seconds}s. On Windows this means the backend ` +
-        "still holds it open - almost always a reindex that has not finished. Raise the " +
-        "budget above, or stop the test deleting a file the server is still reading.",
-      { cause: error }
-    );
+  const startedAt = Date.now();
+  let lastError: unknown = null;
+
+  while (Date.now() - startedAt < REMOVE_TIMEOUT_MS) {
+    try {
+      rmSync(path, { force: true, recursive: true });
+      const waited = Date.now() - startedAt;
+      if (waited > 1_000) {
+        process.stderr.write(`removeWorldPath waited ${waited}ms for ${path}
+`);
+      }
+      return;
+    } catch (error) {
+      lastError = error;
+      Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, REMOVE_POLL_MS);
+    }
   }
+
+  throw new Error(
+    `Could not delete ${path} within ${REMOVE_TIMEOUT_MS / 1000}s. On Windows this means ` +
+      "another process still holds it open - almost always the backend mid-reindex. A hold " +
+      "this long is not the transient one this wait was written for; find what has the " +
+      "handle rather than raising the number again.",
+    { cause: lastError }
+  );
 }
 
 export function copySampleWorldSeed(sampleWorld: string, targetWorld: string) {
