@@ -24,13 +24,6 @@ class Settings(BaseSettings):
     language: str = "en"
     language_dir: Path = Field(default=Path("lang"))
     enable_legacy_scenarios: bool = False
-    llm_base_url: str = ""
-    llm_model: str = ""
-    llm_api_key: str = ""
-    llm_timeout_seconds: float = Field(default=90, gt=0)
-    llm_max_input_chars: int = Field(default=12000, gt=0)
-    llm_max_output_tokens: int = Field(default=800, gt=0)
-    llm_temperature: float = Field(default=0.7, ge=0, le=2)
     static_dir: Path | None = None
 
     @property

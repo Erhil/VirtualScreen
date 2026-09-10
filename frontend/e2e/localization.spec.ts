@@ -152,14 +152,12 @@ test("Russian visible UI has no English live-session leftovers", async ({ page }
   await expect(page.getByRole("heading", { name: "E2E World" })).toBeVisible();
   await page.locator(".markdown-viewer").dblclick();
 
-  await page.locator(".tool-section-header").filter({ hasText: "Ассистент" }).click();
-  await expect(page.getByRole("button", { name: /^Ассистент/ })).toBeVisible();
+  await page.locator(".tool-section-header").filter({ hasText: "Скрипты" }).click();
+  await expect(page.getByRole("region", { name: "DMS-скрипты" })).toBeVisible();
 
   const text = await visiblePageText(page);
   expect(text).not.toMatch(/\b(Quiet|Ready|Target)\b/);
   expect(text).not.toMatch(/\b(rows|slots)\b/i);
-  expect(text).not.toContain("LLM assistant is not configured.");
-  expect(text).not.toContain("Provider unavailable");
   await expect(page.locator(".document-shortcuts")).toHaveCount(0);
 });
 

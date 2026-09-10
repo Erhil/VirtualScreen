@@ -53,7 +53,6 @@ _Дата: 2026-07-11. Ветка: `dev`. Метод: чтение исходн�
 | Кубики | `dice`, `core/dice.py` | ✅ Solid |
 | Live-инструменты (Quick Capture, HP, Prep Check, снапшоты, fast-slots) | `capture`, `prep_health`, `table_snapshots`, `fast_slots` | ✅ Solid |
 | Клавиатура + MIDI-биндинги | `lib/actionBindings.ts` | ✅ Solid (MIDI зависит от браузера) |
-| LLM-ассистент (форма-промпт, V2.8) | `llm`, `lib/llmForms.ts` | 🟡 Partial — выключен без провайдера |
 | System Packs / World Library / контекст-справка | `system_packs`, `worlds` | ✅ Solid |
 | PDF-viewer + закладки / Folder Kanban | `pdf_bookmarks`, `folderKanban` | 🧪 В разработке (§1) |
 | Legacy `/api/scenarios` | `scenarios` | ⛔ Deprecated, по умолчанию off |
@@ -68,10 +67,9 @@ _Дата: 2026-07-11. Ветка: `dev`. Метод: чтение исходн�
 4. **Path safety** — весь доступ через `core/paths.py` (`normalize_relative_path`/`resolve_under_root`/`WorldPathError`) + отклонение симлинков/reparse-точек. Перед правкой path/index/edit/display/auth/DMS писать тесты.
 5. **Отложенная атомарная запись DMS** — запись только после успешного завершения скрипта.
 6. **`.dms` — доверенный локальный Python**, гейтится флагом доверия мира, исполняется в backend `.venv`.
-7. **LLM только форма-промпт** — без RAG/автономных инструментов/скрытых чтений/тихих записей; мастер видит и подтверждает контекст; вывод временный, пока мастер явно не сохранит.
-8. **`/screen` публичный, но строго read-only** — читает только то, что сейчас показано, и вложенные медиа.
-9. **i18n без правки кода**; en/ru в паритете.
-10. **Release-hygiene gate** (`scripts/release-hygiene.ps1`) блокирует мусор в релизе.
+7. **`/screen` публичный, но строго read-only** — читает только то, что сейчас показано, и вложенные медиа.
+8. **i18n без правки кода**; en/ru в паритете.
+9. **Release-hygiene gate** (`scripts/release-hygiene.ps1`) блокирует мусор в релизе.
 
 Гейт проверки — `scripts/test.ps1`: hygiene → pytest → ruff → vitest → build → smoke e2e.
 

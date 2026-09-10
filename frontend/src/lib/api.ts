@@ -89,7 +89,6 @@ export type WorldEntry = {
 
 import type { MapState } from "./map";
 import type { CardTemplateCatalog } from "./cards";
-import type { LlmPromptFormId } from "./llmForms";
 import type {
   SystemPackConflictDecision,
   SystemPackPreviewRow
@@ -341,36 +340,6 @@ export type DisplayState = {
   fullscreen: DisplayItem | null;
   popups: DisplayPopup[];
   updated_at: string;
-};
-
-export type LlmConfigResponse = {
-  enabled: boolean;
-  configured: boolean;
-  provider: string | null;
-  model: string | null;
-  reason?: string | null;
-};
-
-export type LlmTokenUsage = {
-  input_tokens?: number | null;
-  output_tokens?: number | null;
-  total_tokens?: number | null;
-};
-
-export type LlmGenerateRequest = {
-  form_id: LlmPromptFormId;
-  prompt: string;
-  context_preview?: string;
-  temperature?: number;
-  max_tokens?: number;
-};
-
-export type LlmGenerateResponse = {
-  text: string;
-  provider?: string | null;
-  model?: string | null;
-  created_at?: string;
-  usage?: LlmTokenUsage | null;
 };
 
 export type SystemPackPreviewResponse = {
@@ -904,16 +873,6 @@ export function cancelDmsRun(runId: string): Promise<DmsRunState> {
     `/api/scripts/runs/${encodeURIComponent(runId)}/cancel`,
     "POST"
   );
-}
-
-export function fetchLlmConfig(): Promise<LlmConfigResponse> {
-  return getJson<LlmConfigResponse>("/api/llm/config");
-}
-
-export function generateLlm(
-  payload: LlmGenerateRequest
-): Promise<LlmGenerateResponse> {
-  return sendJson<LlmGenerateResponse>("/api/llm/generate", "POST", payload);
 }
 
 export function previewSystemPack(file: Blob): Promise<SystemPackPreviewResponse> {

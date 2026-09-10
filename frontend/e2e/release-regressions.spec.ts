@@ -1,6 +1,6 @@
 import { expect, test } from "@playwright/test";
-import type { APIRequestContext, Locator, Page, Route } from "@playwright/test";
-import { existsSync, mkdirSync, readFileSync, readdirSync, rmSync, writeFileSync } from "node:fs";
+import type { APIRequestContext, Locator, Page } from "@playwright/test";
+import { mkdirSync, readdirSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import {
@@ -145,7 +145,7 @@ function toolsPanel(page: Page) {
 
 async function openToolSection(
   page: Page,
-  name: "Actions" | "Assistant" | "Audio" | "Screen" | "Scripts"
+  name: "Actions" | "Audio" | "Screen" | "Scripts"
 ) {
   const button = toolsPanel(page).getByRole("button", { name: new RegExp(`^${name}`) });
   if ((await button.getAttribute("aria-expanded")) !== "true") {
@@ -181,11 +181,6 @@ async function actionsTool(page: Page) {
 async function scriptsTool(page: Page) {
   await openToolSection(page, "Scripts");
   return toolsPanel(page).getByRole("region", { name: "DMS Scripts" });
-}
-
-async function assistantTool(page: Page) {
-  await openToolSection(page, "Assistant");
-  return toolsPanel(page).getByRole("region", { name: "Assistant" });
 }
 
 async function openWorldFile(page: Page, fileName: string | RegExp, folder?: string) {
@@ -303,43 +298,6 @@ async function switchToRussian(page: Page) {
   await dialog.getByLabel("Language").selectOption("ru");
   await page.keyboard.press("Escape");
   await expect(dialog).toBeHidden();
-}
-
-async function mockAssistantApi(page: Page) {
-  const card = {
-    version: 1,
-    title: "Assistant Card Regression",
-    kind: "NPC",
-    fields: [{ name: "Hook", value: "Saved from explicit assistant output." }]
-  };
-  await page.route("**/api/llm/config", async (route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      json: {
-        enabled: true,
-        configured: true,
-        provider: "mock",
-        base_url: "http://127.0.0.1/mock",
-        model: "mock-assistant-model",
-        max_input_chars: 10000,
-        max_output_tokens: 1000,
-        temperature: 0.2,
-        timeout_seconds: 5
-      }
-    });
-  });
-  await page.route("**/api/llm/generate", async (route: Route) => {
-    await route.fulfill({
-      contentType: "application/json",
-      json: {
-        text: JSON.stringify(card, null, 2),
-        provider: "mock",
-        model: "mock-assistant-model",
-        created_at: "2026-05-22T00:00:00Z",
-        usage: null
-      }
-    });
-  });
 }
 
 test("screen blank clears presented map and visible popups", async ({ context, page }) => {
@@ -660,35 +618,6 @@ test("world selector does not expose duplicate recent and library labels", async
   const duplicatedLabels = labels.filter((label, index) => labels.indexOf(label) !== index);
 
   expect(duplicatedLabels).toEqual([]);
-});
-
-test("assistant Save as Card creates a reviewed card file only after explicit save", async ({
-  page
-}) => {
-  await mockAssistantApi(page);
-  await page.goto("/");
-
-  const assistant = await assistantTool(page);
-  await expect(assistant.locator(".assistant-provider")).toContainText("mock-assistant-model");
-  await assistant.locator("select").first().selectOption("draft-card");
-  await assistant.getByLabel("Name").fill("Assistant Card Regression");
-  await assistant.getByLabel("Details").fill("Keep this as a reviewed card save regression.");
-  await assistant.getByRole("button", { name: "Generate" }).click();
-  await expect(assistant.getByRole("region", { name: "Temporary Result" })).toContainText(
-    "Assistant Card Regression"
-  );
-
-  const cardPath = resolve(e2eWorld, "Cards", "Assistant Card Regression.cs");
-  expect(existsSync(cardPath)).toBe(false);
-  await expect(assistant.locator(".assistant-save-grid select").first()).toHaveValue("card");
-  await assistant.locator(".assistant-save-grid input").fill("Cards/Assistant Card Regression.cs");
-  await assistant.getByRole("button", { name: "Save Card" }).click();
-
-  await expect.poll(() => existsSync(cardPath)).toBe(true);
-  const saved = readFileSync(cardPath, "utf-8");
-  expect(saved).toContain("Assistant Card Regression");
-  expect(saved).toContain("Saved from explicit assistant output.");
-  expect(existsSync(resolve(e2eWorld, "Notes", "Assistant Card Regression.md"))).toBe(false);
 });
 
 test("/screen is isolated from DM-only shell and only exposes displayed content", async ({

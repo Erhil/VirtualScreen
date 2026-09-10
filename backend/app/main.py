@@ -15,7 +15,6 @@ from app.api.routes import (
     fast_slots,
     health,
     indexing,
-    llm,
     map,
     pages,
     pdf_bookmarks,
@@ -74,7 +73,6 @@ def create_app() -> FastAPI:
     app.include_router(capture.router, prefix="/api", tags=["capture"])
     app.include_router(fast_slots.router, prefix="/api", tags=["fast-slots"])
     app.include_router(indexing.router, prefix="/api", tags=["index"])
-    app.include_router(llm.router, prefix="/api", tags=["llm"])
     app.include_router(map.router, tags=["map"])
     app.include_router(pages.router, prefix="/api", tags=["pages"])
     app.include_router(pdf_bookmarks.router, prefix="/api", tags=["pdf-bookmarks"])

@@ -14,7 +14,6 @@ export const HELP_CONTEXT_IDS = [
   "screen-map",
   "audio",
   "dice",
-  "assistant",
   "hp",
   "actions-slots",
   "actions-state",

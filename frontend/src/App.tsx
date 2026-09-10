@@ -107,7 +107,6 @@ import {
   fetchFastSlots,
   fetchHpTracker,
   fetchLanguageCatalog,
-  fetchLlmConfig,
   fetchPage,
   fetchPageBacklinks,
   fetchPageLinks,
@@ -121,7 +120,6 @@ import {
   fetchWorldFile,
   fetchWorldTree,
   fetchWorlds,
-  generateLlm,
   importSystemPack,
   loginAuth,
   moveWorldPath,
@@ -172,7 +170,6 @@ import {
   type FastSlot,
   type FastSlotAction,
   type HpTrackerRow,
-  type LlmConfigResponse,
   type NamedWorkspaceSummary,
   type TrashEntry,
   type WorldEntry,
@@ -411,15 +408,6 @@ import {
   shouldPersistTab
 } from "./lib/scripts";
 import {
-  buildLlmContextPreview,
-  buildLlmFormPrompt,
-  parseUntrustedDraftCardJson,
-  type LlmPromptContextSource,
-  type LlmPromptFormId,
-  type LlmPromptFormInput,
-  type LlmPromptOutputKind
-} from "./lib/llmForms";
-import {
   DEFAULT_TREE_PANEL_WIDTH,
   loadToolsPanelVisible,
   loadTreePanelWidth,
@@ -515,48 +503,6 @@ type DiceStatus =
   | { status: "idle"; message: string | null }
   | { status: "rolling"; message: string | null }
   | { status: "ready"; message: string | null }
-  | { status: "error"; message: string };
-
-type AssistantProviderState = {
-  status: "unknown" | "checking" | "ready" | "unavailable" | "error";
-  provider: string | null;
-  model: string | null;
-  message: string | null;
-};
-type AssistantFieldValue = string | number | boolean;
-type AssistantFieldType = "text" | "textarea" | "number" | "boolean" | "select";
-type AssistantFormField = {
-  name: string;
-  label: string;
-  input_type: AssistantFieldType;
-  required: boolean;
-  default: AssistantFieldValue | null;
-  options: string[];
-  placeholder: string | null;
-};
-type AssistantForm = {
-  id: LlmPromptFormId;
-  title: string;
-  description: string | null;
-  outputKind: LlmPromptOutputKind;
-  fields: AssistantFormField[];
-};
-type AssistantFormValues = Record<string, AssistantFieldValue>;
-type AssistantSaveKind = "markdown" | "card";
-type AssistantResult = {
-  title: string | null;
-  content: string;
-  provider: string | null;
-  model: string | null;
-};
-type AssistantStatus =
-  | { status: "idle"; message: string | null }
-  | { status: "loading"; message: string | null }
-  | { status: "generating"; message: string | null }
-  | { status: "ready"; message: string | null }
-  | { status: "copy"; message: string }
-  | { status: "saving"; message: string | null }
-  | { status: "saved"; message: string }
   | { status: "error"; message: string };
 
 function helpContextFromTarget(target: EventTarget | null): string | null {
@@ -701,464 +647,6 @@ type WorldCreateDialogState =
     };
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-}
-
-const DEFAULT_ASSISTANT_FORMS: AssistantForm[] = [
-  {
-    id: "summarize",
-    title: "Summarize current/selected material",
-    description: "Condense explicit notes or selected text for table use.",
-    outputKind: "markdown",
-    fields: [
-      {
-        name: "focus",
-        label: "Focus",
-        input_type: "textarea",
-        required: false,
-        default: "",
-        options: [],
-        placeholder: "What should the summary emphasize?"
-      },
-      {
-        name: "audience",
-        label: "Audience",
-        input_type: "text",
-        required: false,
-        default: "",
-        options: [],
-        placeholder: "DM, players, table recap"
-      },
-      {
-        name: "tone",
-        label: "Tone",
-        input_type: "select",
-        required: false,
-        default: "Concise",
-        options: ["Concise", "Atmospheric", "Rules-focused"],
-        placeholder: null
-      }
-    ]
-  },
-  {
-    id: "rumors",
-    title: "Rumors",
-    description: "Create table-ready rumors from supplied truths.",
-    outputKind: "markdown",
-    fields: [
-      {
-        name: "subject",
-        label: "Subject",
-        input_type: "text",
-        required: true,
-        default: "",
-        options: [],
-        placeholder: "Faction, place, NPC, mystery"
-      },
-      {
-        name: "truth",
-        label: "Known truth",
-        input_type: "textarea",
-        required: false,
-        default: "",
-        options: [],
-        placeholder: "Facts the rumors may distort"
-      },
-      {
-        name: "count",
-        label: "Count",
-        input_type: "number",
-        required: false,
-        default: 6,
-        options: [],
-        placeholder: null
-      }
-    ]
-  },
-  {
-    id: "handout-rewrite",
-    title: "Handout Rewrite",
-    description: "Rewrite supplied text for players.",
-    outputKind: "markdown",
-    fields: [
-      {
-        name: "sourceText",
-        label: "Source text",
-        input_type: "textarea",
-        required: false,
-        default: "",
-        options: [],
-        placeholder: "Paste player-facing source text or add context below"
-      },
-      {
-        name: "audience",
-        label: "Audience",
-        input_type: "text",
-        required: false,
-        default: "Players",
-        options: [],
-        placeholder: null
-      },
-      {
-        name: "tone",
-        label: "Tone",
-        input_type: "text",
-        required: false,
-        default: "",
-        options: [],
-        placeholder: "cryptic, formal, urgent"
-      }
-    ]
-  },
-  {
-    id: "consequences",
-    title: "Consequences",
-    description: "Explore fallout from an explicit event.",
-    outputKind: "markdown",
-    fields: [
-      {
-        name: "event",
-        label: "Event",
-        input_type: "textarea",
-        required: true,
-        default: "",
-        options: [],
-        placeholder: "What happened?"
-      },
-      {
-        name: "actors",
-        label: "Actors",
-        input_type: "text",
-        required: false,
-        default: "",
-        options: [],
-        placeholder: "Who cares?"
-      },
-      {
-        name: "timeframe",
-        label: "Timeframe",
-        input_type: "text",
-        required: false,
-        default: "",
-        options: [],
-        placeholder: "now, next session, downtime"
-      }
-    ]
-  },
-  {
-    id: "draft-card",
-    title: "Draft card from form inputs",
-    description: "Draft untrusted NPC, location, item, or card JSON.",
-    outputKind: "card-json",
-    fields: [
-      {
-        name: "cardKind",
-        label: "Card kind",
-        input_type: "select",
-        required: true,
-        default: "npc",
-        options: ["npc", "location", "item", "card"],
-        placeholder: null
-      },
-      {
-        name: "title",
-        label: "Name",
-        input_type: "text",
-        required: true,
-        default: "",
-        options: [],
-        placeholder: "Assistant Draft Contact"
-      },
-      {
-        name: "details",
-        label: "Details",
-        input_type: "textarea",
-        required: false,
-        default: "",
-        options: [],
-        placeholder: "Traits, hooks, secrets, stats, or constraints"
-      },
-      {
-        name: "tags",
-        label: "Tags",
-        input_type: "text",
-        required: false,
-        default: "",
-        options: [],
-        placeholder: "comma-separated"
-      }
-    ]
-  },
-  {
-    id: "recap",
-    title: "Recap",
-    description: "Turn explicit session notes into a recap.",
-    outputKind: "markdown",
-    fields: [
-      {
-        name: "sessionTitle",
-        label: "Session title",
-        input_type: "text",
-        required: false,
-        default: "",
-        options: [],
-        placeholder: null
-      },
-      {
-        name: "events",
-        label: "Events",
-        input_type: "textarea",
-        required: false,
-        default: "",
-        options: [],
-        placeholder: "Important table events"
-      },
-      {
-        name: "openThreads",
-        label: "Open threads",
-        input_type: "textarea",
-        required: false,
-        default: "",
-        options: [],
-        placeholder: "Unresolved hooks and questions"
-      }
-    ]
-  }
-];
-
-const DEFAULT_ASSISTANT_FORM_ID = DEFAULT_ASSISTANT_FORMS[0]?.id ?? "summarize";
-
-function normalizeAssistantProvider(config: LlmConfigResponse): AssistantProviderState {
-  const ready = config.enabled && config.configured;
-  return {
-    status: ready ? "ready" : "unavailable",
-    provider: config.provider,
-    model: config.model,
-    message: ready ? null : config.reason ?? "LLM assistant is not configured."
-  };
-}
-
-function assistantFormDefaults(fields: AssistantFormField[]): AssistantFormValues {
-  return Object.fromEntries(
-    fields.map((field) => {
-      if (field.default !== null) {
-        return [field.name, field.default];
-      }
-      if (field.input_type === "number") {
-        return [field.name, 0];
-      }
-      if (field.input_type === "boolean") {
-        return [field.name, false];
-      }
-      if (field.input_type === "select") {
-        return [field.name, field.options[0] ?? ""];
-      }
-      return [field.name, ""];
-    })
-  );
-}
-
-function fetchAssistantProvider(): Promise<AssistantProviderState> {
-  return fetchLlmConfig().then(normalizeAssistantProvider);
-}
-
-function assistantContextSources(
-  context: string,
-  contextPath: string | null
-): LlmPromptContextSource[] {
-  const text = context.trim();
-  return text ? [{ label: contextPath ?? "Explicit context", text }] : [];
-}
-
-function assistantValueText(values: AssistantFormValues, name: string): string {
-  const value = values[name];
-  return typeof value === "string" || typeof value === "number" || typeof value === "boolean"
-    ? String(value).trim()
-    : "";
-}
-
-function assistantValueNumber(values: AssistantFormValues, name: string): number | undefined {
-  const value = values[name];
-  const numberValue = typeof value === "number" ? value : Number(value);
-  return Number.isFinite(numberValue) ? numberValue : undefined;
-}
-
-function assistantDraftCardKind(value: string): "npc" | "location" | "item" | "card" {
-  return value === "location" || value === "item" || value === "card" ? value : "npc";
-}
-
-function assistantPromptInput(
-  form: AssistantForm,
-  values: AssistantFormValues,
-  context: LlmPromptContextSource[]
-): LlmPromptFormInput {
-  const base = { context };
-  switch (form.id) {
-    case "summarize":
-      return {
-        ...base,
-        formId: "summarize",
-        sourceTitle: context[0]?.label,
-        audience: assistantValueText(values, "audience"),
-        focus: assistantValueText(values, "focus"),
-        tone: assistantValueText(values, "tone")
-      };
-    case "rumors":
-      return {
-        ...base,
-        formId: "rumors",
-        subject: assistantValueText(values, "subject"),
-        truth: assistantValueText(values, "truth"),
-        count: assistantValueNumber(values, "count"),
-        tone: assistantValueText(values, "tone")
-      };
-    case "handout-rewrite":
-      return {
-        ...base,
-        formId: "handout-rewrite",
-        sourceTitle: context[0]?.label,
-        sourceText: assistantValueText(values, "sourceText"),
-        audience: assistantValueText(values, "audience"),
-        tone: assistantValueText(values, "tone")
-      };
-    case "consequences":
-      return {
-        ...base,
-        formId: "consequences",
-        event: assistantValueText(values, "event"),
-        actors: assistantValueText(values, "actors"),
-        timeframe: assistantValueText(values, "timeframe"),
-        stakes: assistantValueText(values, "stakes"),
-        tone: assistantValueText(values, "tone")
-      };
-    case "draft-card":
-      return {
-        ...base,
-        formId: "draft-card",
-        cardKind: assistantDraftCardKind(assistantValueText(values, "cardKind")),
-        title: assistantValueText(values, "title"),
-        details: assistantValueText(values, "details"),
-        tags: assistantValueText(values, "tags"),
-        tone: assistantValueText(values, "tone")
-      };
-    case "recap":
-      return {
-        ...base,
-        formId: "recap",
-        sessionTitle: assistantValueText(values, "sessionTitle"),
-        events: assistantValueText(values, "events"),
-        openThreads: assistantValueText(values, "openThreads"),
-        tone: assistantValueText(values, "tone")
-      };
-  }
-}
-
-function assistantTitleFromGeneratedText(form: AssistantForm, content: string): string | null {
-  if (form.outputKind === "card-json") {
-    const parsed = parseUntrustedDraftCardJson(content);
-    return parsed.ok ? parsed.card.title : null;
-  }
-  const heading = content.match(/^#\s+(.+)$/m);
-  return heading?.[1]?.trim() || null;
-}
-
-function generateAssistantResult(payload: {
-  form: AssistantForm;
-  fields: AssistantFormValues;
-  context: string;
-  contextPath: string | null;
-}): Promise<AssistantResult> {
-  const context = assistantContextSources(payload.context, payload.contextPath);
-  const builtPrompt = buildLlmFormPrompt(
-    assistantPromptInput(payload.form, payload.fields, context)
-  );
-  return generateLlm({
-    form_id: builtPrompt.formId,
-    prompt: builtPrompt.prompt,
-    context_preview: builtPrompt.contextPreview.text
-  }).then((response) => ({
-    title: assistantTitleFromGeneratedText(payload.form, response.text),
-    content: response.text,
-    provider: response.provider ?? null,
-    model: response.model ?? null
-  }));
-}
-
-function assistantResultTitle(form: AssistantForm, result: AssistantResult | null): string {
-  return result?.title?.trim() || form.title || "Assistant Result";
-}
-
-function assistantFileName(title: string, extension: string): string {
-  const cleaned =
-    title
-      .replace(/[\\/:*?"<>|#]+/g, "-")
-      .replace(/\s+/g, " ")
-      .trim()
-      .slice(0, 80) || "Assistant Result";
-  return `${cleaned}.${extension}`;
-}
-
-function defaultAssistantSavePath(
-  form: AssistantForm,
-  result: AssistantResult | null,
-  kind: AssistantSaveKind
-): string {
-  const title = assistantResultTitle(form, result);
-  return kind === "card"
-    ? `Cards/${assistantFileName(title, "cs")}`
-    : `Notes/${assistantFileName(title, "md")}`;
-}
-
-function defaultAssistantSaveKind(form: AssistantForm): AssistantSaveKind {
-  return form.outputKind === "card-json" ? "card" : "markdown";
-}
-
-function assistantNoteContent(form: AssistantForm, result: AssistantResult): string {
-  const title = assistantResultTitle(form, result);
-  return `# ${title}\n\n${result.content.trim()}\n`;
-}
-
-function assistantCardContent(
-  form: AssistantForm,
-  values: AssistantFormValues,
-  result: AssistantResult,
-  contextSource: string | null
-): string {
-  const promptFields = form.fields
-    .filter((field) => field.input_type !== "boolean" || values[field.name] === true)
-    .map((field) => `${field.label}: ${String(values[field.name] ?? "")}`)
-    .filter((line) => line.trim().length > 0);
-  return serializeCard({
-    title: assistantResultTitle(form, result),
-    kind: "reference",
-    tags: ["assistant"],
-    sections: [
-      {
-        title: "Assistant",
-        fields: [
-          { label: "Form", value: form.title },
-          ...(contextSource ? [{ label: "Context source", value: contextSource }] : []),
-          { label: "Prompt", type: "long_text", value: promptFields.join("\n") },
-          { label: "Result", type: "long_text", value: result.content.trim() }
-        ]
-      }
-    ]
-  });
-}
-
-function assistantSavedCardContent(
-  form: AssistantForm,
-  values: AssistantFormValues,
-  result: AssistantResult,
-  contextSource: string | null
-): string {
-  if (form.outputKind === "card-json") {
-    const parsed = parseUntrustedDraftCardJson(result.content);
-    if (!parsed.ok) {
-      throw new Error(parsed.message);
-    }
-    return parsed.serialized;
-  }
-  return assistantCardContent(form, values, result, contextSource);
 }
 
 function systemPackErrorMessage(error: unknown): string {
@@ -5422,246 +4910,6 @@ function ActionsTool({
   );
 }
 
-function AssistantTool({
-  activeDocumentLabel,
-  canUseActiveDocument,
-  context,
-  contextSource,
-  form,
-  forms,
-  onCheckProvider,
-  onContextChange,
-  onCopy,
-  onFieldChange,
-  onFormChange,
-  onGenerate,
-  onSave,
-  onSaveKindChange,
-  onSavePathChange,
-  onUseActiveDocument,
-  provider,
-  result,
-  saveKind,
-  savePath,
-  status,
-  t,
-  values
-}: {
-  activeDocumentLabel: string;
-  canUseActiveDocument: boolean;
-  context: string;
-  contextSource: string | null;
-  form: AssistantForm;
-  forms: AssistantForm[];
-  onCheckProvider: () => void;
-  onContextChange: (context: string) => void;
-  onCopy: () => void;
-  onFieldChange: (name: string, value: AssistantFieldValue) => void;
-  onFormChange: (formId: string) => void;
-  onGenerate: () => void;
-  onSave: () => void;
-  onSaveKindChange: (kind: AssistantSaveKind) => void;
-  onSavePathChange: (path: string) => void;
-  onUseActiveDocument: () => void;
-  provider: AssistantProviderState;
-  result: AssistantResult | null;
-  saveKind: AssistantSaveKind;
-  savePath: string;
-  status: AssistantStatus;
-  t: Translator;
-  values: AssistantFormValues;
-}) {
-  const busy =
-    provider.status === "checking" ||
-    status.status === "loading" ||
-    status.status === "generating" ||
-    status.status === "saving";
-  const fullContextPreview = buildLlmContextPreview(
-    assistantContextSources(context, contextSource)
-  );
-  const contextPreview = fullContextPreview.text
-    ? fullContextPreview.text.slice(0, 420)
-    : t("llm.contextEmpty");
-  const providerLabel =
-    provider.status === "ready"
-      ? [provider.provider, provider.model].filter(Boolean).join(" / ") || t("llm.providerStatus.ready")
-      : localizedOrFallback(t, `llm.providerStatus.${provider.status}`, provider.status);
-  const providerMessage =
-    provider.status === "unavailable" ? t("llm.configUnavailable") : provider.message;
-  const providerStatusCard = (
-    <div className={`assistant-provider assistant-provider-${provider.status}`}>
-      <div>
-        <span>{t("llm.provider")}</span>
-        <strong>{providerLabel}</strong>
-        {providerMessage && <small>{providerMessage}</small>}
-      </div>
-      <button disabled={busy} onClick={onCheckProvider} type="button">
-        {t("llm.checkProvider")}
-      </button>
-    </div>
-  );
-
-  if (provider.status !== "ready") {
-    return (
-      <section aria-label={t("llm.title")} className="assistant-tool assistant-tool-compact" data-help-context="assistant">
-        {providerStatusCard}
-      </section>
-    );
-  }
-
-  return (
-    <section aria-label={t("llm.title")} className="assistant-tool" data-help-context="assistant">
-      {providerStatusCard}
-      <label>
-        {t("llm.form")}
-        <select
-          disabled={busy}
-          onChange={(event) => onFormChange(event.target.value)}
-          value={form.id}
-        >
-          {forms.map((item) => (
-            <option key={item.id} value={item.id}>
-              {item.title}
-            </option>
-          ))}
-        </select>
-      </label>
-      {form.description && <p className="tool-note">{form.description}</p>}
-      <div className="assistant-fields">
-        {form.fields.map((field) => {
-          const value = values[field.name] ?? field.default ?? "";
-          return (
-            <label key={field.name}>
-              {field.label}
-              {field.input_type === "boolean" ? (
-                <input
-                  checked={Boolean(value)}
-                  disabled={busy}
-                  onChange={(event) => onFieldChange(field.name, event.target.checked)}
-                  type="checkbox"
-                />
-              ) : field.input_type === "select" ? (
-                <select
-                  disabled={busy}
-                  onChange={(event) => onFieldChange(field.name, event.target.value)}
-                  value={String(value)}
-                >
-                  {field.options.map((option) => (
-                    <option key={option} value={option}>
-                      {assistantOptionLabel(field.name, option, t)}
-                    </option>
-                  ))}
-                </select>
-              ) : field.input_type === "textarea" ? (
-                <textarea
-                  disabled={busy}
-                  onChange={(event) => onFieldChange(field.name, event.target.value)}
-                  placeholder={field.placeholder ?? undefined}
-                  rows={2}
-                  value={String(value)}
-                />
-              ) : (
-                <input
-                  disabled={busy}
-                  onChange={(event) =>
-                    onFieldChange(
-                      field.name,
-                      field.input_type === "number"
-                        ? Number(event.target.value)
-                        : event.target.value
-                    )
-                  }
-                  placeholder={field.placeholder ?? undefined}
-                  type={field.input_type === "number" ? "number" : "text"}
-                  value={String(value)}
-                />
-              )}
-            </label>
-          );
-        })}
-      </div>
-      <label>
-        {t("llm.explicitContext")}
-        <textarea
-          disabled={busy}
-          onChange={(event) => onContextChange(event.target.value)}
-          placeholder={t("llm.contextPlaceholder")}
-          rows={2}
-          value={context}
-        />
-      </label>
-      <div className="assistant-context-row">
-        <button disabled={busy || !canUseActiveDocument} onClick={onUseActiveDocument} type="button">
-          {t("llm.useActiveDocument")}
-        </button>
-        <small>{contextSource ?? activeDocumentLabel}</small>
-      </div>
-      <section className="assistant-preview" aria-label={t("llm.contextPreview")}>
-        <strong>{t("llm.contextPreview")}</strong>
-        <p>{contextPreview}</p>
-        {fullContextPreview.trimmed && (
-          <small>{t("llm.contextTrimmed", { count: fullContextPreview.includedCharacters })}</small>
-        )}
-      </section>
-      <button
-        className="assistant-generate"
-        disabled={busy || provider.status !== "ready"}
-        onClick={onGenerate}
-        type="button"
-      >
-        {status.status === "generating" ? t("llm.generating") : t("llm.generate")}
-      </button>
-      {result && (
-        <section className="assistant-result" aria-label={t("llm.temporaryResult")}>
-          <div>
-            <strong>{t("llm.temporaryResult")}</strong>
-            {(result.provider || result.model) && (
-              <small>{[result.provider, result.model].filter(Boolean).join(" / ")}</small>
-            )}
-          </div>
-          <pre>{result.content}</pre>
-          <div className="assistant-save-grid">
-            <label>
-              {t("llm.saveAs")}
-              <select
-                disabled={status.status === "saving"}
-                onChange={(event) => onSaveKindChange(event.target.value as AssistantSaveKind)}
-                value={saveKind}
-              >
-                <option value="markdown">{t("llm.saveAsNote")}</option>
-                <option value="card">{t("llm.saveAsCard")}</option>
-              </select>
-            </label>
-            <label>
-              {t("llm.savePath")}
-              <input
-                disabled={status.status === "saving"}
-                onChange={(event) => onSavePathChange(event.target.value)}
-                value={savePath}
-              />
-            </label>
-          </div>
-          <div className="assistant-actions">
-            <button disabled={status.status === "saving"} onClick={onCopy} type="button">
-              {t("app.copy")}
-            </button>
-            <button disabled={status.status === "saving"} onClick={onSave} type="button">
-              {status.status === "saving"
-                ? t("app.saving")
-                : saveKind === "card"
-                  ? t("llm.saveCard")
-                  : t("llm.saveNote")}
-            </button>
-          </div>
-        </section>
-      )}
-      {status.message && (
-        <p className={`assistant-status assistant-status-${status.status}`}>{status.message}</p>
-      )}
-    </section>
-  );
-}
-
 function ScriptsTool({
   onCancel,
   onRun,
@@ -6469,45 +5717,6 @@ function localizedOrFallback(t: Translator, key: string, fallback: string): stri
   return value.startsWith("[[") ? fallback : value;
 }
 
-function assistantOptionLabel(fieldName: string, option: string, t: Translator): string {
-  const key = `llm.option.${fieldName}.${option.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/^-|-$/g, "")}`;
-  return localizedOrFallback(t, key, option);
-}
-
-function assistantSummary(
-  provider: AssistantProviderState,
-  result: AssistantResult | null,
-  status: AssistantStatus,
-  t?: Translator
-): string {
-  if (status.status === "generating") {
-    return t?.("llm.generating") ?? "Generating";
-  }
-  if (status.status === "saving") {
-    return t?.("app.saving") ?? "Saving";
-  }
-  if (status.status === "error") {
-    return t?.("llm.providerStatus.error") ?? "Error";
-  }
-  if (result) {
-    return t?.("llm.temporaryResult") ?? "Temporary result";
-  }
-  if (provider.status === "checking") {
-    return t?.("llm.summary.checkingProvider") ?? "Checking provider";
-  }
-  if (provider.status === "ready") {
-    return (
-      [provider.provider, provider.model].filter(Boolean).join(" / ") ||
-      t?.("llm.summary.providerReady") ||
-      "Provider ready"
-    );
-  }
-  if (provider.status === "unavailable" || provider.status === "error") {
-    return t?.("llm.providerStatus.unavailable") ?? "Provider unavailable";
-  }
-  return t?.("llm.summary.dmOnly") ?? "DM only";
-}
-
 function hpSummary(rows: HpTrackerRow[], status: HpToolStatus, t: Translator): string {
   if (status.status === "loading") {
     return t("app.loading");
@@ -6606,18 +5815,6 @@ function layoutWithMode(
 
 function ToolsPanel({
   activeTab,
-  assistantActiveDocumentLabel,
-  assistantCanUseActiveDocument,
-  assistantContext,
-  assistantContextSource,
-  assistantForm,
-  assistantForms,
-  assistantProvider,
-  assistantResult,
-  assistantSaveKind,
-  assistantSavePath,
-  assistantStatus,
-  assistantValues,
   actionBindings,
   actionBindingMessage,
   contentDirty,
@@ -6636,16 +5833,6 @@ function ToolsPanel({
   midiLearnedControl,
   midiLearning,
   midiStatus,
-  onAssistantCheckProvider,
-  onAssistantContextChange,
-  onAssistantCopy,
-  onAssistantFieldChange,
-  onAssistantFormChange,
-  onAssistantGenerate,
-  onAssistantSave,
-  onAssistantSaveKindChange,
-  onAssistantSavePathChange,
-  onAssistantUseActiveDocument,
   onActionBindingDelete,
   onActionBindingRun,
   onActionBindingSave,
@@ -6697,18 +5884,6 @@ function ToolsPanel({
   t
 }: {
   activeTab: OpenTab | null;
-  assistantActiveDocumentLabel: string;
-  assistantCanUseActiveDocument: boolean;
-  assistantContext: string;
-  assistantContextSource: string | null;
-  assistantForm: AssistantForm;
-  assistantForms: AssistantForm[];
-  assistantProvider: AssistantProviderState;
-  assistantResult: AssistantResult | null;
-  assistantSaveKind: AssistantSaveKind;
-  assistantSavePath: string;
-  assistantStatus: AssistantStatus;
-  assistantValues: AssistantFormValues;
   actionBindings: ActionBinding[];
   actionBindingMessage: string | null;
   contentDirty: boolean;
@@ -6727,16 +5902,6 @@ function ToolsPanel({
   midiLearnedControl: MidiLearnedControl | null;
   midiLearning: boolean;
   midiStatus: MidiStatus;
-  onAssistantCheckProvider: () => void;
-  onAssistantContextChange: (context: string) => void;
-  onAssistantCopy: () => void;
-  onAssistantFieldChange: (name: string, value: AssistantFieldValue) => void;
-  onAssistantFormChange: (formId: string) => void;
-  onAssistantGenerate: () => void;
-  onAssistantSave: () => void;
-  onAssistantSaveKindChange: (kind: AssistantSaveKind) => void;
-  onAssistantSavePathChange: (path: string) => void;
-  onAssistantUseActiveDocument: () => void;
   onActionBindingDelete: (bindingId: string) => void;
   onActionBindingRun: (binding: ActionBinding) => void;
   onActionBindingSave: (binding: ActionBinding) => void;
@@ -6825,42 +5990,6 @@ function ToolsPanel({
           pages={pages}
           t={t}
           tab={activeTab}
-        />
-      </ToolSection>
-      <ToolSection
-        onTogglePin={onToolPin}
-        onToggle={onToolToggle}
-        open={isToolOpen(openTools, "assistant")}
-        pinned={isToolPinned(openTools, "assistant")}
-        summary={assistantSummary(assistantProvider, assistantResult, assistantStatus, t)}
-        t={t}
-        title={t("tools.assistant")}
-        tool="assistant"
-      >
-        <AssistantTool
-          activeDocumentLabel={assistantActiveDocumentLabel}
-          canUseActiveDocument={assistantCanUseActiveDocument}
-          context={assistantContext}
-          contextSource={assistantContextSource}
-          form={assistantForm}
-          forms={assistantForms}
-          onCheckProvider={onAssistantCheckProvider}
-          onContextChange={onAssistantContextChange}
-          onCopy={onAssistantCopy}
-          onFieldChange={onAssistantFieldChange}
-          onFormChange={onAssistantFormChange}
-          onGenerate={onAssistantGenerate}
-          onSave={onAssistantSave}
-          onSaveKindChange={onAssistantSaveKindChange}
-          onSavePathChange={onAssistantSavePathChange}
-          onUseActiveDocument={onAssistantUseActiveDocument}
-          provider={assistantProvider}
-          result={assistantResult}
-          saveKind={assistantSaveKind}
-          savePath={assistantSavePath}
-          status={assistantStatus}
-          t={t}
-          values={assistantValues}
         />
       </ToolSection>
       <ToolSection
@@ -7212,7 +6341,7 @@ export function App() {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const searchButtonRef = useRef<HTMLButtonElement | null>(null);
   const [toolPanelState, setToolPanelState] = useState<ToolPanelState>(() =>
-    createToolPanelState(["assistant"])
+    createToolPanelState()
   );
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [captureDialogOpen, setCaptureDialogOpen] = useState(false);
@@ -7270,29 +6399,6 @@ export function App() {
   });
   const [scriptState, setScriptState] = useState<ScriptLoadState>({ status: "idle" });
   const [scriptRunState, setScriptRunState] = useState<ScriptRunState>({ status: "idle" });
-  const [assistantProvider, setAssistantProvider] = useState<AssistantProviderState>({
-    status: "unknown",
-    provider: null,
-    model: null,
-    message: null
-  });
-  const assistantForms = DEFAULT_ASSISTANT_FORMS;
-  const [assistantFormId, setAssistantFormId] = useState(DEFAULT_ASSISTANT_FORM_ID);
-  const [assistantValues, setAssistantValues] = useState<AssistantFormValues>(() =>
-    assistantFormDefaults(DEFAULT_ASSISTANT_FORMS[0]?.fields ?? [])
-  );
-  const [assistantContext, setAssistantContext] = useState("");
-  const [assistantContextSource, setAssistantContextSource] = useState<string | null>(null);
-  const [assistantResult, setAssistantResult] = useState<AssistantResult | null>(null);
-  const [assistantSaveKind, setAssistantSaveKind] =
-    useState<AssistantSaveKind>("markdown");
-  const [assistantSavePath, setAssistantSavePath] = useState(
-    defaultAssistantSavePath(DEFAULT_ASSISTANT_FORMS[0], null, "markdown")
-  );
-  const [assistantStatus, setAssistantStatus] = useState<AssistantStatus>({
-    status: "idle",
-    message: null
-  });
   const cancelledDmsRuns = useRef<Set<string>>(new Set());
   const [dmsWorldTrusted, setDmsWorldTrusted] = useState(false);
   const [linkContextMenu, setLinkContextMenu] = useState<LinkContextMenuState>({ open: false });
@@ -7345,19 +6451,6 @@ export function App() {
   const pathPickerCandidates = flattenWorldPathPickerEntries(
     worldTree,
     audio.audioState.status === "ready" ? audio.audioState.tracks : audio.audioAutocompleteTracks
-  );
-  const localizedAssistantForms = useMemo(
-    () =>
-      assistantForms.map((form) => ({
-        ...form,
-        title: t(`llm.forms.${form.id}.title`),
-        description: t(`llm.forms.${form.id}.description`),
-        fields: form.fields.map((field) => ({
-          ...field,
-          label: localizedOrFallback(t, `llm.field.${field.name}`, field.label)
-        }))
-      })),
-    [assistantForms, t]
   );
   const availableLanguageOptions = appConfig?.available_languages ?? AVAILABLE_LANGUAGES;
 
@@ -7832,38 +6925,6 @@ export function App() {
   }, [workspaceReady, worldLibrary?.current?.id]);
 
   useEffect(() => {
-    if (!workspaceReady) {
-      return;
-    }
-
-    let cancelled = false;
-    setAssistantProvider((provider) => ({ ...provider, status: "checking" }));
-    fetchAssistantProvider()
-      .then((provider) => {
-        if (!cancelled) {
-          setAssistantProvider(provider);
-        }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          setAssistantProvider({
-            status: "unavailable",
-            provider: null,
-            model: null,
-            message:
-              error instanceof Error
-                ? error.message
-                : "Assistant provider status is not available."
-          });
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [workspaceReady, worldLibrary?.current?.id]);
-
-  useEffect(() => {
     if (!screenToolOpen && !actionsToolOpen) {
       return;
     }
@@ -7931,15 +6992,6 @@ export function App() {
     ? metadataEdits[activeTab.path] ?? { mode: "view" }
     : { mode: "view" };
   const activeContentDirty = activeDraft ? isDraftDirty(activeDraft) : false;
-  const selectedAssistantForm =
-    localizedAssistantForms.find((form) => form.id === assistantFormId) ??
-    localizedAssistantForms[0] ??
-    DEFAULT_ASSISTANT_FORMS[0];
-  const assistantCanUseActiveDocument =
-    activeFileState.status === "ready" && isEditableFile(activeFileState.file);
-  const assistantActiveDocumentLabel = activeTab
-    ? activeTab.title ?? activeTab.name
-    : "No active document";
   const visiblePanePathKey = visiblePaneTabs.map((tab) => tab.path).join("\u0000");
 
   function openContextHelp(context: string | null = null, restoreFocusTo?: HTMLElement | null) {
@@ -9404,174 +8456,6 @@ export function App() {
     setDmsOutputSaveDialog((state) =>
       state.open ? { ...state, path, error: null } : state
     );
-  }
-
-  async function handleAssistantCheckProvider() {
-    setAssistantProvider((provider) => ({ ...provider, status: "checking" }));
-    try {
-      setAssistantProvider(await fetchAssistantProvider());
-    } catch (error: unknown) {
-      setAssistantProvider({
-        status: "unavailable",
-        provider: null,
-        model: null,
-        message: error instanceof Error ? error.message : "Assistant provider status is not available."
-      });
-    }
-  }
-
-  function handleAssistantFormChange(formId: string) {
-    const form =
-      localizedAssistantForms.find((item) => item.id === formId) ??
-      localizedAssistantForms[0] ??
-      DEFAULT_ASSISTANT_FORMS[0];
-    setAssistantFormId(form.id);
-    setAssistantValues(assistantFormDefaults(form.fields));
-    setAssistantResult(null);
-    setAssistantStatus({ status: "idle", message: null });
-    const nextSaveKind = defaultAssistantSaveKind(form);
-    setAssistantSaveKind(nextSaveKind);
-    setAssistantSavePath(defaultAssistantSavePath(form, null, nextSaveKind));
-  }
-
-  function handleAssistantFieldChange(name: string, value: AssistantFieldValue) {
-    setAssistantValues((values) => ({ ...values, [name]: value }));
-    setAssistantStatus({ status: "idle", message: null });
-  }
-
-  function handleAssistantContextChange(context: string) {
-    setAssistantContext(context);
-    setAssistantContextSource(null);
-    setAssistantStatus({ status: "idle", message: null });
-  }
-
-  function handleAssistantUseActiveDocument() {
-    if (!activeTab || activeFileState.status !== "ready" || !assistantCanUseActiveDocument) {
-      setAssistantStatus({ status: "error", message: "Open a loaded text document first." });
-      return;
-    }
-    const content = activeDraft?.content ?? activeFileState.file.content;
-    setAssistantContext(content);
-    setAssistantContextSource(activeTab.path);
-    setAssistantStatus({ status: "idle", message: `Context set from ${activeTab.path}.` });
-  }
-
-  async function handleAssistantGenerate() {
-    const missing = selectedAssistantForm.fields.find((field) => {
-      if (!field.required) {
-        return false;
-      }
-      const value = assistantValues[field.name] ?? field.default ?? "";
-      return typeof value === "string" ? value.trim().length === 0 : value === null;
-    });
-    if (missing) {
-      setAssistantStatus({ status: "error", message: `Fill in ${missing.label}.` });
-      return;
-    }
-    setAssistantStatus({ status: "generating", message: null });
-    setAssistantResult(null);
-    try {
-      const result = await generateAssistantResult({
-        form: selectedAssistantForm,
-        fields: assistantValues,
-        context: assistantContext.trim(),
-        contextPath: assistantContextSource
-      });
-      setAssistantResult(result);
-      setAssistantSavePath(defaultAssistantSavePath(selectedAssistantForm, result, assistantSaveKind));
-      if (result.provider || result.model) {
-        setAssistantProvider((provider) => ({
-          ...provider,
-          status: "ready",
-          provider: result.provider ?? provider.provider,
-          model: result.model ?? provider.model
-        }));
-      }
-      setAssistantStatus({ status: "ready", message: "Temporary result is ready." });
-    } catch (error: unknown) {
-      setAssistantStatus({
-        status: "error",
-        message: error instanceof Error ? error.message : "Assistant generation failed."
-      });
-    }
-  }
-
-  async function handleAssistantCopy() {
-    if (!assistantResult) {
-      return;
-    }
-    if (!navigator.clipboard) {
-      setAssistantStatus({ status: "error", message: "Clipboard is not available." });
-      return;
-    }
-    try {
-      await navigator.clipboard.writeText(assistantResult.content);
-      setAssistantStatus({ status: "copy", message: "Copied." });
-    } catch (error: unknown) {
-      setAssistantStatus({
-        status: "error",
-        message: error instanceof Error ? error.message : "Copy failed."
-      });
-    }
-  }
-
-  function handleAssistantSaveKindChange(kind: AssistantSaveKind) {
-    setAssistantSaveKind(kind);
-    setAssistantSavePath(defaultAssistantSavePath(selectedAssistantForm, assistantResult, kind));
-    setAssistantStatus({ status: "idle", message: null });
-  }
-
-  async function handleAssistantSave() {
-    if (!assistantResult) {
-      return;
-    }
-    const path = normalizeDialogPath(assistantSavePath);
-    const fileType = assistantSaveKind === "card" ? "card" : "markdown";
-    const validation = validateManagedFilePath(path, fileType);
-    if (validation) {
-      setAssistantSavePath(path);
-      setAssistantStatus({ status: "error", message: validation });
-      return;
-    }
-
-    setAssistantStatus({ status: "saving", message: null });
-    markLocalWrite([path]);
-    try {
-      const content =
-        assistantSaveKind === "card"
-          ? assistantSavedCardContent(
-              selectedAssistantForm,
-              assistantValues,
-              assistantResult,
-              assistantContextSource
-            )
-          : assistantNoteContent(selectedAssistantForm, assistantResult);
-      const createdFile = await createWorldFile({
-        path,
-        file_type: fileType,
-        content
-      });
-      const nextPages = await refreshWorldStructure([createdFile.path]);
-      setExpandedPaths((paths) => revealWorldTreePaths(paths, [createdFile.path]));
-      const tab = tabFromFileWithPages(createdFile, nextPages);
-      setFileStates((states) => ({
-        ...states,
-        [createdFile.path]: { status: "ready", file: createdFile }
-      }));
-      setEditorDrafts((drafts) => ({
-        ...drafts,
-        [createdFile.path]: createEditorDraft(createdFile)
-      }));
-      openWorkspaceTab(tab);
-      setAssistantSavePath(createdFile.path);
-      setAssistantStatus({ status: "saved", message: `Saved ${createdFile.path}.` });
-    } catch (error: unknown) {
-      unmarkLocalWrite([path]);
-      setAssistantStatus({
-        status: "error",
-        message: managementErrorMessage(error)
-      });
-    }
   }
 
   async function handleSaveDmsOutput() {
@@ -11703,18 +10587,6 @@ export function App() {
                 />
                 <ToolsPanel
               activeTab={activeTab}
-              assistantActiveDocumentLabel={assistantActiveDocumentLabel}
-              assistantCanUseActiveDocument={assistantCanUseActiveDocument}
-              assistantContext={assistantContext}
-              assistantContextSource={assistantContextSource}
-              assistantForm={selectedAssistantForm}
-              assistantForms={localizedAssistantForms}
-              assistantProvider={assistantProvider}
-              assistantResult={assistantResult}
-              assistantSaveKind={assistantSaveKind}
-              assistantSavePath={assistantSavePath}
-              assistantStatus={assistantStatus}
-              assistantValues={assistantValues}
               actionBindings={actionBindings}
               actionBindingMessage={actionBindingMessage}
               contentDirty={activeContentDirty}
@@ -11736,16 +10608,6 @@ export function App() {
               midiLearnedControl={midiLearnedControl}
               midiLearning={midiLearning}
               midiStatus={midiStatus}
-              onAssistantCheckProvider={() => void handleAssistantCheckProvider()}
-              onAssistantContextChange={handleAssistantContextChange}
-              onAssistantCopy={() => void handleAssistantCopy()}
-              onAssistantFieldChange={handleAssistantFieldChange}
-              onAssistantFormChange={handleAssistantFormChange}
-              onAssistantGenerate={() => void handleAssistantGenerate()}
-              onAssistantSave={() => void handleAssistantSave()}
-              onAssistantSaveKindChange={handleAssistantSaveKindChange}
-              onAssistantSavePathChange={setAssistantSavePath}
-              onAssistantUseActiveDocument={handleAssistantUseActiveDocument}
               onActionBindingDelete={handleDeleteActionBinding}
               onActionBindingRun={(binding) => void handleActionBindingTrigger(binding)}
               onActionBindingSave={handleSaveActionBinding}
