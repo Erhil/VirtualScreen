@@ -2555,6 +2555,20 @@ select {
   overflow-x: auto;
 }
 
+/* The size rule for rendered images was scoped to .markdown-viewer and .media-viewer, so
+   an image embedded in a card field or an inline rich-text cell had no width constraint
+   at all and laid out at its intrinsic pixel size, spilling out of the grid cell that
+   holds it. object-fit keeps the aspect ratio once a max applies. */
+.rich-inline img,
+.card-field-value img,
+.card-surface img {
+  border-radius: 4px;
+  height: auto;
+  max-height: 60vh;
+  max-width: 100%;
+  object-fit: contain;
+}
+
 .rich-inline {
   display: inline;
 }
@@ -3854,15 +3868,24 @@ td {
   border: 0;
 }
 
+/* This wrapper exists so rotation has a box to spin inside, and it is applied to every
+   kind of screen content. Sizing it to the viewport unconditionally put a 100vw x 100vh
+   box inside a popup that is at most ~720px wide with overflow:auto, which is what
+   produced two scrollbars and parked the content half a screen down and right of the
+   scroll origin - for images and for every other type alike. Only the fullscreen surface
+   is viewport-sized; in a popup the wrapper takes the size of what it holds. */
 .screen-rotated-content {
   display: grid;
-  height: 100vh;
   overflow: hidden;
   place-items: center;
+}
+
+.screen-fullscreen .screen-rotated-content {
+  height: 100vh;
   width: 100vw;
 }
 
-.screen-rotated-content > * {
+.screen-fullscreen .screen-rotated-content > * {
   max-height: 100vh;
   max-width: 100vw;
 }
