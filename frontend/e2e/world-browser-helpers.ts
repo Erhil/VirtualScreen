@@ -587,7 +587,7 @@ export async function previewCleanDraft(page: Page) {
 
 export async function revertDirtyDraft(page: Page) {
   page.once("dialog", async (dialog) => {
-    expect(dialog.message()).toContain("Revert unsaved changes");
+    expect(dialog.message()).toContain("Discard unsaved changes");
     await dialog.accept();
   });
   await page.keyboard.press("Shift+Escape");

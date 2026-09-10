@@ -2379,20 +2379,26 @@ function TextViewer({ file }: { file: WorldFile }) {
 function DocumentChrome({
   draft,
   file,
+  onExitEdit,
   onReload,
   onCancelScript,
   onRequestEdit,
+  onRevert,
   onRunScript,
+  onSave,
   onSaveTemporary,
   scriptRunState,
   t
 }: {
   draft: EditorDraft | null;
   file: WorldFile | null;
+  onExitEdit: () => void;
   onReload: () => void;
   onCancelScript: (runId: string) => void;
   onRequestEdit: () => void;
+  onRevert: () => void;
   onRunScript: () => void;
+  onSave: () => void;
   onSaveTemporary: () => void;
   scriptRunState: ScriptRunState;
   t: Translator;
@@ -2492,8 +2498,35 @@ function DocumentChrome({
         >
           {statusText}
         </span>
+        {/* A refusal has to say something. The status line above is a state label and is
+            claimed by "Changed on disk" before any explanation can reach it, so pressing
+            Save in that state used to do nothing observable at all - which on a
+            touchscreen is indistinguishable from a dead button. */}
+        {draft.message && draft.message !== statusText ? (
+          <span className="editor-message">{draft.message}</span>
+        ) : null}
       </div>
       <div className="document-actions">
+      {draft.mode !== "preview" && (
+        <>
+          <button
+            className="document-action document-action-primary"
+            disabled={saving}
+            onClick={onSave}
+            type="button"
+          >
+            {saving ? t("document.saving") : t("document.save")}
+          </button>
+          {dirty && (
+            <button className="document-action" disabled={saving} onClick={onRevert} type="button">
+              {t("document.revert")}
+            </button>
+          )}
+          <button className="document-action" disabled={saving} onClick={onExitEdit} type="button">
+            {t("document.done")}
+          </button>
+        </>
+      )}
       {file.media_kind === "script" && (
         runningScript && scriptRunState.status === "running" && scriptRunState.runId ? (
           <button className="document-action" onClick={() => onCancelScript(scriptRunState.runId!)} type="button">
@@ -11186,19 +11219,49 @@ export function App() {
     requestEditMode(tab.path, fileState.file);
   }
 
+  function setDraftMessage(draft: EditorDraft, message: string) {
+    setEditorDrafts((drafts) => ({
+      ...drafts,
+      [draft.path]: { ...draft, message }
+    }));
+  }
+
+  // The three editor intents below are named functions rather than branches inside
+  // runEditorShortcutIntent because the toolbar buttons call them too. While they lived
+  // only inside the shortcut runner there was no pointer-driven way to save or leave an
+  // edit at all, which made editing on a touchscreen a trap: double-tap got you in, and
+  // nothing got you out.
+  function handleEditorSave(file: WorldFile, draft: EditorDraft) {
+    if (canSaveEditorDraft(file, draft)) {
+      void handleSaveDraft();
+      return;
+    }
+    if (isDraftDirty(draft)) {
+      setDraftMessage(draft, t("document.fixBeforeSaving"));
+    }
+  }
+
+  function handleEditorExit(draft: EditorDraft) {
+    if (isDraftDirty(draft)) {
+      setDraftMessage(draft, t("document.saveOrRevertFirst"));
+      return;
+    }
+    handleDraftModeChange("preview");
+  }
+
+  function handleEditorRevert(draft: EditorDraft) {
+    if (!window.confirm(t("document.confirmRevert"))) {
+      return;
+    }
+    setEditorDrafts((drafts) => ({
+      ...drafts,
+      [draft.path]: setDraftMode(revertDraft(draft), "preview")
+    }));
+  }
+
   function runEditorShortcutIntent(file: WorldFile, draft: EditorDraft, intent: EditorShortcutIntent) {
     if (intent === "save") {
-      if (canSaveEditorDraft(file, draft)) {
-        void handleSaveDraft();
-      } else if (isDraftDirty(draft)) {
-        setEditorDrafts((drafts) => ({
-          ...drafts,
-          [draft.path]: {
-            ...draft,
-            message: "Fix validation errors or reload disk changes before saving."
-          }
-        }));
-      }
+      handleEditorSave(file, draft);
       return;
     }
 
@@ -11208,13 +11271,7 @@ export function App() {
     }
 
     if (intent === "dirty-escape") {
-      setEditorDrafts((drafts) => ({
-        ...drafts,
-        [draft.path]: {
-          ...draft,
-          message: "Unsaved changes. Use Ctrl+S to save or Shift+Esc to revert."
-        }
-      }));
+      setDraftMessage(draft, t("document.saveOrRevertFirst"));
       return;
     }
 
@@ -11223,11 +11280,8 @@ export function App() {
       return;
     }
 
-    if (intent === "revert" && window.confirm("Revert unsaved changes?")) {
-      setEditorDrafts((drafts) => ({
-        ...drafts,
-        [draft.path]: setDraftMode(revertDraft(draft), "preview")
-      }));
+    if (intent === "revert") {
+      handleEditorRevert(draft);
     }
   }
 
@@ -11301,13 +11355,28 @@ export function App() {
                 draft={paneDraft}
                 file={paneFileState.status === "ready" ? paneFileState.file : null}
                 onCancelScript={(runId) => void handleCancelDmsScript(runId)}
+                onExitEdit={() => {
+                  if (paneDraft) {
+                    handleEditorExit(paneDraft);
+                  }
+                }}
                 onReload={handleReloadActiveFile}
                 onRequestEdit={() => {
                   if (paneFileState.status === "ready") {
                     requestEditMode(tab.path, paneFileState.file);
                   }
                 }}
+                onRevert={() => {
+                  if (paneDraft) {
+                    handleEditorRevert(paneDraft);
+                  }
+                }}
                 onRunScript={() => void handleRunDmsScript(tab.path)}
+                onSave={() => {
+                  if (paneDraft && paneFileState.status === "ready") {
+                    handleEditorSave(paneFileState.file, paneDraft);
+                  }
+                }}
                 onSaveTemporary={handleOpenDmsOutputSaveDialog}
                 scriptRunState={scriptRunState}
                 t={t}

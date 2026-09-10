@@ -910,11 +910,28 @@ select {
   font-size: 12px;
 }
 
+.document-state .editor-message {
+  color: #8a4b2a;
+}
+
 .document-actions {
   display: flex;
   flex-wrap: wrap;
   gap: 6px;
   justify-content: end;
+}
+
+/* Save is the way out of an edit on a machine with no keyboard, so it reads as the
+   primary action rather than one more identical grey button in the row. */
+.document-chrome .document-action-primary {
+  background: #b98935;
+  border-color: #8f6a28;
+  font-weight: 600;
+}
+
+.document-chrome .document-action-primary:disabled {
+  background: #d8c9a6;
+  border-color: #bcae91;
 }
 
 .document-chrome button,

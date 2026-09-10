@@ -5,6 +5,30 @@ import { useE2eWorld, worldTree, openTreeFile, openToolSection, searchTool, meta
 
 useE2eWorld();
 
+/**
+ * A draft whose file changed underneath it must not be savable over the disk copy.
+ *
+ * This used to be asserted as "no Save button exists", which was true only because the
+ * sole way to save was Ctrl+S. There is a Save button now - a keyboard is not always
+ * available - so assert the property that actually matters: pressing it refuses, says
+ * why, and leaves both the local draft and the disk state alone.
+ */
+async function expectSaveRefusedWhileChangedOnDisk(page: import("@playwright/test").Page) {
+  const status = page.getByRole("region", { name: "Document status" });
+  const editorText = await page.getByRole("textbox", { name: "Markdown editor" }).textContent();
+  await status.getByRole("button", { name: "Save", exact: true }).click();
+
+  // Refused, and it says so rather than doing nothing.
+  await expect(status.locator(".editor-message")).toContainText("reload disk changes");
+  await expect(status).toContainText("Editing");
+  await expect(status.getByRole("button", { name: "Reload from disk" })).toBeVisible();
+  // The local draft is still there to be rescued.
+  await expect(page.getByRole("textbox", { name: "Markdown editor" })).toHaveText(
+    editorText ?? ""
+  );
+}
+
+
 test("live sync adds external markdown with metadata and links without reload", async ({
   page
 }) => {
@@ -80,9 +104,7 @@ test("live sync protects dirty markdown drafts from external changes", async ({ 
     timeout: 10_000
   });
   await expect(editor).toContainText("# Local Draft Kept");
-  await expect(
-    page.getByRole("region", { name: "Document status" }).getByRole("button", { name: "Save" })
-  ).toHaveCount(0);
+  await expectSaveRefusedWhileChangedOnDisk(page);
 });
 
 test("live sync shows a clear state when an open file is deleted externally", async ({
@@ -214,9 +236,7 @@ test("shows live conflict state and keeps unsaved markdown visible", async ({
   await expect(page.getByRole("textbox", { name: "Markdown editor" })).toContainText(
     "# Unsaved Conflict Text"
   );
-  await expect(
-    page.getByRole("region", { name: "Document status" }).getByRole("button", { name: "Save" })
-  ).toHaveCount(0);
+  await expectSaveRefusedWhileChangedOnDisk(page);
 });
 
 test("creates markdown note, opens it, and indexes it for search", async ({ page }) => {
