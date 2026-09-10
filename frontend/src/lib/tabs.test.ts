@@ -4,9 +4,13 @@ import {
   activateTab,
   closeTab,
   dirtyTabCloseMessage,
+  isScreenTabPath,
+  isVirtualTabPath,
   mediaKindForEntry,
   mediaKindForPath,
+  SCREEN_TAB_PATH,
   shouldConfirmDirtyTabClose,
+  shouldPersistTab,
   openTab,
   openTabToWorkspaceTab,
   workspaceTabFromPath,
@@ -107,5 +111,29 @@ describe("tab helpers", () => {
     const open = workspaceTabToOpenTab(workspaceTab);
     expect(open).toMatchObject({ path: "Cards/Hero.cs", mediaKind: "card" });
     expect(openTabToWorkspaceTab(open)).toEqual(workspaceTab);
+  });
+
+  it("recognizes the reserved Screen tab path", () => {
+    expect(SCREEN_TAB_PATH).toBe("screen://main");
+    expect(isScreenTabPath(SCREEN_TAB_PATH)).toBe(true);
+    expect(isScreenTabPath("README.md")).toBe(false);
+    expect(isScreenTabPath("dms://run/output-1.md")).toBe(false);
+  });
+
+  it("treats both the DMS and Screen synthetic paths as virtual", () => {
+    expect(isVirtualTabPath(SCREEN_TAB_PATH)).toBe(true);
+    expect(isVirtualTabPath("dms://run/output-1.md")).toBe(true);
+    expect(isVirtualTabPath("README.md")).toBe(false);
+    expect(isVirtualTabPath("Scripts/a.dms")).toBe(false);
+  });
+});
+
+describe("tab persistence", () => {
+  it("keeps synthetic tabs out of what is sent to the server", () => {
+    // The backend validates every tab path against the filesystem, so a synthetic one
+    // fails the whole save - and the caller swallows that failure.
+    expect(shouldPersistTab({ path: "dms://run/output-1.md" })).toBe(false);
+    expect(shouldPersistTab({ path: SCREEN_TAB_PATH })).toBe(false);
+    expect(shouldPersistTab({ path: "Scripts/a.dms" })).toBe(true);
   });
 });

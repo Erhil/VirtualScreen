@@ -253,10 +253,6 @@ export function isTemporaryDmsPath(path: string): boolean {
   return path.startsWith("dms://");
 }
 
-export function shouldPersistTab(tab: { path: string; [key: string]: unknown }): boolean {
-  return !isTemporaryDmsPath(tab.path);
-}
-
 export function buildDmsOutputSavePayload(
   output: DmsOutput,
   path: string

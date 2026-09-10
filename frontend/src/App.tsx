@@ -368,10 +368,14 @@ import {
   activateTab,
   closeTab,
   dirtyTabCloseMessage,
+  isScreenTabPath,
+  isVirtualTabPath,
   mediaKindForEntry,
   openTab,
   openTabToWorkspaceTab,
+  SCREEN_TAB_PATH,
   shouldConfirmDirtyTabClose,
+  shouldPersistTab,
   workspaceTabFromPath,
   workspaceTabToOpenTab,
   type OpenTab,
@@ -404,8 +408,7 @@ import {
   dmsOutputToWorldFile,
   isScriptRunAvailable,
   isTemporaryDmsPath,
-  normalizeDmsFormSchema,
-  shouldPersistTab
+  normalizeDmsFormSchema
 } from "./lib/scripts";
 import {
   DEFAULT_TREE_PANEL_WIDTH,
@@ -2935,6 +2938,7 @@ function WorkspaceControls({
   onHelp,
   onNewCard,
   onNew,
+  onOpenScreen,
   onPrepCheck,
   onSearch,
   searchButtonRef,
@@ -2955,6 +2959,7 @@ function WorkspaceControls({
   onHelp: () => void;
   onNewCard: () => void;
   onNew: () => void;
+  onOpenScreen: () => void;
   onPrepCheck: () => void;
   onSearch: () => void;
   searchButtonRef: RefObject<HTMLButtonElement | null>;
@@ -2998,6 +3003,9 @@ function WorkspaceControls({
       </button>
       <button onClick={onCapture} type="button">
         {t("workspace.capture")}
+      </button>
+      <button onClick={onOpenScreen} type="button">
+        {t("workspace.screen")}
       </button>
       <button onClick={onNewCard} type="button">
         {t("workspace.newCard")}
@@ -5832,6 +5840,7 @@ function layoutWithMode(
 
 function ToolsPanel({
   activeTab,
+  activeDocumentTab,
   actionBindings,
   actionBindingMessage,
   contentDirty,
@@ -5901,6 +5910,7 @@ function ToolsPanel({
   t
 }: {
   activeTab: OpenTab | null;
+  activeDocumentTab: OpenTab | null;
   actionBindings: ActionBinding[];
   actionBindingMessage: string | null;
   contentDirty: boolean;
@@ -6136,7 +6146,7 @@ function ToolsPanel({
         tool="screen"
       >
         <ScreenTool
-          activeTab={activeTab}
+          activeTab={activeDocumentTab}
           onTabChange={onScreenToolTabChange}
           tab={screenToolTab}
         />
@@ -6350,6 +6360,7 @@ export function App() {
   const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set([""]));
   const [tabState, setTabState] = useState<TabState>({ tabs: [], activePath: null });
   const tabStateRef = useRef<TabState>({ tabs: [], activePath: null });
+  const activeDocumentTabRef = useRef<OpenTab | null>(null);
   const [pdfTargets, setPdfTargets] = useState<Record<string, string | null>>({});
   const [fileStates, setFileStates] = useState<Record<string, FileLoadState>>({});
   const [pageStates, setPageStates] = useState<Record<string, PageLoadState>>({});
@@ -6958,12 +6969,21 @@ export function App() {
     tabState.tabs.map(openTabToWorkspaceTab)
   );
   const activeTab = tabState.tabs.find((tab) => tab.path === tabState.activePath) ?? null;
+  // "Active tab" and "active document" diverge for synthetic tabs (the Screen tab, DMS
+  // temporary output): those can be focused in the workspace, but screen actions that mean
+  // "the document I'm looking at" should keep targeting the last real document instead of
+  // sending a synthetic path like screen://main back to the player screen.
+  if (activeTab && !isVirtualTabPath(activeTab.path)) {
+    activeDocumentTabRef.current = activeTab;
+  }
+  const activeDocumentTab =
+    activeTab && !isVirtualTabPath(activeTab.path) ? activeTab : activeDocumentTabRef.current;
   const display = useDisplay({
-    activeTab,
+    activeTab: activeDocumentTab,
     authReady: authState.status === "unlocked"
   });
   const map = useMap({
-    activeTab,
+    activeTab: activeDocumentTab,
     authReady: authState.status === "unlocked",
     t,
     refreshDisplayState: display.refreshDisplayState
@@ -7189,7 +7209,7 @@ export function App() {
   useEffect(() => {
     for (const tab of visiblePaneTabs) {
       if (
-        isTemporaryDmsPath(tab.path) ||
+        isVirtualTabPath(tab.path) ||
         tab.mediaKind === "image" ||
         tab.mediaKind === "pdf" ||
         tab.mediaKind === "video" ||
@@ -7262,7 +7282,7 @@ export function App() {
 
   useEffect(() => {
     for (const tab of visiblePaneTabs) {
-      if (isTemporaryDmsPath(tab.path) || tab.mediaKind === "folder") {
+      if (isVirtualTabPath(tab.path) || tab.mediaKind === "folder") {
         continue;
       }
 
@@ -7299,7 +7319,7 @@ export function App() {
 
   useEffect(() => {
     for (const tab of visiblePaneTabs) {
-      if (isTemporaryDmsPath(tab.path) || !canHavePageLinks(tab)) {
+      if (isVirtualTabPath(tab.path) || !canHavePageLinks(tab)) {
         continue;
       }
 
@@ -8028,15 +8048,48 @@ export function App() {
     }
   }
 
+  function openScreenTab() {
+    // Modelled on openDmsOutputTabs: this opens a synthetic tab without calling
+    // persistRecent, which would 400 trying to record a recent file for a path that does
+    // not exist on disk.
+    setTabState((state) => {
+      const nextState = openTab(state, {
+        path: SCREEN_TAB_PATH,
+        name: t("tools.screen"),
+        title: t("tools.screen"),
+        mediaKind: "unsupported"
+      });
+      setWorkspaceLayout((layout) =>
+        openFileInActivePane(
+          normalizeWorkspaceLayout(layout, nextState.tabs.map(openTabToWorkspaceTab)),
+          SCREEN_TAB_PATH
+        )
+      );
+      return nextState;
+    });
+  }
+
+  function revealScreenTool(tab: ScreenToolTabId) {
+    // Automation (DMS effects, action/MIDI bindings) needs the Screen tool's state visible
+    // to the DM, but it must never yank a workspace tab into view on its own - a MIDI
+    // binding that swaps out whatever the DM has open mid-session would be far worse than
+    // a panel section quietly expanding. Only open the tools-panel section, and only when
+    // the Screen tab is not already showing as a pane in the main workspace area.
+    setScreenToolTab(tab);
+    if (!visiblePaneTabs.some((paneTab) => isScreenTabPath(paneTab.path))) {
+      setToolPanelState((state) => openToolSectionByUser(state, "screen"));
+    }
+  }
+
   async function applyDmsEffects(run: DmsRunState) {
     for (const effect of run.effects) {
       if (effect.kind === "screen_fullscreen") {
         display.setDisplayState(await setDisplayFullscreen(effect.path));
         map.adoptMapState(await fetchMapState());
-        setScreenToolTab("display");
+        revealScreenTool("display");
       } else if (effect.kind === "screen_popup") {
         display.setDisplayState(await openDisplayPopup(effect.path));
-        setScreenToolTab("display");
+        revealScreenTool("display");
       } else if (effect.kind === "map_load") {
         let nextMapState = await setMapSource(effect.path);
         if (effect.present) {
@@ -8044,25 +8097,20 @@ export function App() {
           display.setDisplayState(await fetchDisplayState());
         }
         map.adoptMapState(nextMapState);
-        setScreenToolTab("map");
-        setToolPanelState((state) => openToolSectionByUser(state, "screen"));
+        revealScreenTool("map");
       } else if (effect.kind === "map_preset") {
         await map.loadMapPresetForAutomation(effect.preset_id, effect.present);
-        setScreenToolTab("map");
-        setToolPanelState((state) => openToolSectionByUser(state, "screen"));
+        revealScreenTool("map");
       } else if (effect.kind === "map_present") {
         map.adoptMapState(await presentMap());
         display.setDisplayState(await fetchDisplayState());
-        setScreenToolTab("map");
-        setToolPanelState((state) => openToolSectionByUser(state, "screen"));
+        revealScreenTool("map");
       } else if (effect.kind === "map_stop") {
         map.adoptMapState(await stopMap());
-        setScreenToolTab("map");
-        setToolPanelState((state) => openToolSectionByUser(state, "screen"));
+        revealScreenTool("map");
       } else if (effect.kind === "map_fog") {
         map.adoptMapState(await setMapFog(effect.enabled));
-        setScreenToolTab("map");
-        setToolPanelState((state) => openToolSectionByUser(state, "screen"));
+        revealScreenTool("map");
       } else if (effect.kind === "audio_play") {
         const tracks = await audio.fetchFullAudioLibraryTracks();
         const track = tracks.find((item) => item.path === effect.path);
@@ -8256,7 +8304,7 @@ export function App() {
       return;
     }
     if (dispatchAction.kind === "screen_fullscreen") {
-      const resolved = resolveScreenActionPath(dispatchAction, activeTab?.path);
+      const resolved = resolveScreenActionPath(dispatchAction, activeDocumentTab?.path);
       if ("error" in resolved) {
         reportError(resolved.error);
         setToolPanelState((state) => openToolSectionByUser(state, "actions"));
@@ -8264,20 +8312,18 @@ export function App() {
       }
       display.setDisplayState(await setDisplayFullscreen(resolved.path));
       map.adoptMapState(await fetchMapState());
-      setScreenToolTab("display");
-      setToolPanelState((state) => openToolSectionByUser(state, "screen"));
+      revealScreenTool("display");
       return;
     }
     if (dispatchAction.kind === "screen_popup") {
-      const resolved = resolveScreenActionPath(dispatchAction, activeTab?.path);
+      const resolved = resolveScreenActionPath(dispatchAction, activeDocumentTab?.path);
       if ("error" in resolved) {
         reportError(resolved.error);
         setToolPanelState((state) => openToolSectionByUser(state, "actions"));
         return;
       }
       display.setDisplayState(await openDisplayPopup(resolved.path, dispatchAction.preset ?? "plain"));
-      setScreenToolTab("display");
-      setToolPanelState((state) => openToolSectionByUser(state, "screen"));
+      revealScreenTool("display");
       return;
     }
     if (dispatchAction.kind === "audio_track") {
@@ -8301,8 +8347,7 @@ export function App() {
     }
     if (dispatchAction.kind === "map_preset") {
       await map.loadMapPresetForAutomation(dispatchAction.preset_id, dispatchAction.present);
-      setScreenToolTab("map");
-      setToolPanelState((state) => openToolSectionByUser(state, "screen"));
+      revealScreenTool("map");
       return;
     }
   }
@@ -9733,7 +9778,10 @@ export function App() {
   // each one also drives the map (adopting map state after a display change, or reading
   // map state / rotating the map), so they don't fit cleanly into either domain hook alone.
   async function handleShowActiveFullscreen(pathOverride?: string) {
-    const path = pathOverride?.trim() || activeTab?.path;
+    // activeDocumentTab, not activeTab: "the active file" means the document the DM is
+    // looking at. With the Screen tab focused, activeTab is the synthetic screen://main,
+    // and sending that to the player screen shows them nothing at all.
+    const path = pathOverride?.trim() || activeDocumentTab?.path;
     if (!path) {
       return;
     }
@@ -9745,7 +9793,7 @@ export function App() {
   }
 
   async function handleClearAndShowActiveFullscreen(pathOverride?: string) {
-    const path = pathOverride?.trim() || activeTab?.path;
+    const path = pathOverride?.trim() || activeDocumentTab?.path;
     if (!path) {
       return;
     }
@@ -10236,7 +10284,15 @@ export function App() {
           <span>{tab ? tab.title ?? tab.name : t("live.pane.empty")}</span>
           {paneActive && <em>{t("actions.target")}</em>}
         </div>
-        {tab?.mediaKind === "folder" ? (
+        {tab?.path === SCREEN_TAB_PATH ? (
+          <div className="screen-tab-pane">
+            <ScreenTool
+              activeTab={activeDocumentTab}
+              onTabChange={setScreenToolTab}
+              tab={screenToolTab}
+            />
+          </div>
+        ) : tab?.mediaKind === "folder" ? (
           <FolderKanbanView
             dirtyPaths={dirtyPaths}
             onChanged={async (paths) => {
@@ -10487,6 +10543,7 @@ export function App() {
             onDelete={() => void handleDeleteCurrentWorkspace()}
             onHelp={() => openContextHelp(helpContextForMediaKind(activeTab?.mediaKind ?? null))}
             onNewCard={handleOpenNewCardDialog}
+            onOpenScreen={openScreenTab}
             onSearch={openSearchDialog}
             searchButtonRef={searchButtonRef}
             onModeChange={handleWorkspaceModeChange}
@@ -10604,6 +10661,7 @@ export function App() {
                 />
                 <ToolsPanel
               activeTab={activeTab}
+              activeDocumentTab={activeDocumentTab}
               actionBindings={actionBindings}
               actionBindingMessage={actionBindingMessage}
               contentDirty={activeContentDirty}

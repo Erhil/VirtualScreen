@@ -224,6 +224,7 @@
   "workspace.delete": "Delete",
   "workspace.search": "Search",
   "workspace.capture": "Capture",
+  "workspace.screen": "Screen",
   "workspace.newCard": "New Card",
   "workspace.prepCheckStatus": "Prep Check: {status}",
   "workspace.layout": "Workspace layout",

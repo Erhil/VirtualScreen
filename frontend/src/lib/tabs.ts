@@ -1,4 +1,27 @@
 import type { PageSummary, WorldEntry, WorldMediaKind, WorkspaceTab } from "./api";
+import { isTemporaryDmsPath } from "./scripts";
+
+/**
+ * A synthetic tab path for the Screen tool, opened as a page in the main workspace area
+ * instead of only living in the tools panel. It mirrors the `dms://` scheme used for
+ * temporary DMS output tabs: the backend normalises every real path through
+ * `normalize_relative_path`, which drops empty path segments, so no real world path can
+ * ever contain "//" - this path can never collide with one.
+ */
+export const SCREEN_TAB_PATH = "screen://main";
+
+export function isScreenTabPath(path: string): boolean {
+  return path === SCREEN_TAB_PATH;
+}
+
+/**
+ * True for any tab path that is not backed by a real file - a temporary DMS output or the
+ * Screen tab. Code that assumes a tab has a file on disk (fetching it, saving metadata,
+ * persisting it server-side) needs to skip these.
+ */
+export function isVirtualTabPath(path: string): boolean {
+  return isTemporaryDmsPath(path) || isScreenTabPath(path);
+}
 
 export type OpenTab = {
   path: string;
@@ -120,4 +143,14 @@ export function openTabToWorkspaceTab(tab: OpenTab): WorkspaceTab {
     title: tab.title ?? null,
     mediaKind: tab.mediaKind
   };
+}
+
+/**
+ * Lives here rather than in scripts.ts: deciding whether a tab is persistable is a tab
+ * concern, and keeping it there made tabs.ts and scripts.ts import each other. That
+ * cycle happens to work because both sides only export hoisted functions, which is
+ * exactly the kind of accident that stops being true later.
+ */
+export function shouldPersistTab(tab: { path: string; [key: string]: unknown }): boolean {
+  return !isVirtualTabPath(tab.path);
 }

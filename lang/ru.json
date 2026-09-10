@@ -224,6 +224,7 @@
   "workspace.delete": "Удалить",
   "workspace.search": "Поиск",
   "workspace.capture": "Заметка",
+  "workspace.screen": "Экран",
   "workspace.newCard": "Карта",
   "workspace.prepCheckStatus": "Проверка: {status}",
   "workspace.layout": "Разметка",

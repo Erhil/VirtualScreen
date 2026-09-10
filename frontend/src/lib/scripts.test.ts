@@ -7,8 +7,7 @@ import {
   defaultDmsOutputSavePath,
   dmsOutputToWorldFile,
   isScriptRunAvailable,
-  normalizeDmsFormSchema,
-  shouldPersistTab
+  normalizeDmsFormSchema
 } from "./scripts";
 
 describe("DMS script helpers", () => {
@@ -53,9 +52,7 @@ describe("DMS script helpers", () => {
     });
   });
 
-  it("does not persist temporary tabs and disables dirty script runs", () => {
-    expect(shouldPersistTab({ path: "dms://run/output-1.md", name: "output-1.md", mediaKind: "markdown" })).toBe(false);
-    expect(shouldPersistTab({ path: "Scripts/a.dms", name: "a.dms", mediaKind: "script" })).toBe(true);
+  it("disables dirty script runs", () => {
     expect(isScriptRunAvailable({ mediaKind: "script", dirty: false, saving: false })).toEqual({
       available: true
     });
