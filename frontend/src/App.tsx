@@ -1,5 +1,4 @@
 import {
-  memo,
   useEffect,
   useMemo,
   useRef,
@@ -42,7 +41,6 @@ import {
   defaultCardPath,
   normalizeCardTemplateCatalog,
   renderCardTemplate,
-  type CardTemplate,
   type CardTemplateCatalog
 } from "./lib/cards";
 import {
@@ -132,7 +130,6 @@ import {
   type NamedWorkspaceSummary,
   type TrashEntry,
   type WorldEntry,
-  type WorldLibraryEntry,
   type WorldFile,
   type WorldLibraryState,
   type WorkspaceLayout,
@@ -267,7 +264,6 @@ import {
   sortFastSlots,
   visibleFastSlots
 } from "./lib/fastSlots";
-import { treeEntryLabel } from "./lib/metadata";
 import {
   isMetadataFormDirty,
   metadataFormFromPage,
@@ -364,6 +360,25 @@ import { type DiceStatus } from "./components/tools/DiceTool";
 import { FastSlotBar } from "./components/tools/FastSlotBar";
 import { type HpToolStatus } from "./components/tools/HpTool";
 import { ToolsPanel } from "./components/tools/ToolsPanel";
+import {
+  DEFAULT_CARD_TEMPLATE_ID,
+  type FileDialogState,
+  FileManagementDialog,
+  selectedCardTemplate
+} from "./components/world/FileManagementDialog";
+import { QuickFileList } from "./components/world/QuickFileList";
+import { type TrashDialogState, TrashManagerDialog } from "./components/world/TrashManagerDialog";
+import {
+  WorldCreateDialog,
+  type WorldCreateDialogState,
+  WorldOpenDialog,
+  WorldSelector
+} from "./components/world/WorldLibrary";
+import { type FolderCreateKind, WorldTree } from "./components/world/WorldTree";
+import {
+  WorldTreeContextMenu,
+  type WorldTreeContextMenuState
+} from "./components/world/WorldTreeContextMenu";
 
 type LoadState =
   | { status: "idle" }
@@ -425,58 +440,6 @@ type WorldPathPickerState =
       title: string;
       onSelect: (path: string) => void;
     };
-type FileDialogState =
-  | { kind: "closed" }
-  | {
-      kind: "create";
-      fileType: ManagedFileType;
-      folderPath: string;
-      contextual: boolean;
-      name: string;
-      path: string;
-      cardTemplateId: string;
-      cardTitle: string;
-      cardTemplateCatalog: CardTemplateCatalog;
-      cardTemplateStatus: "idle" | "loading" | "ready" | "error";
-      cardTemplateError: string | null;
-      status: "idle" | "submitting";
-      error: string | null;
-    }
-  | {
-      kind: "create-folder";
-      path: string;
-      status: "idle" | "submitting";
-      error: string | null;
-    }
-  | {
-      kind: "rename";
-      path: string;
-      newPath: string;
-      entryKind: "file" | "directory";
-      status: "idle" | "submitting";
-      error: string | null;
-    }
-  | {
-      kind: "trash";
-      path: string;
-      entryKind: "file" | "directory";
-      status: "idle" | "submitting";
-      error: string | null;
-    };
-type FolderCreateKind = "card" | "csv" | "folder" | "markdown" | "script";
-type WorldTreeContextMenuState =
-  | { open: false }
-  | { open: true; entry: WorldEntry; x: number; y: number };
-type TrashDialogState =
-  | { open: false }
-  | {
-      open: true;
-      status: "loading" | "ready" | "submitting" | "error";
-      entries: TrashEntry[];
-      restorePaths: Record<string, string>;
-      confirmDeletePath: string | null;
-      error: string | null;
-    };
 type SystemPackImportStatus = "idle" | "previewing" | "ready" | "importing" | "done" | "error";
 type SystemPackImportState = {
   file: File | null;
@@ -486,14 +449,6 @@ type SystemPackImportState = {
   status: SystemPackImportStatus;
   error: string | null;
 };
-type WorldCreateDialogState =
-  | { open: false }
-  | {
-      open: true;
-      name: string;
-      status: "idle" | "submitting";
-      error: string | null;
-    };
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
 }
@@ -509,7 +464,6 @@ function worldLoadErrorMessage(error: unknown): string {
 }
 
 const DEFAULT_CARD_TITLE = "New Card";
-const DEFAULT_CARD_TEMPLATE_ID = "custom";
 const DEFAULT_CARD_TEMPLATE_CATALOG: CardTemplateCatalog = {
   templates: builtInCardTemplates,
   warnings: []
@@ -547,24 +501,6 @@ function createFileDialogState(
     status: "idle",
     error: null
   };
-}
-
-function cardTemplateLabel(template: CardTemplate): string {
-  return `${template.name} (${template.kind}${template.source === "world" ? ", world" : ""})`;
-}
-
-function selectedCardTemplate(
-  state: Extract<FileDialogState, { kind: "create" }>
-): CardTemplate {
-  return (
-    state.cardTemplateCatalog.templates.find(
-      (template) => template.id === state.cardTemplateId
-    ) ??
-    state.cardTemplateCatalog.templates.find(
-      (template) => template.id === DEFAULT_CARD_TEMPLATE_ID
-    ) ??
-    builtInCardTemplates[0]
-  );
 }
 
 function normalizeDialogPath(path: string): string {
@@ -610,387 +546,6 @@ function canHavePageLinks(tab: OpenTab): boolean {
 
 function hasPageSavePreconditions(page: PageDetail): boolean {
   return page.modified_at.trim() !== "" && page.hash.trim() !== "";
-}
-
-function worldEntryContainsFilter(entry: WorldEntry, filter: string): boolean {
-  const matches =
-    entry.name.toLowerCase().includes(filter) ||
-    entry.path.toLowerCase().includes(filter) ||
-    (entry.title ?? "").toLowerCase().includes(filter);
-  if (entry.kind === "file") {
-    return matches;
-  }
-  return matches || entry.children.some((child) => worldEntryContainsFilter(child, filter));
-}
-
-const WorldTree = memo(function WorldTree({
-  dragPath,
-  dropPath,
-  entry,
-  expandedPaths,
-  favoritePaths,
-  filter,
-  menuPath,
-  onAdd,
-  onContextEntry,
-  onDragEnd,
-  onDragStart,
-  onDragTarget,
-  onDropEntry,
-  onOpen,
-  onToggle,
-  onMenuToggle,
-  t
-}: {
-  dragPath: string | null;
-  dropPath: string | null;
-  entry: WorldEntry;
-  expandedPaths: Set<string>;
-  favoritePaths: Set<string>;
-  filter: string;
-  menuPath: string | null;
-  onAdd: (folderPath: string, kind: FolderCreateKind) => void;
-  onContextEntry: (entry: WorldEntry, event: MouseEvent<HTMLElement>) => void;
-  onDragEnd: () => void;
-  onDragStart: (entry: WorldEntry, event: DragEvent<HTMLElement>) => void;
-  onDragTarget: (path: string | null) => void;
-  onDropEntry: (entry: WorldEntry, event: DragEvent<HTMLElement>) => void;
-  onToggle: (path: string) => void;
-  onMenuToggle: (path: string | null) => void;
-  onOpen: (entry: WorldEntry) => void;
-  t: Translator;
-}) {
-  const normalizedFilter = filter.trim().toLowerCase();
-  const entryMatches =
-    !normalizedFilter ||
-    entry.name.toLowerCase().includes(normalizedFilter) ||
-    entry.path.toLowerCase().includes(normalizedFilter) ||
-    (entry.title ?? "").toLowerCase().includes(normalizedFilter);
-
-  if (entry.kind === "file") {
-    if (!entryMatches) {
-      return null;
-    }
-    const label = treeEntryLabel(entry);
-    const favorite = favoritePaths.has(entry.path);
-    return (
-      <li>
-        <button
-          className={`tree-item file-item${favorite ? " tree-item-favorite" : ""}`}
-          draggable
-          onClick={() => onOpen(entry)}
-          onContextMenu={(event) => onContextEntry(entry, event)}
-          onDragEnd={onDragEnd}
-          onDragStart={(event) => onDragStart(entry, event)}
-          type="button"
-        >
-          <span className="tree-label">
-            <span>{label.primary}</span>
-            {label.secondary && <small>{label.secondary}</small>}
-          </span>
-          {favorite && <span className="tree-favorite-mark">{t("world.tree.favorite")}</span>}
-        </button>
-      </li>
-    );
-  }
-
-  const matchingChildren = normalizedFilter
-    ? entry.children.filter((child) => worldEntryContainsFilter(child, normalizedFilter))
-    : entry.children;
-  if (!entryMatches && matchingChildren.length === 0) {
-    return null;
-  }
-  const expanded = normalizedFilter ? true : expandedPaths.has(entry.path);
-  const addLabel = entry.path === "" ? t("world.tree.addRoot") : t("world.tree.addFolder", { name: entry.name });
-
-  return (
-    <li>
-      <div
-        className={`tree-folder-row${dropPath === entry.path ? " tree-drop-target" : ""}`}
-        onDragLeave={() => {
-          if (dropPath === entry.path) {
-            onDragTarget(null);
-          }
-        }}
-        onDragOver={(event) => {
-          if (dragPath && dragPath !== entry.path && !isDescendantPath(entry.path, dragPath)) {
-            event.preventDefault();
-            event.dataTransfer.dropEffect = "move";
-            onDragTarget(entry.path);
-          }
-        }}
-        onDrop={(event) => onDropEntry(entry, event)}
-      >
-        <button
-          aria-expanded={expanded}
-          className="tree-item folder-item"
-          draggable={entry.path !== ""}
-          onClick={() => onToggle(entry.path)}
-          onContextMenu={(event) => onContextEntry(entry, event)}
-          onDragEnd={onDragEnd}
-          onDragOver={(event) => {
-            if (dragPath && dragPath !== entry.path && !isDescendantPath(entry.path, dragPath)) {
-              event.preventDefault();
-              event.dataTransfer.dropEffect = "move";
-              onDragTarget(entry.path);
-            }
-          }}
-          onDragStart={(event) => onDragStart(entry, event)}
-          onDrop={(event) => onDropEntry(entry, event)}
-          type="button"
-        >
-          <span aria-hidden>{expanded ? "v" : ">"}</span>
-          {entry.path === "" ? entry.name : entry.name}
-        </button>
-        <button
-          aria-label={addLabel}
-          className="tree-add-button"
-          onClick={() => onMenuToggle(menuPath === entry.path ? null : entry.path)}
-          type="button"
-        >
-          +
-        </button>
-        {menuPath === entry.path && (
-          <div className="tree-add-menu" role="menu">
-            <button onClick={() => onAdd(entry.path, "markdown")} type="button">
-              {t("world.tree.newMarkdown")}
-            </button>
-              <button onClick={() => onAdd(entry.path, "card")} type="button">
-                {t("world.tree.newCard")}
-              </button>
-              <button onClick={() => onAdd(entry.path, "csv")} type="button">
-                {t("world.tree.newCsv")}
-              </button>
-              <button onClick={() => onAdd(entry.path, "script")} type="button">
-                {t("world.tree.newScript")}
-              </button>
-              <button onClick={() => onAdd(entry.path, "folder")} type="button">
-                {t("world.tree.newFolder")}
-              </button>
-          </div>
-        )}
-      </div>
-      {expanded && (
-        <ul>
-          {matchingChildren.map((child) => (
-            <WorldTree
-              entry={child}
-              dragPath={dragPath}
-              dropPath={dropPath}
-              expandedPaths={expandedPaths}
-              favoritePaths={favoritePaths}
-              filter={filter}
-              key={child.path}
-              menuPath={menuPath}
-              onAdd={onAdd}
-              onContextEntry={onContextEntry}
-              onDragEnd={onDragEnd}
-              onDragStart={onDragStart}
-              onDragTarget={onDragTarget}
-              onDropEntry={onDropEntry}
-              onMenuToggle={onMenuToggle}
-              onOpen={onOpen}
-              onToggle={onToggle}
-              t={t}
-            />
-          ))}
-        </ul>
-      )}
-    </li>
-  );
-});
-
-function WorldTreeContextMenu({
-  state,
-  favorite,
-  onClose,
-  onDuplicate,
-  onOpen,
-  onOpenKanban,
-  onOpenNewTab,
-  onRename,
-  onToggleFavorite,
-  onTrash,
-  t
-}: {
-  state: WorldTreeContextMenuState;
-  favorite: boolean;
-  onClose: (restoreFocus?: boolean) => void;
-  onDuplicate: (entry: WorldEntry) => void;
-  onOpen: (entry: WorldEntry) => void;
-  onOpenKanban: (entry: WorldEntry) => void;
-  onOpenNewTab: (entry: WorldEntry) => void;
-  onRename: (entry: WorldEntry) => void;
-  onToggleFavorite: (entry: WorldEntry) => void;
-  onTrash: (entry: WorldEntry) => void;
-  t: Translator;
-}) {
-  const menuRef = useRef<HTMLDivElement | null>(null);
-
-  useEffect(() => {
-    if (!state.open) {
-      return;
-    }
-
-    function handlePointerDown(event: globalThis.PointerEvent) {
-      const target = event.target instanceof Node ? event.target : null;
-      if (target && menuRef.current?.contains(target)) {
-        return;
-      }
-      onClose(false);
-    }
-
-    window.addEventListener("pointerdown", handlePointerDown);
-    return () => window.removeEventListener("pointerdown", handlePointerDown);
-  }, [onClose, state.open]);
-
-  if (!state.open) {
-    return null;
-  }
-  const entry = state.entry;
-  const isRoot = entry.path === "";
-  return (
-    <div
-      className="tree-context-menu"
-      ref={menuRef}
-      role="menu"
-      style={{ left: state.x, top: state.y }}
-    >
-      {entry.kind === "file" && (
-        <>
-          <button
-            onClick={() => {
-              onOpen(entry);
-              onClose();
-            }}
-            type="button"
-          >
-            {t("world.menu.open")}
-          </button>
-          <button
-            onClick={() => {
-              onOpenNewTab(entry);
-              onClose();
-            }}
-            type="button"
-          >
-            {t("world.menu.openNewTab")}
-          </button>
-          <button
-            aria-pressed={favorite}
-            onClick={() => {
-              onToggleFavorite(entry);
-              onClose();
-            }}
-            type="button"
-          >
-          {favorite ? t("world.menu.unfavorite") : t("world.menu.favorite")}
-          </button>
-        </>
-      )}
-      {entry.kind === "directory" && !isRoot && (
-        <button
-          onClick={() => {
-            onOpenKanban(entry);
-            onClose();
-          }}
-          type="button"
-        >
-          {t("world.menu.openKanban")}
-        </button>
-      )}
-      {!isRoot && (
-        <>
-          <button
-            onClick={() => {
-              onRename(entry);
-              onClose();
-            }}
-            type="button"
-          >
-          {t("world.menu.rename")}
-          </button>
-          <button
-            onClick={() => {
-              onDuplicate(entry);
-              onClose();
-            }}
-            type="button"
-          >
-          {t("world.menu.duplicate")}
-          </button>
-          <button
-            className="danger-action"
-            onClick={() => {
-              onTrash(entry);
-              onClose();
-            }}
-            type="button"
-          >
-          {t("world.menu.trash")}
-          </button>
-        </>
-      )}
-    </div>
-  );
-}
-
-function QuickFileList({
-  title,
-  items,
-  onOpen,
-  collapsible = false,
-  defaultOpen = true,
-  emptyLabel = "None"
-}: {
-  title: string;
-  items: WorkspaceTab[];
-  onOpen: (tab: WorkspaceTab) => void;
-  collapsible?: boolean;
-  defaultOpen?: boolean;
-  emptyLabel?: string;
-}) {
-  const [open, setOpen] = useState(defaultOpen);
-  const visible = !collapsible || open;
-
-  return (
-    <section className="quick-section" aria-label={title}>
-      {collapsible ? (
-        <button
-          aria-expanded={open}
-          className="quick-heading quick-heading-button"
-          onClick={() => setOpen((value) => !value)}
-          type="button"
-        >
-          <span className="section-label">{title}</span>
-          <span className="quick-count">{items.length}</span>
-        </button>
-      ) : (
-        <div className="quick-heading">
-          <span className="section-label">{title}</span>
-          <span className="quick-count">{items.length}</span>
-        </div>
-      )}
-      {visible && items.length === 0 ? (
-        <p>{emptyLabel}</p>
-      ) : null}
-      {visible && items.length > 0 ? (
-        <div className="quick-list">
-          {items.map((item) => (
-            <button
-              className="quick-item"
-              key={item.path}
-              onClick={() => onOpen(item)}
-              type="button"
-            >
-              <span>{item.title ?? item.name}</span>
-              <small>{item.path}</small>
-            </button>
-          ))}
-        </div>
-      ) : null}
-    </section>
-  );
 }
 
 function WorkspaceControls({
@@ -1463,151 +1018,6 @@ function localizedWorldPathPickerFilterLabel(t: Translator, filter: WorldPathPic
   return t("pathPicker.kindPaths", { kind: filter });
 }
 
-function worldSelectorLabel(world: WorldLibraryEntry, worlds: WorldLibraryEntry[]): string {
-  const duplicateName = worlds.some((item) => item.id !== world.id && item.name === world.name);
-  return duplicateName ? `${world.name} - ${world.path}` : world.name;
-}
-
-function WorldSelector({
-  state,
-  onOpenWorld,
-  t
-}: {
-  state: WorldLibraryState | null;
-  onOpenWorld: (id: string) => void;
-  t: Translator;
-}) {
-  const currentId = state?.worlds.find((world) => world.path === state.current?.path)?.id ?? "";
-  const recentIds = new Set(state?.recent.map((world) => world.id) ?? []);
-  const libraryWorlds = state?.worlds.filter((world) => !recentIds.has(world.id)) ?? [];
-
-  return (
-    <div className="world-selector">
-      <select
-        aria-label={t("world.select")}
-        disabled={!state || state.worlds.length === 0}
-        onChange={(event) => {
-          if (event.target.value) {
-            onOpenWorld(event.target.value);
-          }
-        }}
-        value={currentId}
-      >
-        <option value="">{t("world.select")}</option>
-        {state?.recent.length ? (
-          <optgroup label={t("world.recent")}>
-            {state.recent.map((world) => (
-              <option key={`recent-${world.id}`} value={world.id}>
-                {worldSelectorLabel(world, state.worlds)}
-              </option>
-            ))}
-          </optgroup>
-        ) : null}
-        {libraryWorlds.length ? (
-          <optgroup label={t("world.library")}>
-            {libraryWorlds.map((world) => (
-              <option key={world.id} value={world.id}>
-                {worldSelectorLabel(world, state?.worlds ?? [])}
-              </option>
-            ))}
-          </optgroup>
-        ) : null}
-      </select>
-    </div>
-  );
-}
-
-function WorldOpenDialog({
-  state,
-  onClose,
-  onOpenWorld,
-  onRefresh,
-  t
-}: {
-  state: WorldLibraryState | null;
-  onClose: () => void;
-  onOpenWorld: (id: string) => void;
-  onRefresh: () => void;
-  t: Translator;
-}) {
-  return (
-    <Modal
-      ariaLabel={t("world.openFolderTitle")}
-      className="world-dialog"
-      closeLabel={t("world.closeOpenFolder")}
-      onClose={onClose}
-      title={t("world.openFolderTitle")}
-    >
-        <p className="dialog-note">{state?.worlds_root ?? t("world.libraryNotLoaded")}</p>
-        <button className="panel-action" onClick={onRefresh} type="button">
-          {t("world.scanWorlds")}
-        </button>
-        {state && state.worlds.length === 0 ? <p>{t("world.noWorlds")}</p> : null}
-        {state && state.worlds.length > 0 ? (
-          <div className="world-dialog-list">
-            {state.worlds.map((world) => (
-              <button
-                className="world-dialog-item"
-                key={world.id}
-                onClick={() => onOpenWorld(world.id)}
-                type="button"
-              >
-                <span>{world.name}</span>
-                <small>{world.path}</small>
-              </button>
-            ))}
-          </div>
-        ) : null}
-    </Modal>
-  );
-}
-
-function WorldCreateDialog({
-  state,
-  onClose,
-  onNameChange,
-  onSubmit,
-  t
-}: {
-  state: WorldCreateDialogState;
-  onClose: () => void;
-  onNameChange: (name: string) => void;
-  onSubmit: () => void;
-  t: Translator;
-}) {
-  if (!state.open) {
-    return null;
-  }
-
-  return (
-    <Modal
-      ariaLabel={t("world.addTitle")}
-      className="world-dialog"
-      closeLabel={t("world.closeAdd")}
-      onClose={onClose}
-      title={t("world.addTitle")}
-    >
-        <label>
-          {t("world.name")}
-          <input
-            autoFocus
-            onChange={(event) => onNameChange(event.target.value)}
-            value={state.name}
-          />
-        </label>
-        {state.error && <p className="dialog-error">{state.error}</p>}
-        <div className="dialog-actions">
-          <button disabled={state.status === "submitting"} onClick={onClose} type="button">
-            {t("app.cancel")}
-          </button>
-          <button disabled={state.status === "submitting"} onClick={onSubmit} type="button">
-            {state.status === "submitting" ? t("world.creating") : t("world.create")}
-          </button>
-        </div>
-    </Modal>
-  );
-}
-
 function WorkspaceDialog({
   state,
   onClose,
@@ -1650,87 +1060,6 @@ function WorkspaceDialog({
             {state.status === "submitting" ? "Saving..." : "Save"}
           </button>
         </div>
-    </Modal>
-  );
-}
-
-function TrashManagerDialog({
-  state,
-  onClose,
-  onDelete,
-  onRestore,
-  onRestorePathChange,
-  onSetConfirmDelete
-}: {
-  state: TrashDialogState;
-  onClose: () => void;
-  onDelete: (entry: TrashEntry) => void;
-  onRestore: (entry: TrashEntry) => void;
-  onRestorePathChange: (entry: TrashEntry, path: string) => void;
-  onSetConfirmDelete: (path: string | null) => void;
-}) {
-  if (!state.open) {
-    return null;
-  }
-
-  return (
-    <Modal
-      ariaLabel="Trash"
-      className="trash-dialog"
-      closeLabel="Close Trash"
-      onClose={onClose}
-      title="Trash"
-    >
-        {state.status === "loading" && <p>Loading trash...</p>}
-        {state.error && <p className="dialog-error">{state.error}</p>}
-        {state.status !== "loading" && state.entries.length === 0 && <p>Trash is empty.</p>}
-        {state.entries.length > 0 && (
-          <div className="trash-list">
-            {state.entries.map((entry) => (
-              <section className="trash-entry" key={entry.trashed_path}>
-                <div>
-                  <strong>{entry.name}</strong>
-                  <small>{entry.original_path}</small>
-                </div>
-                <label>
-                  Restore path
-                  <input
-                    aria-label={`Restore path ${entry.name}`}
-                    onChange={(event) => onRestorePathChange(entry, event.target.value)}
-                    value={state.restorePaths[entry.trashed_path] ?? entry.original_path}
-                  />
-                </label>
-                <div className="trash-actions">
-                  <button
-                    disabled={state.status === "submitting"}
-                    onClick={() => onRestore(entry)}
-                    type="button"
-                  >
-                    Restore
-                  </button>
-                  {state.confirmDeletePath === entry.trashed_path ? (
-                    <button
-                      className="danger-button"
-                      disabled={state.status === "submitting"}
-                      onClick={() => onDelete(entry)}
-                      type="button"
-                    >
-                      Confirm Delete Forever
-                    </button>
-                  ) : (
-                    <button
-                      disabled={state.status === "submitting"}
-                      onClick={() => onSetConfirmDelete(entry.trashed_path)}
-                      type="button"
-                    >
-                      Delete Forever
-                    </button>
-                  )}
-                </div>
-              </section>
-            ))}
-          </div>
-        )}
     </Modal>
   );
 }
@@ -2262,177 +1591,6 @@ function layoutWithMode(
       { id: "secondary", activePath: secondaryPath }
     ]
   };
-}
-
-function FileManagementDialog({
-  state,
-  onCardTemplateChange,
-  onCardTitleChange,
-  onClose,
-  onFileTypeChange,
-  onPathChange,
-  onSubmit
-}: {
-  state: FileDialogState;
-  onCardTemplateChange: (templateId: string) => void;
-  onCardTitleChange: (title: string) => void;
-  onClose: () => void;
-  onFileTypeChange: (fileType: ManagedFileType) => void;
-  onPathChange: (path: string) => void;
-  onSubmit: () => void;
-}) {
-  if (state.kind === "closed") {
-    return null;
-  }
-
-  const submitting = state.status === "submitting";
-  const title =
-    state.kind === "create"
-      ? state.fileType === "card"
-        ? "New Card"
-        : "New File"
-      : state.kind === "create-folder"
-        ? "New Folder"
-      : state.kind === "rename"
-        ? state.entryKind === "directory"
-          ? "Rename Folder"
-          : "Rename File"
-        : state.entryKind === "directory"
-          ? "Move Folder to Trash"
-          : "Move to Trash";
-  const submitLabel =
-    state.kind === "create"
-      ? state.fileType === "card"
-        ? "Create Card"
-        : "Create File"
-      : state.kind === "create-folder"
-        ? "Create Folder"
-      : state.kind === "rename"
-        ? state.entryKind === "directory"
-          ? "Rename Folder"
-          : "Rename File"
-      : "Move to Trash";
-  const selectedTemplate =
-    state.kind === "create" && state.fileType === "card"
-      ? selectedCardTemplate(state)
-      : null;
-
-  return (
-    <Modal
-      ariaLabel={title}
-      closeLabel={`Close ${title}`}
-      onClose={onClose}
-      title={title}
-    >
-        <form
-          onSubmit={(event) => {
-            event.preventDefault();
-            onSubmit();
-          }}
-        >
-          {state.kind === "create" && !state.contextual && (
-            <label>
-              File type
-              <select
-                onChange={(event) => onFileTypeChange(event.target.value as ManagedFileType)}
-                value={state.fileType}
-              >
-                <option value="markdown">Markdown</option>
-                <option value="card">Card</option>
-                <option value="csv">CSV</option>
-                <option value="script">DMS Script</option>
-              </select>
-            </label>
-          )}
-          {state.kind === "create" && state.contextual && (
-            <>
-              <label>
-                Name
-                <input
-                  autoFocus
-                  onChange={(event) => onPathChange(event.target.value)}
-                  value={state.name}
-                />
-              </label>
-              <p className="dialog-hint">Will create: {state.path}</p>
-            </>
-          )}
-          {state.kind === "create" && state.fileType === "card" && (
-            <>
-              <label>
-                Card template
-                <select
-                  onChange={(event) => onCardTemplateChange(event.target.value)}
-                  value={state.cardTemplateId}
-                >
-                  {state.cardTemplateCatalog.templates.map((template) => (
-                    <option key={template.id} value={template.id}>
-                      {cardTemplateLabel(template)}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              {selectedTemplate?.description && (
-                <p className="dialog-hint">{selectedTemplate.description}</p>
-              )}
-              {state.cardTemplateStatus === "loading" && (
-                <p className="dialog-hint">Loading card templates...</p>
-              )}
-              {state.cardTemplateStatus === "error" && state.cardTemplateError && (
-                <p className="dialog-error">{state.cardTemplateError}</p>
-              )}
-              {state.cardTemplateCatalog.warnings.length > 0 && (
-                <p className="dialog-hint">
-                  {state.cardTemplateCatalog.warnings.length} template warning
-                  {state.cardTemplateCatalog.warnings.length === 1 ? "" : "s"}.
-                </p>
-              )}
-              {!state.contextual && (
-                <label>
-                  Card title
-                  <input
-                    onChange={(event) => onCardTitleChange(event.target.value)}
-                    value={state.cardTitle}
-                  />
-                </label>
-              )}
-            </>
-          )}
-          {state.kind !== "trash" && !(state.kind === "create" && state.contextual) && (
-            <label>
-              {state.kind === "create-folder" ||
-              (state.kind === "rename" && state.entryKind === "directory")
-                ? "New folder path"
-                : "New file path"}
-              <input
-                autoFocus
-                onChange={(event) => onPathChange(event.target.value)}
-                value={
-                  state.kind === "create" || state.kind === "create-folder"
-                    ? state.path
-                    : state.newPath
-                }
-              />
-            </label>
-          )}
-          {state.kind === "trash" && (
-            <p>
-              Move <strong>{state.path}</strong> to trash?
-              {state.entryKind === "directory" ? " This includes everything inside it." : ""}
-            </p>
-          )}
-          {state.error && <p className="dialog-error">{state.error}</p>}
-          <div className="dialog-actions">
-            <button disabled={submitting} type="button" onClick={onClose}>
-              Cancel
-            </button>
-            <button disabled={submitting} type="submit">
-              {submitting ? "Working..." : submitLabel}
-            </button>
-          </div>
-        </form>
-    </Modal>
-  );
 }
 
 export function App() {
