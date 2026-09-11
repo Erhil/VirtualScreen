@@ -18,21 +18,20 @@ const pythonExecutable = existsSync(resolve(repoRoot, ".venv", "Scripts", "pytho
 const backendPort = process.env.VIRTUALSCREEN_E2E_BACKEND_PORT ?? "8100";
 const frontendPort = process.env.VIRTUALSCREEN_E2E_FRONTEND_PORT ?? "5273";
 const frontendHost = "127.0.0.1";
-const frontendCommand =
-  process.platform === "win32"
-    ? {
-        command: "cmd.exe",
-        args: [
-          "/d",
-          "/s",
-          "/c",
-          `npm.cmd run dev -- --host ${frontendHost} --port ${frontendPort}`
-        ]
-      }
-    : {
-        command: "npm",
-        args: ["run", "dev", "--", "--host", frontendHost, "--port", frontendPort]
-      };
+// Vite is started directly instead of through `npm run dev`. On Windows that went
+// cmd.exe -> npm.cmd -> node -> vite, and somewhere in those hops the inherited stdout
+// handle was lost: frontend.log was 0 bytes on every run, so whatever the dev server said
+// about a failing page load was invisible. One hop, like the backend, and it is logged.
+const frontendCommand = {
+  command: process.execPath,
+  args: [
+    resolve(frontendDir, "node_modules", "vite", "bin", "vite.js"),
+    "--host",
+    frontendHost,
+    "--port",
+    frontendPort
+  ]
+};
 
 mkdirSync(stateDir, { recursive: true });
 mkdirSync(e2eWorldRoot, { recursive: true });
