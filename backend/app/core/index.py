@@ -385,6 +385,11 @@ def refresh_index(
         return RebuildResult(pages_indexed=0, links_indexed=link_count, rebuilt_at=rebuilt_at)
 
     with conn:
+        # Take the write lock before reading any page id. Two requests can refresh the same
+        # page at once (opening it while the watcher refreshes it); reading the id outside
+        # the lock let one delete the other's full-text row by a stale id, and the reused
+        # id then failed the full-text insert with "constraint failed".
+        conn.execute("begin immediate")
         for path in normalized_deleted_paths:
             _delete_page(conn, path)
         # Other pages' links only need re-resolving when a link target appeared, vanished
