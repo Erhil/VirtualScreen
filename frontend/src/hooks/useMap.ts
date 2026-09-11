@@ -108,13 +108,15 @@ export function useMap({ activeTab, authReady, t, refreshDisplayState }: UseMapO
     }
   }
 
+  // Called on every pointer move of a pan. The canvas shows the preview itself; setting state
+  // here would re-render the whole App at pointer rate, so only the throttled sync (which
+  // keeps the player screen following) happens.
   function handleMapViewportPreview(viewport: MapViewport) {
     const decision = planViewportSync({
       viewport,
       now: Date.now(),
       lastSyncedAt: mapViewportSyncRef.current.lastSyncedAt
     });
-    setLocalMapViewport(decision.preview);
     if (decision.sync) {
       mapViewportSyncRef.current.lastSyncedAt = decision.lastSyncedAt;
       void syncMapViewport(decision.sync);

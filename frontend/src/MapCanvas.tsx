@@ -310,8 +310,12 @@ export function MapCanvas({
   const [imageStatus, setImageStatus] = useState<"loading" | "ready" | "error">("loading");
   const [previewReveal, setPreviewReveal] = useState<MapRectRevealPayload | null>(null);
   const [previewMeasurement, setPreviewMeasurement] = useState<MeasurementPreview | null>(null);
+  // A pan or zoom in progress lives here, so each pointer move re-renders this canvas only.
+  // The owner hears about it through onViewportPreview (for its throttled server sync) and
+  // gets the final viewport through onViewportCommit, which is when this clears again.
+  const [dragViewport, setDragViewport] = useState<MapViewport | null>(null);
 
-  const viewport = clampMapViewport(state.viewport);
+  const viewport = clampMapViewport(dragViewport ?? state.viewport);
   const readOnly = mode === "player";
   const canMeasure = mode === "dm" && tool === "measure";
   const isRectFogTool = tool === "reveal" || tool === "hide";
@@ -377,6 +381,7 @@ export function MapCanvas({
     setImageStatus(state.image_path ? "loading" : "error");
     updatePreviewReveal(null);
     updatePreviewMeasurement(null);
+    setDragViewport(null);
     dragRef.current = null;
   }, [state.image_path]);
 
@@ -424,6 +429,7 @@ export function MapCanvas({
 
   function emitViewportPreview(nextViewport: MapViewport) {
     latestViewportRef.current = nextViewport;
+    setDragViewport(nextViewport);
     onViewportPreview?.(nextViewport);
   }
 
@@ -432,6 +438,7 @@ export function MapCanvas({
       window.clearTimeout(viewportCommitTimerRef.current);
       viewportCommitTimerRef.current = null;
     }
+    setDragViewport(null);
     onViewportCommit?.(nextViewport);
   }
 
@@ -442,6 +449,7 @@ export function MapCanvas({
     }
     viewportCommitTimerRef.current = window.setTimeout(() => {
       viewportCommitTimerRef.current = null;
+      setDragViewport(null);
       onViewportCommit?.(latestViewportRef.current);
     }, 1000);
   }
