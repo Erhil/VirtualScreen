@@ -175,6 +175,9 @@ test("DMS temporary outputs can be saved and write commands refresh the world", 
   await expect(saveDialog).toBeVisible();
   await saveDialog.getByLabel("World path").fill("Saved/core-output.md");
   await saveDialog.getByRole("button", { name: "Save", exact: true }).click();
+  // Closing on success is this dialog's only automatic exit: Save and Cancel are disabled
+  // while it submits, and it takes neither Escape nor a backdrop click.
+  await expect(saveDialog).toBeHidden();
 
   await expect(page.getByRole("tab", { name: "Core Commands" })).toBeVisible();
   const search = await searchTool(page);

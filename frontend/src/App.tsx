@@ -11,7 +11,7 @@ import { ContextHelpDialog } from "./components/ContextHelpDialog";
 import { PluginToolsHost } from "./components/PluginToolsHost";
 import { AudioPlaybackHost } from "./components/audio/AudioPlaybackHost";
 import { AudioProvider } from "./contexts/AudioContext";
-import { DmsFormDialog, DmsOutputSaveDialog, DmsTrustDialog, type DmsOutputSaveDialogState } from "./components/DmsDialogs";
+import { DmsFormDialog, DmsOutputSaveDialog, DmsTrustDialog } from "./components/DmsDialogs";
 import { IconButton } from "./components/IconButton";
 import { ScreenTool } from "./components/screen/ScreenTool";
 import { MapProvider } from "./contexts/MapContext";
@@ -24,6 +24,7 @@ import { useDisplay } from "./hooks/useDisplay";
 import { useBindings } from "./hooks/useBindings";
 import { useContextHelp } from "./hooks/useContextHelp";
 import { useDmsScripts } from "./hooks/useDmsScripts";
+import { useDmsOutputSave } from "./hooks/useDmsOutputSave";
 import { idleFileState, idleLinksState, useDocuments } from "./hooks/useDocuments";
 import { useFileManagement } from "./hooks/useFileManagement";
 import { useHpTracker } from "./hooks/useHpTracker";
@@ -40,17 +41,15 @@ import { usePrepHealth } from "./hooks/usePrepHealth";
 import { useSearch } from "./hooks/useSearch";
 import { useToolPanel } from "./hooks/useToolPanel";
 import { useWorkspace } from "./hooks/useWorkspace";
+import { useWorldLibrary, worldLoadErrorMessage } from "./hooks/useWorldLibrary";
 import {
   blankDisplay,
   clearDisplayPopups,
-  createWorld,
-  createWorldFile,
   fetchDisplayState,
   fetchPages,
   fetchWorkspace,
   fetchWorldTree,
   fetchWorlds,
-  openWorld,
   openDisplayPopup,
   rotateDisplayFullscreen,
   setDisplayFullscreen,
@@ -80,12 +79,8 @@ import { hasLoadedAudio, loadAudioTrack, setAudioBusPlaying, setAudioBusVolume }
 import { isDraftDirty } from "./lib/editor";
 import { buildEditorCompletionItems } from "./lib/editorAutocomplete";
 import {
-  managementErrorMessage,
-  normalizeDialogPath,
   hasDirtyDescendantPath,
-  tabFromFileWithPages,
-  validateManagedFilePath,
-  type ManagedFileType
+  tabFromFileWithPages
 } from "./lib/fileManagement";
 import { linkToOpenTab } from "./lib/links";
 import { subscribeToEvents } from "./lib/eventSocket";
@@ -94,7 +89,6 @@ import {
   buildEventsUrl,
   type WorldEvent
 } from "./lib/liveSync";
-import { markLocalWrite, unmarkLocalWrite } from "./lib/localWrites";
 import { hasResidualPopupsAfterBlank, screenPrimaryMode } from "./lib/display";
 import { fetchMapState, fetchMapPresets, presentMap, setMapFog, setMapSource, stopMap } from "./lib/map";
 import { folderKanbanTab } from "./lib/folderKanban";
@@ -111,7 +105,7 @@ import {
   type OpenTab
 } from "./lib/tabs";
 import { searchResultToTab } from "./lib/workspace";
-import { dmsOutputToWorldFile, isTemporaryDmsPath } from "./lib/scripts";
+import { dmsOutputToWorldFile } from "./lib/scripts";
 import { applyAudioSnapshot, buildTableSnapshotState } from "./lib/tableSnapshots";
 import {
   DEFAULT_SCREEN_TOOL_TAB,
@@ -134,7 +128,6 @@ import { QuickFileList } from "./components/world/QuickFileList";
 import { TrashManagerDialog } from "./components/world/TrashManagerDialog";
 import {
   WorldCreateDialog,
-  type WorldCreateDialogState,
   WorldOpenDialog,
   WorldSelector
 } from "./components/world/WorldLibrary";
@@ -144,6 +137,7 @@ import { CaptureDialog } from "./components/dialogs/CaptureDialog";
 import { PrepHealthDialog } from "./components/dialogs/PrepHealthDialog";
 import { SearchDialog } from "./components/dialogs/SearchDialog";
 import { SettingsDialog } from "./components/dialogs/SettingsDialog";
+import { TabStrip } from "./components/workspace/TabStrip";
 import { WorkspaceControls } from "./components/workspace/WorkspaceControls";
 import { WorkspaceDialog } from "./components/workspace/WorkspaceDialog";
 
@@ -152,11 +146,6 @@ type LoadState =
   | { status: "loading" }
   | { status: "ready" }
   | { status: "error"; message: string };
-// A failed world load used to render a bare "Could not load world." with the cause
-// discarded, which left both users and failing e2e runs with nothing to act on.
-function worldLoadErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
 
 function hasPageSavePreconditions(page: PageDetail): boolean {
   return page.modified_at.trim() !== "" && page.hash.trim() !== "";
@@ -178,7 +167,6 @@ export function App() {
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
   const { authState, handleAuthUnlock } = useAuthGate();
   const [loadState, setLoadState] = useState<LoadState>({ status: "idle" });
-  const [worldLibrary, setWorldLibrary] = useState<WorldLibraryState | null>(null);
   const [worldTree, setWorldTree] = useState<WorldEntry | null>(null);
   const [pages, setPages] = useState<PageSummary[]>([]);
   const [workspaceReady, setWorkspaceReady] = useState(false);
@@ -329,10 +317,17 @@ export function App() {
     onRoll: () => openTool("dice")
   });
   const [linkContextMenu, setLinkContextMenu] = useState<LinkContextMenuState>({ open: false });
-  const [dmsOutputSaveDialog, setDmsOutputSaveDialog] = useState<DmsOutputSaveDialogState>({
-    open: false
+  const {
+    dmsOutputSaveDialog,
+    handleOpenDmsOutputSaveDialog,
+    handleDmsOutputSavePathChange,
+    handleSaveDmsOutput,
+    closeDmsOutputSaveDialog,
+    resetDmsOutputSave
+  } = useDmsOutputSave({
+    activeFileState,
+    onSaved: handleDmsOutputSaved
   });
-  const [worldOpenDialog, setWorldOpenDialog] = useState(false);
   const {
     fileDialog,
     trashDialog,
@@ -376,8 +371,24 @@ export function App() {
     onPathTrashed: applyTrashedPathToWorkspaceState,
     onFileCreated: handleManagedFileCreated
   });
-  const [worldCreateDialog, setWorldCreateDialog] = useState<WorldCreateDialogState>({
-    open: false
+  const {
+    worldLibrary,
+    worldOpenDialog,
+    worldCreateDialog,
+    adoptWorldLibrary,
+    refreshWorldLibrary,
+    handleWorldNameChange,
+    handleOpenWorld,
+    handleCreateWorld,
+    openWorldDialog,
+    closeWorldDialog,
+    openWorldCreateDialog,
+    closeWorldCreateDialog
+  } = useWorldLibrary({
+    confirmDiscard: confirmDiscardDirtyDrafts,
+    onBeforeSwitch: prepareWorldSwitch,
+    onSwitched: finishWorldSwitch,
+    onError: (message) => setLoadState({ status: "error", message })
   });
   const captureWorldKey = worldLibrary?.current?.id ?? worldLibrary?.current?.path ?? "default";
   const {
@@ -782,6 +793,15 @@ export function App() {
     await applyDmsEffects(run);
   }
 
+  // A temporary DMS output was written to disk under a real path: show it in the tree and
+  // replace its temporary tab with the saved file.
+  async function handleDmsOutputSaved(temporaryPath: string, createdFile: WorldFile) {
+    const nextPages = await refreshWorldStructure([createdFile.path]);
+    revealPaths([createdFile.path]);
+    replaceTemporaryFile(temporaryPath, createdFile);
+    replaceVirtualTab(temporaryPath, tabFromFileWithPages(createdFile, nextPages));
+  }
+
   async function captureTableState() {
     await flushCurrentWorkspaceState();
     const [workspace, displaySnapshot, mapSnapshot] = await Promise.all([
@@ -871,66 +891,6 @@ export function App() {
     }
   }
 
-  function handleOpenDmsOutputSaveDialog() {
-    if (activeFileState.status !== "ready" || !isTemporaryDmsPath(activeFileState.file.path)) {
-      return;
-    }
-    setDmsOutputSaveDialog({
-      open: true,
-      file: activeFileState.file,
-      path: activeFileState.file.name,
-      status: "idle",
-      error: null
-    });
-  }
-
-  function handleDmsOutputSavePathChange(path: string) {
-    setDmsOutputSaveDialog((state) =>
-      state.open ? { ...state, path, error: null } : state
-    );
-  }
-
-  async function handleSaveDmsOutput() {
-    if (!dmsOutputSaveDialog.open) {
-      return;
-    }
-    const path = normalizeDialogPath(dmsOutputSaveDialog.path);
-    const fileType: ManagedFileType =
-      dmsOutputSaveDialog.file.media_kind === "csv" ? "csv" : "markdown";
-    const validation = validateManagedFilePath(path, fileType);
-    if (validation) {
-      setDmsOutputSaveDialog((state) =>
-        state.open ? { ...state, error: validation } : state
-      );
-      return;
-    }
-
-    setDmsOutputSaveDialog((state) =>
-      state.open ? { ...state, status: "submitting", error: null } : state
-    );
-    markLocalWrite([path]);
-    try {
-      const createdFile = await createWorldFile({
-        path,
-        file_type: fileType,
-        content: dmsOutputSaveDialog.file.content
-      });
-      const nextPages = await refreshWorldStructure([createdFile.path]);
-      revealPaths([createdFile.path]);
-      const tab = tabFromFileWithPages(createdFile, nextPages);
-      replaceTemporaryFile(dmsOutputSaveDialog.file.path, createdFile);
-      replaceVirtualTab(dmsOutputSaveDialog.file.path, tab);
-      setDmsOutputSaveDialog({ open: false });
-    } catch (error: unknown) {
-      unmarkLocalWrite([path]);
-      setDmsOutputSaveDialog((state) =>
-        state.open
-          ? { ...state, status: "idle", error: managementErrorMessage(error) }
-          : state
-      );
-    }
-  }
-
   function handleWorldTreeToggleFavorite(entry: WorldEntry) {
     if (entry.kind !== "file") {
       return;
@@ -980,14 +940,6 @@ export function App() {
     openWorkspaceTab(tab);
   }
 
-  async function refreshWorldLibrary() {
-    try {
-      setWorldLibrary(await fetchWorlds());
-    } catch {
-      // The rest of the app can continue working from the active world.
-    }
-  }
-
   function prepareWorldSwitch() {
     setLoadState({ status: "loading" });
     setWorkspaceReady(false);
@@ -998,13 +950,13 @@ export function App() {
     bindings.adoptFastSlots([]);
     snapshots.reset();
     resetScripts();
-    setDmsOutputSaveDialog({ open: false });
+    resetDmsOutputSave();
     resetWorkspace();
     resetDocuments();
     display.reset();
     map.reset();
     setFolderMenuPath(null);
-    setWorldOpenDialog(false);
+    closeWorldDialog();
   }
 
   // Put a freshly fetched world into every domain. On the first load (`loadedAt` given) HP rows
@@ -1016,7 +968,7 @@ export function App() {
     loadedAt?: { hp: number; fastSlots: number }
   ) {
     const { workspace } = content;
-    setWorldLibrary(nextWorldLibrary);
+    adoptWorldLibrary(nextWorldLibrary);
     setWorldTree(content.tree);
     setPages(content.pages);
     adoptWorkspace(content.workspaces, workspace, Boolean(loadedAt));
@@ -1037,62 +989,6 @@ export function App() {
 
   async function finishWorldSwitch(nextWorldLibrary: WorldLibraryState) {
     applyWorldContent(nextWorldLibrary, await fetchWorldContent());
-  }
-
-  async function handleOpenWorld(worldId: string) {
-    if (!confirmDiscardDirtyDrafts("Switch worlds and discard unsaved changes?")) {
-      return;
-    }
-    prepareWorldSwitch();
-    try {
-      const nextWorldLibrary = await openWorld(worldId);
-      await finishWorldSwitch(nextWorldLibrary);
-    } catch (error) {
-      console.error(`Switching to world "${worldId}" failed`, error);
-      setLoadState({ status: "error", message: worldLoadErrorMessage(error) });
-    }
-  }
-
-  function handleWorldNameChange(name: string) {
-    setWorldCreateDialog((state) =>
-      state.open ? { ...state, name, error: null } : state
-    );
-  }
-
-  async function handleCreateWorld() {
-    if (!worldCreateDialog.open) {
-      return;
-    }
-    const name = worldCreateDialog.name.trim();
-    if (!name) {
-      setWorldCreateDialog({ ...worldCreateDialog, error: "World name is required." });
-      return;
-    }
-    if (name.startsWith(".") || name.includes("/") || name.includes("\\")) {
-      setWorldCreateDialog({
-        ...worldCreateDialog,
-        error: "Use a simple folder name inside the world library."
-      });
-      return;
-    }
-    if (!confirmDiscardDirtyDrafts("Create a new world and discard unsaved changes?")) {
-      return;
-    }
-
-    setWorldCreateDialog({ ...worldCreateDialog, name, status: "submitting", error: null });
-    try {
-      const nextWorldLibrary = await createWorld(name);
-      setWorldCreateDialog({ open: false });
-      prepareWorldSwitch();
-      await finishWorldSwitch(nextWorldLibrary);
-    } catch (error: unknown) {
-      setWorldCreateDialog({
-        open: true,
-        name,
-        status: "idle",
-        error: managementErrorMessage(error)
-      });
-    }
   }
 
   // These four handlers stay in App because they span both the display and map domains:
@@ -1375,19 +1271,12 @@ export function App() {
             t={t}
           />
           <div className="panel-actions-row">
-            <button className="panel-action" onClick={() => setWorldOpenDialog(true)} title={t("side.openFolderFull")} type="button">
+            <button className="panel-action" onClick={() => openWorldDialog()} title={t("side.openFolderFull")} type="button">
               {t("side.openFolder")}
             </button>
             <button
               className="panel-action"
-              onClick={() =>
-                setWorldCreateDialog({
-                  open: true,
-                  name: "",
-                  status: "idle",
-                  error: null
-                })
-              }
+              onClick={() => openWorldCreateDialog()}
               title={t("side.newWorldFull")}
               type="button"
             >
@@ -1521,50 +1410,14 @@ export function App() {
             toolsVisible={toolsPanelVisible}
             t={t}
           />
-          {tabState.tabs.length > 0 && (
-            <div className="tab-strip" role="tablist" aria-label={t("workspace.openFiles")}>
-              {tabState.tabs.map((tab) => {
-                const tabDraft = editorDrafts[tab.path];
-                const dirty = tabDraft ? isDraftDirty(tabDraft) : false;
-                return (
-                  <div
-                    className="tab-shell"
-                    key={tab.path}
-                    onAuxClick={(event) => {
-                      if (event.button === 1) {
-                        event.preventDefault();
-                        event.stopPropagation();
-                        handleCloseTab(tab.path);
-                      }
-                    }}
-                    onMouseDown={(event) => {
-                      if (event.button === 1) {
-                        event.preventDefault();
-                      }
-                    }}
-                  >
-                    <button
-                      aria-selected={tab.path === tabState.activePath}
-                      className="tab-button"
-                      onClick={() => handleActivateTab(tab.path)}
-                      role="tab"
-                      type="button"
-                    >
-                      {tab.title ?? tab.name}
-                      {dirty ? " *" : ""}
-                    </button>
-                    <IconButton
-                      className="close-tab"
-                      label={t("workspace.closeTab", { name: tab.name })}
-                      name="close"
-                      onClick={() => handleCloseTab(tab.path)}
-                    />
-                  </div>
-                );
-              })}
-              <span className="tab-strip-count">{t("workspace.openFileCount", { count: tabState.tabs.length })}</span>
-            </div>
-          )}
+          <TabStrip
+            tabs={tabState.tabs}
+            activePath={tabState.activePath}
+            dirtyPaths={dirtyPaths}
+            onActivate={handleActivateTab}
+            onClose={handleCloseTab}
+            t={t}
+          />
 
           <AudioPlaybackHost />
 
@@ -1811,7 +1664,7 @@ export function App() {
       />
       {worldOpenDialog && (
         <WorldOpenDialog
-          onClose={() => setWorldOpenDialog(false)}
+          onClose={() => closeWorldDialog()}
           onOpenWorld={(id) => void handleOpenWorld(id)}
           onRefresh={() => void refreshWorldLibrary()}
           state={worldLibrary}
@@ -1819,7 +1672,7 @@ export function App() {
         />
       )}
       <WorldCreateDialog
-        onClose={() => setWorldCreateDialog({ open: false })}
+        onClose={() => closeWorldCreateDialog()}
         onNameChange={handleWorldNameChange}
         onSubmit={() => void handleCreateWorld()}
         state={worldCreateDialog}
@@ -1889,7 +1742,7 @@ export function App() {
       />
       <DmsOutputSaveDialog
         onChange={handleDmsOutputSavePathChange}
-        onClose={() => setDmsOutputSaveDialog({ open: false })}
+        onClose={() => closeDmsOutputSaveDialog()}
         onSubmit={() => void handleSaveDmsOutput()}
         state={dmsOutputSaveDialog}
         t={t}
