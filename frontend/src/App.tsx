@@ -30,7 +30,10 @@ import { UnlockScreen } from "./UnlockScreen";
 import { WorldPathPicker } from "./WorldPathPicker";
 import { useAudio } from "./hooks/useAudio";
 import { useDisplay } from "./hooks/useDisplay";
+import { useBindings } from "./hooks/useBindings";
+import { useHpTracker } from "./hooks/useHpTracker";
 import { useMap } from "./hooks/useMap";
+import { useTableSnapshots } from "./hooks/useTableSnapshots";
 import { useStableHandler } from "./hooks/useStableHandler";
 import {
   builtInCardTemplates,
@@ -51,7 +54,6 @@ import {
   createWorld,
   createWorldFolder,
   createWorldFile,
-  deleteTableSnapshot,
   deleteWorkspace,
   deleteTrash,
   duplicateWorldPath,
@@ -85,16 +87,12 @@ import {
   openDisplayPopup,
   recordRecent,
   renameWorkspace,
-  restoreTableSnapshot,
   restoreTrash,
   rotateDisplayFullscreen,
   rollDice,
   runDmsScript,
   saveFavorites,
-  saveFastSlots,
   saveRecentFiles,
-  saveHpTracker,
-  saveTableSnapshot,
   saveWorldFile,
   saveWorkspaceLayout,
   saveWorkspaceTabs,
@@ -110,7 +108,7 @@ import {
   type PrepHealthIssue,
   type PrepHealthReport,
   type SearchResult,
-  type TableSnapshotSummary,
+  type RestoreTableSnapshotResponse,
   type TranslationCatalog,
   type AppConfig,
   type AuthStatus,
@@ -118,8 +116,6 @@ import {
   type CaptureTodayResponse,
   type DmsRunState,
   type DiceRollResponse,
-  type FastSlot,
-  type HpTrackerRow,
   type NamedWorkspaceSummary,
   type TrashEntry,
   type WorldEntry,
@@ -140,41 +136,14 @@ import {
   type UiLanguage
 } from "./lang";
 import { prepHealthIssueToOpenTab, type PrepHealthFilter } from "./lib/prepHealth";
-import {
-  canonicalShortcutFromEvent,
-  isEditableHotkeyTarget,
-  loadActionBindings,
-  saveActionBindings,
-  sortActionBindings,
-  type ActionBinding,
-  type ActionBindingAction
-} from "./lib/actionBindings";
+import { canonicalShortcutFromEvent, isEditableHotkeyTarget, type ActionBindingAction } from "./lib/actionBindings";
 import {
   isTableSnapshotRestoreAction,
   resolveScreenActionPath,
   validateDispatchAction
 } from "./lib/actionBindingDispatch";
-import {
-  formatMidiMessageLabel,
-  isMidiSupported,
-  loadMidiBindings,
-  midiMessageKey,
-  parseMidiMessage,
-  saveMidiBindings,
-  sortMidiBindings,
-  type MidiBinding
-} from "./lib/midiBindings";
 import { hasLoadedAudio, loadAudioTrack, setAudioBusPlaying, setAudioBusVolume } from "./lib/audio";
 import { clearCaptureDraft, loadCaptureDraft, saveCaptureDraft, type CaptureDraft } from "./lib/capture";
-import {
-  addHpTrackerRow,
-  adjustHpTrackerRow,
-  clearHpTrackerRows,
-  createHpTrackerRow,
-  removeHpTrackerRow,
-  updateHpTrackerRow,
-  validateHpTrackerRows
-} from "./lib/hp";
 import { isRectangularCsv, parseCsv, serializeCsv, type CsvData } from "./lib/csv";
 import {
   createEditorDraft,
@@ -229,13 +198,7 @@ import { isLocalWrite, markLocalWrite, unmarkLocalWrite } from "./lib/localWrite
 import { hasResidualPopupsAfterBlank, screenPrimaryMode } from "./lib/display";
 import { fetchMapState, fetchMapPresets, presentMap, setMapFog, setMapSource, stopMap } from "./lib/map";
 import { folderKanbanTab } from "./lib/folderKanban";
-import {
-  clearFastSlot,
-  dispatchableHotkeyPosition,
-  replaceFastSlot,
-  sortFastSlots,
-  visibleFastSlots
-} from "./lib/fastSlots";
+import { dispatchableHotkeyPosition } from "./lib/fastSlots";
 import {
   isMetadataFormDirty,
   metadataFormFromPage,
@@ -283,13 +246,7 @@ import {
   saveTreePanelWidth,
   saveToolsPanelWidth
 } from "./lib/panelWidth";
-import {
-  applyAudioSnapshot,
-  buildTableSnapshotState,
-  deleteTableSnapshotFromList,
-  saveTableSnapshotInList,
-  sortTableSnapshots
-} from "./lib/tableSnapshots";
+import { applyAudioSnapshot, buildTableSnapshotState } from "./lib/tableSnapshots";
 import {
   applyToolAutoOpenRules,
   createToolPanelState,
@@ -319,15 +276,8 @@ import { LinkContextMenu, type LinkContextMenuState } from "./components/documen
 import { PeekDialog, type PeekState } from "./components/documents/PeekDialog";
 import { isCardPath, isEditableFile, parseCardJson } from "./components/documents/documentFiles";
 import { type ScriptLoadState, type ScriptRunState } from "./components/tools/ScriptsTool";
-import {
-  type MidiInputSummary,
-  type MidiLearnedControl,
-  type MidiStatus,
-  type TableSnapshotStatus
-} from "./components/tools/ActionsTool";
 import { type DiceStatus } from "./components/tools/DiceTool";
 import { FastSlotBar } from "./components/tools/FastSlotBar";
-import { type HpToolStatus } from "./components/tools/HpTool";
 import { ToolsPanel } from "./components/tools/ToolsPanel";
 import {
   DEFAULT_CARD_TEMPLATE_ID,
@@ -372,16 +322,6 @@ function helpContextFromTarget(target: EventTarget | null): string | null {
   }
   return target.closest("[data-help-context]")?.getAttribute("data-help-context") ?? null;
 }
-type MidiInputLike = {
-  id?: string;
-  name?: string | null;
-  onmidimessage: ((event: { data: ArrayLike<number> }) => void) | null;
-};
-type MidiAccessLike = {
-  inputs: {
-    values: () => Iterable<MidiInputLike>;
-  };
-};
 type WorldPathPickerState =
   | { open: false }
   | {
@@ -636,31 +576,8 @@ export function App() {
     status: "idle",
     message: null
   });
-  const [hpRows, setHpRows] = useState<HpTrackerRow[]>([]);
-  const [hpStatus, setHpStatus] = useState<HpToolStatus>({ status: "idle", message: null });
   const [diceHistory, setDiceHistory] = useState<DiceHistoryEntry[]>([]);
   const [diceStatus, setDiceStatus] = useState<DiceStatus>({ status: "idle", message: null });
-  const [fastSlots, setFastSlots] = useState<FastSlot[]>([]);
-  const [fastSlotError, setFastSlotError] = useState<string | null>(null);
-  const [actionBindings, setActionBindings] = useState<ActionBinding[]>([]);
-  const [actionBindingMessage, setActionBindingMessage] = useState<string | null>(null);
-  const [midiBindings, setMidiBindings] = useState<MidiBinding[]>([]);
-  const [midiBindingMessage, setMidiBindingMessage] = useState<string | null>(null);
-  const [midiInputs, setMidiInputs] = useState<MidiInputSummary[]>([]);
-  const [midiLearnedControl, setMidiLearnedControl] = useState<MidiLearnedControl | null>(null);
-  const [midiLearning, setMidiLearning] = useState(false);
-  const [midiStatus, setMidiStatus] = useState<MidiStatus>(() =>
-    isMidiSupported(typeof navigator === "undefined" ? null : navigator)
-      ? { status: "idle", message: "MIDI is not connected." }
-      : { status: "unsupported", message: "Web MIDI is not available in this browser." }
-  );
-  const [tableSnapshots, setTableSnapshots] = useState<TableSnapshotSummary[]>([]);
-  const [tableSnapshotName, setTableSnapshotName] = useState("");
-  const [selectedTableSnapshotId, setSelectedTableSnapshotId] = useState("");
-  const [tableSnapshotStatus, setTableSnapshotStatus] = useState<TableSnapshotStatus>({
-    status: "idle",
-    message: null
-  });
   const [scriptState, setScriptState] = useState<ScriptLoadState>({ status: "idle" });
   const [scriptRunState, setScriptRunState] = useState<ScriptRunState>({ status: "idle" });
   const cancelledDmsRuns = useRef<Set<string>>(new Set());
@@ -686,21 +603,19 @@ export function App() {
     open: false
   });
   const [metadataEdits, setMetadataEdits] = useState<Record<string, MetadataEditState>>({});
-  const fastSlotsRevision = useRef(0);
-  const hpEditVersionRef = useRef(0);
-  const hpRowsRef = useRef<HpTrackerRow[]>([]);
-  const midiBindingsRef = useRef<MidiBinding[]>([]);
-  const midiInputsRef = useRef<MidiInputLike[]>([]);
-  const midiLearningRef = useRef(false);
-  const midiTriggerRef = useRef<(binding: MidiBinding) => void>(() => {});
   const captureDraftRef = useRef<CaptureDraft>(captureDraft);
   const captureWorldKeyRef = useRef("default");
   const searchToolOpen = searchDialogOpen;
   const captureToolOpen = captureDialogOpen;
   const pathPickerOpen = pathPickerState.open;
   const captureWorldKey = worldLibrary?.current?.id ?? worldLibrary?.current?.path ?? "default";
-  const actionBindingWorldKey = captureWorldKey;
-  const midiBindingWorldKey = captureWorldKey;
+  const hp = useHpTracker();
+  const snapshots = useTableSnapshots({ capture: captureTableState, apply: applyTableSnapshot });
+  const bindings = useBindings({
+    worldKey: captureWorldKey,
+    execute: executeActionBindingAction,
+    onBindingError: () => setToolPanelState((state) => openToolSectionByUser(state, "actions"))
+  });
   const audioToolOpen = isToolOpen(toolPanelState, "audio");
   const scriptsToolOpen = isToolOpen(toolPanelState, "scripts");
   const actionsToolOpen = isToolOpen(toolPanelState, "actions");
@@ -820,8 +735,8 @@ export function App() {
     let mounted = true;
 
     async function loadStatus() {
-      const fastSlotsRevisionAtStart = fastSlotsRevision.current;
-      const hpRevisionAtStart = hpEditVersionRef.current;
+      const fastSlotsRevisionAtStart = bindings.fastSlotsRevisionNow();
+      const hpRevisionAtStart = hp.editVersion();
       setLoadState({ status: "loading" });
       try {
         const [
@@ -861,23 +776,14 @@ export function App() {
         setWorkspaces(nextWorkspaces);
         setCurrentWorkspaceId(workspace.workspaceId);
         setCurrentWorkspaceName(workspace.workspaceName);
-        if (hpEditVersionRef.current === hpRevisionAtStart) {
-          hpRowsRef.current = hpState.rows;
-          setHpRows(hpState.rows);
-          setHpStatus({ status: "idle", message: null });
-        }
+        hp.adopt(hpState.rows, hpRevisionAtStart);
         setFavorites(workspace.favorites);
         setRecentFiles(workspace.recentFiles);
         display.setDisplayState(nextDisplayState);
         map.adoptMapState(nextMapState);
-        const sortedTableSnapshots = sortTableSnapshots(nextTableSnapshots);
-        setTableSnapshots(sortedTableSnapshots);
-        setSelectedTableSnapshotId(sortedTableSnapshots[0]?.id ?? "");
-        setTableSnapshotStatus({ status: "idle", message: null });
+        snapshots.adopt(nextTableSnapshots);
         setWorkspaceLayout(normalizeWorkspaceLayout(workspace.layout, workspace.tabs));
-        if (fastSlotsRevision.current === fastSlotsRevisionAtStart) {
-          setFastSlots(visibleFastSlots(nextFastSlots));
-        }
+        bindings.adoptFastSlots(nextFastSlots, fastSlotsRevisionAtStart);
         setTabState((currentState) =>
           mergeLoadedWorkspaceTabs(currentState, workspaceTabs, activePath)
         );
@@ -918,43 +824,6 @@ export function App() {
     setCaptureStatus({ status: "idle", message: null });
     setCaptureToday(null);
   }, [captureWorldKey]);
-
-  useEffect(() => {
-    setActionBindings(loadActionBindings(actionBindingWorldKey));
-    setActionBindingMessage(null);
-  }, [actionBindingWorldKey]);
-
-  useEffect(() => {
-    const loaded = loadMidiBindings(midiBindingWorldKey);
-    setMidiBindings(loaded);
-    midiBindingsRef.current = loaded;
-    setMidiBindingMessage(null);
-    setMidiLearnedControl(null);
-    setMidiLearning(false);
-    midiLearningRef.current = false;
-  }, [midiBindingWorldKey]);
-
-  useEffect(() => {
-    midiBindingsRef.current = midiBindings;
-  }, [midiBindings]);
-
-  useEffect(() => {
-    midiLearningRef.current = midiLearning;
-  }, [midiLearning]);
-
-  useEffect(() => {
-    midiTriggerRef.current = (binding: MidiBinding) => {
-      void handleMidiBindingTrigger(binding);
-    };
-  });
-
-  useEffect(() => {
-    return () => {
-      midiInputsRef.current.forEach((input) => {
-        input.onmidimessage = null;
-      });
-    };
-  }, []);
 
   useEffect(() => {
     function persistBeforeUnload() {
@@ -1029,10 +898,10 @@ export function App() {
           event.target instanceof HTMLElement ? event.target.tagName : undefined
       });
       if (position) {
-        const slot = fastSlots.find((item) => item.position === position);
+        const slot = bindings.fastSlots.find((item) => item.position === position);
         if (slot) {
           event.preventDefault();
-          void handleFastSlotTrigger(slot);
+          void bindings.handleFastSlotTrigger(slot);
           return;
         }
       }
@@ -1040,18 +909,18 @@ export function App() {
       if (!shortcut) {
         return;
       }
-      const binding = actionBindings.find(
+      const binding = bindings.actionBindings.find(
         (item) => item.shortcut.toLowerCase() === shortcut.toLowerCase()
       );
       if (binding) {
         event.preventDefault();
-        void handleActionBindingTrigger(binding);
+        void bindings.handleActionBindingTrigger(binding);
       }
     }
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [actionBindings, actionsDisabled, fastSlots, tabState.activePath]);
+  }, [bindings.actionBindings, actionsDisabled, bindings.fastSlots, tabState.activePath]);
 
   useEffect(() => {
     if (!workspaceReady) {
@@ -2006,20 +1875,6 @@ export function App() {
     setWorkspaceLayout(normalizeWorkspaceLayout(workspace.layout, workspace.tabs));
   }
 
-  async function refreshHpTracker() {
-    setHpStatus({ status: "loading", message: null });
-    try {
-      const state = await fetchHpTracker();
-      hpEditVersionRef.current = 0;
-      hpRowsRef.current = state.rows;
-      setHpRows(state.rows);
-      setHpStatus({ status: "idle", message: null });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      setHpStatus({ status: "error", message });
-    }
-  }
-
   async function flushCurrentWorkspaceState() {
     if (!workspaceReadyRef.current) {
       return;
@@ -2045,7 +1900,7 @@ export function App() {
     await flushCurrentWorkspaceState();
     const workspace = await activateWorkspace(workspaceId);
     applyWorkspaceState(workspace);
-    await refreshHpTracker();
+    await hp.refresh();
     await refreshWorkspaceSummaries();
   }
 
@@ -2068,7 +1923,7 @@ export function App() {
       if (workspaceDialog.kind === "create") {
         const workspace = await createWorkspace(name);
         applyWorkspaceState(workspace);
-        await refreshHpTracker();
+        await hp.refresh();
       } else {
         await flushCurrentWorkspaceState();
         const renamed = await renameWorkspace(workspaceDialog.workspace.id, name);
@@ -2097,7 +1952,7 @@ export function App() {
     try {
       const fallbackWorkspace = await activateWorkspace(fallback.id);
       applyWorkspaceState(fallbackWorkspace);
-      await refreshHpTracker();
+      await hp.refresh();
       const summaries = await deleteWorkspace(targetId);
       setWorkspaces(summaries);
     } catch {
@@ -2147,129 +2002,6 @@ export function App() {
       }
     } catch {
       setAuthState({ status: "locked", auth: authState.auth, error: "Invalid access code." });
-    }
-  }
-
-  function saveFastSlotList(nextSlots: FastSlot[]) {
-    const sorted = sortFastSlots(nextSlots);
-    fastSlotsRevision.current += 1;
-    setFastSlots(sorted);
-    void saveFastSlots(sorted)
-      .then((savedSlots) => {
-        const visibleSavedSlots = visibleFastSlots(savedSlots);
-        setFastSlots(visibleSavedSlots.length > 0 || sorted.length === 0 ? visibleSavedSlots : sorted);
-      })
-      .catch(() => {});
-  }
-
-  function handleSaveFastSlot(slot: FastSlot) {
-    setFastSlotError(null);
-    saveFastSlotList(replaceFastSlot(fastSlots, slot));
-  }
-
-  function handleClearFastSlot(position: number) {
-    setFastSlotError(null);
-    saveFastSlotList(clearFastSlot(fastSlots, position));
-  }
-
-  function saveActionBindingList(nextBindings: ActionBinding[]) {
-    const saved = saveActionBindings(actionBindingWorldKey, nextBindings);
-    setActionBindings(saved);
-  }
-
-  function handleSaveActionBinding(binding: ActionBinding) {
-    setActionBindingMessage(`Saved ${binding.label}`);
-    saveActionBindingList(sortActionBindings([
-      binding,
-      ...actionBindings.filter((item) => item.id !== binding.id)
-    ]));
-  }
-
-  function handleDeleteActionBinding(bindingId: string) {
-    setActionBindingMessage(null);
-    saveActionBindingList(actionBindings.filter((binding) => binding.id !== bindingId));
-  }
-
-  async function handleSaveTableSnapshot() {
-    const name = tableSnapshotName.trim();
-    if (!name) {
-      setTableSnapshotStatus({ status: "error", message: "Snapshot name is required." });
-      return;
-    }
-    if (name.length > 80) {
-      setTableSnapshotStatus({ status: "error", message: "Use 80 characters or fewer." });
-      return;
-    }
-
-    setTableSnapshotStatus({ status: "saving", message: "Saving..." });
-    try {
-      await flushCurrentWorkspaceState();
-      const [workspace, displaySnapshot, mapSnapshot] = await Promise.all([
-        fetchWorkspace(),
-        fetchDisplayState(),
-        fetchMapState()
-      ]);
-      const saved = await saveTableSnapshot({
-        name,
-        state: buildTableSnapshotState(displaySnapshot, mapSnapshot, workspace, audio.audioMixer)
-      });
-      setTableSnapshots((snapshots) => saveTableSnapshotInList(snapshots, saved));
-      setSelectedTableSnapshotId(saved.id);
-      setTableSnapshotStatus({ status: "saved", message: `Saved ${saved.name}` });
-    } catch (error: unknown) {
-      setTableSnapshotStatus({
-        status: "error",
-        message: error instanceof Error ? error.message : "Could not save table state."
-      });
-    }
-  }
-
-  async function handleLoadTableSnapshot(snapshotId: string) {
-    if (!snapshotId) {
-      setTableSnapshotStatus({ status: "error", message: "Choose a saved state first." });
-      return;
-    }
-    setTableSnapshotStatus({ status: "loading", message: "Loading..." });
-    try {
-      const restored = await restoreTableSnapshot(snapshotId);
-      display.setDisplayState(restored.display);
-      map.adoptMapState(restored.map);
-      map.resetViewport();
-      applyWorkspaceState(restored.workspace);
-      audio.setAudioMixer((state) => applyAudioSnapshot(state, restored.audio));
-      setTableSnapshots((snapshots) =>
-        saveTableSnapshotInList(snapshots, restored.snapshot)
-      );
-      setSelectedTableSnapshotId(restored.snapshot.id);
-      await Promise.all([refreshWorkspaceSummaries(), refreshHpTracker()]);
-      setTableSnapshotStatus({
-        status: "loaded",
-        message: `Loaded ${restored.snapshot.name}`
-      });
-    } catch (error: unknown) {
-      setTableSnapshotStatus({
-        status: "error",
-        message: error instanceof Error ? error.message : "Could not load table state."
-      });
-    }
-  }
-
-  async function handleDeleteTableSnapshot(snapshotId: string) {
-    if (!snapshotId) {
-      setTableSnapshotStatus({ status: "error", message: "Choose a saved state first." });
-      return;
-    }
-    setTableSnapshotStatus({ status: "loading", message: "Deleting..." });
-    try {
-      await deleteTableSnapshot(snapshotId);
-      setTableSnapshots((snapshots) => deleteTableSnapshotFromList(snapshots, snapshotId));
-      setSelectedTableSnapshotId((currentId) => (currentId === snapshotId ? "" : currentId));
-      setTableSnapshotStatus({ status: "saved", message: "Deleted table state." });
-    } catch (error: unknown) {
-      setTableSnapshotStatus({
-        status: "error",
-        message: error instanceof Error ? error.message : "Could not delete table state."
-      });
     }
   }
 
@@ -2529,6 +2261,25 @@ export function App() {
     }
   }
 
+  async function captureTableState() {
+    await flushCurrentWorkspaceState();
+    const [workspace, displaySnapshot, mapSnapshot] = await Promise.all([
+      fetchWorkspace(),
+      fetchDisplayState(),
+      fetchMapState()
+    ]);
+    return buildTableSnapshotState(displaySnapshot, mapSnapshot, workspace, audio.audioMixer);
+  }
+
+  async function applyTableSnapshot(restored: RestoreTableSnapshotResponse) {
+    display.setDisplayState(restored.display);
+    map.adoptMapState(restored.map);
+    map.resetViewport();
+    applyWorkspaceState(restored.workspace);
+    audio.setAudioMixer((state) => applyAudioSnapshot(state, restored.audio));
+    await Promise.all([refreshWorkspaceSummaries(), hp.refresh()]);
+  }
+
   async function executeActionBindingAction(
     action: ActionBindingAction,
     reportError: (message: string | null) => void
@@ -2542,7 +2293,7 @@ export function App() {
     }
     const validatedAction = validation.action;
     if (isTableSnapshotRestoreAction(validatedAction)) {
-      await handleLoadTableSnapshot(validatedAction.snapshot_id);
+      await snapshots.handleLoad(validatedAction.snapshot_id);
       return;
     }
     const dispatchAction = validatedAction;
@@ -2597,155 +2348,6 @@ export function App() {
       revealScreenTool("map");
       return;
     }
-  }
-
-  async function handleFastSlotTrigger(slot: FastSlot) {
-    await executeActionBindingAction(slot.action, setFastSlotError);
-  }
-
-  async function handleActionBindingTrigger(binding: ActionBinding) {
-    await executeActionBindingAction(binding.action, (message) => {
-      setActionBindingMessage(message);
-      if (message) {
-        setToolPanelState((state) => openToolSectionByUser(state, "actions"));
-      }
-    });
-  }
-
-  function handleSaveMidiBinding(binding: MidiBinding) {
-    setMidiBindings((current) => {
-      const next = saveMidiBindings(
-        midiBindingWorldKey,
-        sortMidiBindings([
-          ...current.filter((item) => item.id !== binding.id),
-          binding
-        ])
-      );
-      midiBindingsRef.current = next;
-      return next;
-    });
-    setMidiBindingMessage(`Saved ${binding.label}`);
-  }
-
-  function handleDeleteMidiBinding(bindingId: string) {
-    setMidiBindings((current) => {
-      const next = saveMidiBindings(
-        midiBindingWorldKey,
-        current.filter((binding) => binding.id !== bindingId)
-      );
-      midiBindingsRef.current = next;
-      return next;
-    });
-    setMidiBindingMessage("Removed MIDI binding.");
-  }
-
-  async function handleMidiBindingTrigger(binding: MidiBinding) {
-    await executeActionBindingAction(binding.action, (message) => {
-      setMidiBindingMessage(message);
-      if (message) {
-        setToolPanelState((state) => openToolSectionByUser(state, "actions"));
-      }
-    });
-  }
-
-  function handleClearMidiLearned() {
-    setMidiLearnedControl(null);
-    setMidiLearning(false);
-    midiLearningRef.current = false;
-  }
-
-  function handleMidiInputMessage(input: MidiInputLike, data: ArrayLike<number>) {
-    const message = parseMidiMessage(data);
-    if (!message) {
-      return;
-    }
-    const inputId = input.id ?? null;
-    const inputName = input.name ?? null;
-    if (midiLearningRef.current) {
-      setMidiLearnedControl({ input_id: inputId, input_name: inputName, message });
-      setMidiLearning(false);
-      midiLearningRef.current = false;
-      setMidiStatus({
-        status: "connected",
-        message: `Learned ${formatMidiMessageLabel(message)} from ${inputName || inputId || "MIDI input"}.`
-      });
-      return;
-    }
-    if (isEditableHotkeyTarget(document.activeElement as HTMLElement | null)) {
-      return;
-    }
-    const messageKey = midiMessageKey(message);
-    const binding = midiBindingsRef.current.find(
-      (item) =>
-        (item.input_id === null || item.input_id === inputId) &&
-        midiMessageKey(item.message) === messageKey
-    );
-    if (binding) {
-      midiTriggerRef.current(binding);
-    }
-  }
-
-  async function handleConnectMidi() {
-    if (!isMidiSupported(typeof navigator === "undefined" ? null : navigator)) {
-      setMidiStatus({
-        status: "unsupported",
-        message: "Web MIDI is not available in this browser."
-      });
-      return;
-    }
-    setMidiStatus({ status: "connecting", message: "Requesting MIDI access..." });
-    try {
-      const requestMIDIAccess = (
-        navigator as Navigator & { requestMIDIAccess?: () => Promise<MidiAccessLike> }
-      ).requestMIDIAccess;
-      if (!requestMIDIAccess) {
-        throw new Error("Web MIDI is not available.");
-      }
-      const access = await requestMIDIAccess.call(navigator);
-      midiInputsRef.current.forEach((input) => {
-        input.onmidimessage = null;
-      });
-      const inputs = Array.from(access.inputs.values());
-      midiInputsRef.current = inputs;
-      setMidiInputs(
-        inputs.map((input) => ({
-          id: input.id ?? null,
-          name: input.name ?? null
-        }))
-      );
-      inputs.forEach((input) => {
-        input.onmidimessage = (event) => handleMidiInputMessage(input, event.data);
-      });
-      setMidiStatus({
-        status: "connected",
-        message:
-          inputs.length > 0
-            ? `Connected to ${inputs.map((input) => input.name || input.id || "MIDI input").join(", ")}.`
-            : "MIDI connected, but no inputs were found."
-      });
-    } catch (error: unknown) {
-      setMidiStatus({
-        status: "error",
-        message: error instanceof Error ? error.message : "MIDI permission was denied."
-      });
-    }
-  }
-
-  async function handleStartMidiLearn() {
-    if (midiStatus.status === "unsupported") {
-      return;
-    }
-    if (midiInputsRef.current.length === 0) {
-      await handleConnectMidi();
-      if (midiInputsRef.current.length === 0) {
-        return;
-      }
-    }
-    setMidiLearnedControl(null);
-    setMidiBindingMessage(null);
-    setMidiLearning(true);
-    midiLearningRef.current = true;
-    setMidiStatus({ status: "listening", message: "Listening for a MIDI note or control..." });
   }
 
   function handleOpenDmsOutputSaveDialog() {
@@ -3869,15 +3471,9 @@ export function App() {
     setSearchQuery("");
     setSearchState({ status: "idle" });
     audio.reset();
-    hpEditVersionRef.current = 0;
-    hpRowsRef.current = [];
-    setHpRows([]);
-    setHpStatus({ status: "idle", message: null });
-    setFastSlots([]);
-    setTableSnapshots([]);
-    setSelectedTableSnapshotId("");
-    setTableSnapshotName("");
-    setTableSnapshotStatus({ status: "idle", message: null });
+    hp.reset();
+    bindings.adoptFastSlots([]);
+    snapshots.reset();
     setScriptState({ status: "idle" });
     setScriptRunState({ status: "idle" });
     setDmsWorldTrusted(false);
@@ -3937,21 +3533,15 @@ export function App() {
     setWorkspaces(nextWorkspaces);
     setCurrentWorkspaceId(workspace.workspaceId);
     setCurrentWorkspaceName(workspace.workspaceName);
-    hpEditVersionRef.current = 0;
-    hpRowsRef.current = hpState.rows;
-    setHpRows(hpState.rows);
-    setHpStatus({ status: "idle", message: null });
+    hp.adopt(hpState.rows);
     setFavorites(workspace.favorites);
     setRecentFiles(workspace.recentFiles);
     display.setDisplayState(nextDisplayState);
     map.adoptMapState(nextMapState);
-    const sortedTableSnapshots = sortTableSnapshots(nextTableSnapshots);
-    setTableSnapshots(sortedTableSnapshots);
-    setSelectedTableSnapshotId(sortedTableSnapshots[0]?.id ?? "");
-    setTableSnapshotStatus({ status: "idle", message: null });
+    snapshots.adopt(nextTableSnapshots);
     map.setMapPresets([]);
     map.resetViewport();
-    setFastSlots(visibleFastSlots(nextFastSlots));
+    bindings.adoptFastSlots(nextFastSlots);
     setTabState({ tabs: workspaceTabs, activePath });
     setWorkspaceLayout(normalizeWorkspaceLayout(workspace.layout, workspace.tabs));
     setExpandedPaths(new Set([""]));
@@ -4203,81 +3793,6 @@ export function App() {
     }
     void navigator.clipboard?.writeText(target);
     setPrepHealthStatus({ status: "ready", message: "Target copied." });
-  }
-
-  function persistHpRows(rows: HpTrackerRow[], version = hpEditVersionRef.current) {
-    const errors = validateHpTrackerRows(rows);
-    if (errors.length > 0) {
-      setHpStatus({ status: "error", message: errors[0] });
-      return;
-    }
-    setHpStatus({ status: "saving", message: null });
-    saveHpTracker(rows)
-      .then((state) => {
-        if (hpEditVersionRef.current === version) {
-          hpRowsRef.current = state.rows;
-          setHpRows(state.rows);
-        }
-        setHpStatus({ status: "saved", message: "Saved" });
-      })
-      .catch((error: unknown) => {
-        setHpStatus({
-          status: "error",
-          message: error instanceof Error ? error.message : "Could not save HP rows."
-        });
-      });
-  }
-
-  function handleHpAdd() {
-    hpEditVersionRef.current += 1;
-    const nextRows = addHpTrackerRow(
-      hpRowsRef.current,
-      createHpTrackerRow({
-        id: `hp-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`,
-        name: "New",
-        current_hp: 0,
-        max_hp: null
-      })
-    );
-    hpRowsRef.current = nextRows;
-    setHpRows(nextRows);
-    persistHpRows(nextRows, hpEditVersionRef.current);
-  }
-
-  function handleHpUpdate(rowId: string, updates: Partial<Omit<HpTrackerRow, "id">>) {
-    hpEditVersionRef.current += 1;
-    const nextRows = updateHpTrackerRow(hpRowsRef.current, rowId, updates);
-    hpRowsRef.current = nextRows;
-    setHpRows(nextRows);
-    setHpStatus({ status: "idle", message: null });
-  }
-
-  function handleHpAdjust(rowId: string, amount: number) {
-    hpEditVersionRef.current += 1;
-    const nextRows = adjustHpTrackerRow(hpRowsRef.current, rowId, amount);
-    hpRowsRef.current = nextRows;
-    setHpRows(nextRows);
-    persistHpRows(nextRows, hpEditVersionRef.current);
-  }
-
-  function handleHpRemove(rowId: string) {
-    hpEditVersionRef.current += 1;
-    const nextRows = removeHpTrackerRow(hpRowsRef.current, rowId);
-    hpRowsRef.current = nextRows;
-    setHpRows(nextRows);
-    persistHpRows(nextRows, hpEditVersionRef.current);
-  }
-
-  function handleHpClear() {
-    hpEditVersionRef.current += 1;
-    const nextRows = clearHpTrackerRows();
-    hpRowsRef.current = nextRows;
-    setHpRows(nextRows);
-    persistHpRows(nextRows, hpEditVersionRef.current);
-  }
-
-  function handleHpPersist() {
-    persistHpRows(hpRowsRef.current);
   }
 
   function handleToolsResizePointerDown(event: PointerEvent<HTMLDivElement>) {
@@ -4923,63 +4438,60 @@ export function App() {
                 <ToolsPanel
               activeTab={activeTab}
               activeDocumentTab={activeDocumentTab}
-              actionBindings={actionBindings}
-              actionBindingMessage={actionBindingMessage}
+              actionBindings={bindings.actionBindings}
+              actionBindingMessage={bindings.actionBindingMessage}
               contentDirty={activeContentDirty}
               diceHistory={diceHistory}
               diceStatus={diceStatus}
-              fastSlotError={fastSlotError}
-              fastSlots={fastSlots}
-              hpRows={hpRows}
-              hpStatus={hpStatus}
+              fastSlotError={bindings.fastSlotError}
+              fastSlots={bindings.fastSlots}
+              hpRows={hp.rows}
+              hpStatus={hp.status}
               fileReady={
                 activePageState.status === "ready" &&
                 hasPageSavePreconditions(activePageState.page)
               }
               linksState={activeLinksState}
               metadataEditState={activeMetadataEdit}
-              midiBindingMessage={midiBindingMessage}
-              midiBindings={midiBindings}
-              midiInputs={midiInputs}
-              midiLearnedControl={midiLearnedControl}
-              midiLearning={midiLearning}
-              midiStatus={midiStatus}
-              onActionBindingDelete={handleDeleteActionBinding}
-              onActionBindingRun={(binding) => void handleActionBindingTrigger(binding)}
-              onActionBindingSave={handleSaveActionBinding}
+              midiBindingMessage={bindings.midiBindingMessage}
+              midiBindings={bindings.midiBindings}
+              midiInputs={bindings.midiInputs}
+              midiLearnedControl={bindings.midiLearnedControl}
+              midiLearning={bindings.midiLearning}
+              midiStatus={bindings.midiStatus}
+              onActionBindingDelete={bindings.handleDeleteActionBinding}
+              onActionBindingRun={(binding) => void bindings.handleActionBindingTrigger(binding)}
+              onActionBindingSave={bindings.handleSaveActionBinding}
               onDiceClearHistory={handleDiceClearHistory}
               onDiceRoll={handleDiceRoll}
-              onHpAdd={handleHpAdd}
-              onHpAdjust={handleHpAdjust}
-              onHpClear={handleHpClear}
-              onHpPersist={handleHpPersist}
-              onHpRemove={handleHpRemove}
-              onHpUpdate={handleHpUpdate}
+              onHpAdd={hp.handleAdd}
+              onHpAdjust={hp.handleAdjust}
+              onHpClear={hp.handleClear}
+              onHpPersist={hp.handlePersist}
+              onHpRemove={hp.handleRemove}
+              onHpUpdate={hp.handleUpdate}
               onCancelMetadataEdit={handleCancelMetadataEdit}
               onCancelScript={(runId) => void handleCancelDmsScript(runId)}
               onChangeMetadataEdit={handleChangeMetadataEdit}
-              onClearFastSlot={handleClearFastSlot}
+              onClearFastSlot={bindings.handleClearFastSlot}
               onPickPath={handleOpenWorldPathPicker}
-              onClearMidiLearned={handleClearMidiLearned}
-              onConnectMidi={() => void handleConnectMidi()}
-              onDeleteMidiBinding={handleDeleteMidiBinding}
-              onMidiBindingRun={(binding) => void handleMidiBindingTrigger(binding)}
-              onMidiBindingSave={handleSaveMidiBinding}
+              onClearMidiLearned={bindings.handleClearMidiLearned}
+              onConnectMidi={() => void bindings.handleConnectMidi()}
+              onDeleteMidiBinding={bindings.handleDeleteMidiBinding}
+              onMidiBindingRun={(binding) => void bindings.handleMidiBindingTrigger(binding)}
+              onMidiBindingSave={bindings.handleSaveMidiBinding}
               onOpenBacklink={openBacklink}
               onOpenOutgoing={openResolvedLink}
               onReloadMetadataEdit={() => void handleReloadMetadataEdit()}
               onRevertMetadataEdit={handleRevertMetadataEdit}
               onSaveMetadataEdit={() => void handleSaveMetadataEdit()}
-              onDeleteTableSnapshot={(snapshotId) => void handleDeleteTableSnapshot(snapshotId)}
-              onLoadTableSnapshot={(snapshotId) => void handleLoadTableSnapshot(snapshotId)}
-              onSaveTableSnapshot={() => void handleSaveTableSnapshot()}
-              onSaveFastSlot={handleSaveFastSlot}
-              onSelectTableSnapshot={setSelectedTableSnapshotId}
-              onStartMidiLearn={() => void handleStartMidiLearn()}
-              onTableSnapshotNameChange={(name) => {
-                setTableSnapshotName(name);
-                setTableSnapshotStatus({ status: "idle", message: null });
-              }}
+              onDeleteTableSnapshot={(snapshotId) => void snapshots.handleDelete(snapshotId)}
+              onLoadTableSnapshot={(snapshotId) => void snapshots.handleLoad(snapshotId)}
+              onSaveTableSnapshot={() => void snapshots.handleSave()}
+              onSaveFastSlot={bindings.handleSaveFastSlot}
+              onSelectTableSnapshot={snapshots.setSelectedId}
+              onStartMidiLearn={() => void bindings.handleStartMidiLearn()}
+              onTableSnapshotNameChange={snapshots.setName}
               onScriptRun={(path) => void handleRunDmsScript(path)}
               onStartMetadataEdit={handleStartMetadataEdit}
               onScreenToolTabChange={setScreenToolTab}
@@ -4991,10 +4503,10 @@ export function App() {
               screenToolTab={screenToolTab}
               scriptRunState={scriptRunState}
               scriptState={scriptState}
-              tableSnapshotName={tableSnapshotName}
-              tableSnapshotSelectedId={selectedTableSnapshotId}
-              tableSnapshotStatus={tableSnapshotStatus}
-              tableSnapshots={tableSnapshots}
+              tableSnapshotName={snapshots.name}
+              tableSnapshotSelectedId={snapshots.selectedId}
+              tableSnapshotStatus={snapshots.status}
+              tableSnapshots={snapshots.snapshots}
                   t={t}
                 />
               </>
@@ -5009,7 +4521,7 @@ export function App() {
             )}
           </div>
           {!actionsDisabled && (
-            <FastSlotBar slots={fastSlots} onTrigger={(slot) => void handleFastSlotTrigger(slot)} t={t} />
+            <FastSlotBar slots={bindings.fastSlots} onTrigger={(slot) => void bindings.handleFastSlotTrigger(slot)} t={t} />
           )}
         </div>
       </section>
