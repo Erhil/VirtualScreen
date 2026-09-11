@@ -34,7 +34,6 @@ from app.core.paths import (
     normalize_relative_path,
     resolve_under_root,
 )
-from app.core.plugins import BackendPlugin
 
 router = APIRouter()
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -211,29 +210,16 @@ def _with_image_suffix(path: str) -> str:
 
 
 def _extract_model_names(data: Any) -> list[str]:
-    items: list[Any] | None = None
-    if isinstance(data, list):
-        items = data
-    elif isinstance(data, dict):
-        maybe_items = data.get("models")
-        if isinstance(maybe_items, list):
-            items = maybe_items
+    """Pull model names out of the upstream's `{"models": [...], "current": ..., "count": ...}`.
 
-    if items is None:
+    Anything else (a wrong port answering with an unrelated JSON body, say) yields an
+    empty list rather than a 500 - the dropdown just comes up empty.
+    """
+
+    items = data.get("models") if isinstance(data, dict) else None
+    if not isinstance(items, list):
         return []
-
-    names: list[str] = []
-    for item in items:
-        if isinstance(item, str):
-            if item:
-                names.append(item)
-        elif isinstance(item, dict):
-            for key in ("name", "filename"):
-                value = item.get(key)
-                if isinstance(value, str) and value:
-                    names.append(value)
-                    break
-    return names
+    return [item for item in items if isinstance(item, str) and item]
 
 
 class ImageGenConfigResponse(BaseModel):
@@ -465,6 +451,3 @@ async def image_gen_save(
     atomic_write_bytes(destination, response.content)
 
     return ImageGenSaveResponse(path=world_path)
-
-
-PLUGIN = BackendPlugin(id="image-gen", router=router)

@@ -1,7 +1,6 @@
 import { useEffect, useMemo, useState, type MouseEvent, type ReactNode } from "react";
 
 import { MapCanvas } from "./MapCanvas";
-import { PluginScreenHost } from "./components/PluginScreenHost";
 import {
   buildScreenDisplayBackgroundUrl,
   buildScreenMediaUrl,
@@ -353,7 +352,6 @@ export function PlayerScreen() {
           <ScreenContent item={popup} />
         </section>
       ))}
-      <PluginScreenHost />
     </main>
   );
 }

@@ -530,9 +530,18 @@ def test_save_appends_jpg_when_destination_has_no_image_suffix(
 # ---------------------------------------------------------------------------
 
 
-def test_models_accepts_a_bare_list_of_strings(tmp_path: Path, monkeypatch: MonkeyPatch) -> None:
+def test_models_accepts_the_upstream_response_shape(
+    tmp_path: Path, monkeypatch: MonkeyPatch
+) -> None:
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(200, json=["sdxl\\dvine_v108.safetensors", "anime_v3.safetensors"])
+        return httpx.Response(
+            200,
+            json={
+                "models": ["sdxl\\dvine_v108.safetensors", "anime_v3.safetensors"],
+                "current": "sdxl\\dvine_v108.safetensors",
+                "count": 2,
+            },
+        )
 
     install_transport(monkeypatch, handler)
     client = make_client(tmp_path, monkeypatch)
@@ -543,24 +552,6 @@ def test_models_accepts_a_bare_list_of_strings(tmp_path: Path, monkeypatch: Monk
     assert response.json() == {
         "models": ["sdxl\\dvine_v108.safetensors", "anime_v3.safetensors"]
     }
-
-
-def test_models_accepts_an_object_with_a_models_key_of_name_or_filename_objects(
-    tmp_path: Path, monkeypatch: MonkeyPatch
-) -> None:
-    def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            200,
-            json={"models": [{"name": "sdxl_base"}, {"filename": "sdxl_refiner.safetensors"}]},
-        )
-
-    install_transport(monkeypatch, handler)
-    client = make_client(tmp_path, monkeypatch)
-
-    response = client.get("/api/plugins/image-gen/models")
-
-    assert response.status_code == 200
-    assert response.json() == {"models": ["sdxl_base", "sdxl_refiner.safetensors"]}
 
 
 def test_models_returns_an_empty_list_for_a_shape_it_cannot_interpret(

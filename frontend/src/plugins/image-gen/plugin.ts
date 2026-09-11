@@ -1,8 +1,9 @@
-import { definePlugin } from "../../lib/pluginTypes";
+import type { PluginTool } from "../../lib/pluginTypes";
 import { ImageGenTool } from "./ImageGenTool";
 
-export default definePlugin({
+export const imageGenTool: PluginTool = {
   id: "image-gen",
-  name: "Image Generation",
-  tool: { icon: "🎨", title: () => "Image Generation", Panel: ImageGenTool }
-});
+  icon: "🎨",
+  title: () => "Image Generation",
+  Panel: ImageGenTool
+};

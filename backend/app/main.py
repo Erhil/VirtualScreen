@@ -29,9 +29,9 @@ from app.api.routes import (
 )
 from app.core.auth import AuthMiddleware
 from app.core.config import get_settings
-from app.core.plugins import register_plugins
 from app.core.static_site import mount_frontend
 from app.core.watcher import WatcherManager
+from app.plugins.image_gen.plugin import router as image_gen_router
 
 
 @asynccontextmanager
@@ -85,8 +85,7 @@ def create_app() -> FastAPI:
     app.include_router(workspace.router, prefix="/api", tags=["workspace"])
     app.include_router(display.router, tags=["display"])
     app.include_router(events.router, tags=["events"])
-
-    register_plugins(app)
+    app.include_router(image_gen_router, prefix="/api", tags=["plugin:image-gen"])
 
     mount_frontend(app, get_settings().resolved_static_dir)
 

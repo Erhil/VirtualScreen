@@ -7,24 +7,15 @@ export interface PluginToolContext {
   t: Translator;
 }
 
+/**
+ * A tool that lives in its own folder under src/plugins and appears in the plugin dock.
+ * Plugins are imported directly by PluginToolsHost: they ship in this repository, so a
+ * runtime registry that discovers, validates and de-duplicates them was machinery with
+ * nothing to discover. Adding one is a folder plus one line in PluginToolsHost.
+ */
 export interface PluginTool {
-  icon?: string;
+  id: string;
+  icon: string;
   title: (t: Translator) => string;
   Panel: ComponentType<PluginToolContext>;
-}
-
-export interface PluginScreen {
-  Layer: ComponentType;
-}
-
-export interface VsPlugin {
-  id: string;
-  name: string;
-  version?: string;
-  tool?: PluginTool;
-  screen?: PluginScreen;
-}
-
-export function definePlugin(plugin: VsPlugin): VsPlugin {
-  return plugin;
 }

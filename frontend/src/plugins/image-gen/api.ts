@@ -1,7 +1,7 @@
 // Thin fetch wrappers for the image-gen plugin's backend API.
 //
 // Every response is narrowed from `unknown` with an explicit type-guard function (never a cast to the
-// response type), matching the idiom in ../random-tables/RandomTablesTool.tsx. Errors from the backend
+// response type). Errors from the backend
 // arrive as {"detail": "<sentence>"} and that sentence is surfaced verbatim to the caller.
 
 // The upstream service reports pending | queued | processing | completed | failed | cancelled, but the
