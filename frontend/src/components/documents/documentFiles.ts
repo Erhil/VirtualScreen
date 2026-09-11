@@ -2,6 +2,16 @@ import { type WorldFile } from "../../lib/api";
 import { parseCard, type StructuredCard } from "../../lib/cards";
 import { type ManagedFileType } from "../../lib/fileManagement";
 import { isTemporaryDmsPath } from "../../lib/scripts";
+import { type OpenTab } from "../../lib/tabs";
+
+export function canHavePageLinks(tab: OpenTab): boolean {
+  return (
+    tab.mediaKind === "markdown" ||
+    tab.mediaKind === "card" ||
+    tab.mediaKind === "csv" ||
+    tab.mediaKind === "text"
+  );
+}
 
 export function isCardPath(path: string, extension?: string | null): boolean {
   return extension?.toLowerCase() === "cs" || path.toLowerCase().endsWith(".cs");

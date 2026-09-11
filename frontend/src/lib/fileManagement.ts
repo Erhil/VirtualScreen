@@ -1,4 +1,4 @@
-import type { WorldFile, WorkspaceTab } from "./api";
+import type { PageDetail, PageSummary, WorldFile, WorkspaceTab } from "./api";
 
 export type ManagedFileType = "markdown" | "card" | "csv" | "script";
 
@@ -138,6 +138,21 @@ export function workspaceTabFromWorldFile(file: WorldFile): WorkspaceTab {
         ? file.name.replace(/\.(cs|dms|md|markdown)$/i, "")
         : null,
     mediaKind: file.media_kind
+  };
+}
+
+export function tabFromFileWithPages(file: WorldFile, pages: PageSummary[]): WorkspaceTab {
+  const tab = workspaceTabFromWorldFile(file);
+  const page = pages.find((pageItem) => pageItem.path === file.path);
+  const detail = page as Partial<PageDetail> | undefined;
+  const explicitTitle =
+    detail?.metadata && Object.keys(detail.metadata).length > 0 ? page?.title ?? null : null;
+  return {
+    ...tab,
+    title:
+      file.media_kind === "markdown" || file.media_kind === "card"
+        ? page?.title ?? tab.title
+        : explicitTitle ?? tab.title
   };
 }
 

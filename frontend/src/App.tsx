@@ -5,7 +5,6 @@ import {
   useState,
   type CSSProperties,
   type DragEvent,
-  type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent
 } from "react";
 import { ContextHelpDialog } from "./components/ContextHelpDialog";
@@ -13,7 +12,6 @@ import { PluginToolsHost } from "./components/PluginToolsHost";
 import { AudioPlaybackHost } from "./components/audio/AudioPlaybackHost";
 import { AudioProvider } from "./contexts/AudioContext";
 import { DmsFormDialog, DmsOutputSaveDialog, DmsTrustDialog, type DmsOutputSaveDialogState } from "./components/DmsDialogs";
-import { type LinksLoadState, type MetadataEditState, type PageLoadState } from "./components/MetadataTool";
 import { IconButton } from "./components/IconButton";
 import { ScreenTool } from "./components/screen/ScreenTool";
 import { MapProvider } from "./contexts/MapContext";
@@ -26,6 +24,7 @@ import { useDisplay } from "./hooks/useDisplay";
 import { useBindings } from "./hooks/useBindings";
 import { useContextHelp } from "./hooks/useContextHelp";
 import { useDmsScripts } from "./hooks/useDmsScripts";
+import { idleFileState, idleLinksState, useDocuments } from "./hooks/useDocuments";
 import { useFileManagement } from "./hooks/useFileManagement";
 import { useHpTracker } from "./hooks/useHpTracker";
 import { useLanguage } from "./hooks/useLanguage";
@@ -36,6 +35,7 @@ import { useCapture } from "./hooks/useCapture";
 import { useDice } from "./hooks/useDice";
 import { usePanelLayout } from "./hooks/usePanelLayout";
 import { usePathPicker } from "./hooks/usePathPicker";
+import { usePeek } from "./hooks/usePeek";
 import { usePrepHealth } from "./hooks/usePrepHealth";
 import { useSearch } from "./hooks/useSearch";
 import { useToolPanel } from "./hooks/useToolPanel";
@@ -46,21 +46,15 @@ import {
   createWorld,
   createWorldFile,
   fetchDisplayState,
-  fetchPage,
-  fetchPageBacklinks,
-  fetchPageLinks,
   fetchPages,
   fetchWorkspace,
-  fetchWorldFile,
   fetchWorldTree,
   fetchWorlds,
   openWorld,
   openDisplayPopup,
   rotateDisplayFullscreen,
-  saveWorldFile,
   setDisplayFullscreen,
   showActiveOnDisplay,
-  updatePageMetadata,
   type PageDetail,
   type PageLink,
   type PageSummary,
@@ -83,34 +77,14 @@ import {
   validateDispatchAction
 } from "./lib/actionBindingDispatch";
 import { hasLoadedAudio, loadAudioTrack, setAudioBusPlaying, setAudioBusVolume } from "./lib/audio";
-import { isRectangularCsv, parseCsv, serializeCsv, type CsvData } from "./lib/csv";
-import {
-  createEditorDraft,
-  editorShortcutIntent,
-  isDraftDirty,
-  normalizeEditorModeForTarget,
-  markDraftConflict,
-  markDraftChangedOnDisk,
-  markDraftError,
-  markDraftSaved,
-  markDraftSaving,
-  revertDraft,
-  setDraftMode,
-  supportsEditorMode,
-  updateDraftContent,
-  type EditorDraft,
-  type EditorMode,
-  type EditorShortcutIntent
-} from "./lib/editor";
+import { isDraftDirty } from "./lib/editor";
 import { buildEditorCompletionItems } from "./lib/editorAutocomplete";
 import {
   managementErrorMessage,
   normalizeDialogPath,
   hasDirtyDescendantPath,
-  isDescendantPath,
-  remapMovedWorldPath,
+  tabFromFileWithPages,
   validateManagedFilePath,
-  workspaceTabFromWorldFile,
   type ManagedFileType
 } from "./lib/fileManagement";
 import { linkToOpenTab } from "./lib/links";
@@ -118,25 +92,16 @@ import { subscribeToEvents } from "./lib/eventSocket";
 import { fetchWorldContent, type WorldContent } from "./lib/worldContent";
 import {
   buildEventsUrl,
-  planWorldEventUpdate,
   type WorldEvent
 } from "./lib/liveSync";
-import { isLocalWrite, markLocalWrite, unmarkLocalWrite } from "./lib/localWrites";
+import { markLocalWrite, unmarkLocalWrite } from "./lib/localWrites";
 import { hasResidualPopupsAfterBlank, screenPrimaryMode } from "./lib/display";
 import { fetchMapState, fetchMapPresets, presentMap, setMapFog, setMapSource, stopMap } from "./lib/map";
 import { folderKanbanTab } from "./lib/folderKanban";
 import { dispatchableHotkeyPosition } from "./lib/fastSlots";
 import {
-  isMetadataFormDirty,
-  metadataFormFromPage,
-  metadataPayloadFromForm,
-  validateMetadataForm,
-  type MetadataFormState
-} from "./lib/metadataEditor";
-import {
   dirtyTabCloseMessage,
   isScreenTabPath,
-  isVirtualTabPath,
   mediaKindForEntry,
   openTabToWorkspaceTab,
   SCREEN_TAB_PATH,
@@ -158,11 +123,10 @@ import { livePrepHealthLabel } from "./lib/liveStatus";
 import { type WorldPathPickerFilter } from "./lib/worldPathPicker";
 import { helpContextForMediaKind } from "./lib/contextHelp";
 import { DocumentChrome } from "./components/documents/DocumentChrome";
-import { type FileLoadState, FileViewer } from "./components/documents/FileViewer";
+import { FileViewer } from "./components/documents/FileViewer";
 import { FolderKanbanView } from "./components/documents/FolderKanbanView";
 import { LinkContextMenu, type LinkContextMenuState } from "./components/documents/LinkContextMenu";
-import { PeekDialog, type PeekState } from "./components/documents/PeekDialog";
-import { isCardPath, isEditableFile, parseCardJson } from "./components/documents/documentFiles";
+import { PeekDialog } from "./components/documents/PeekDialog";
 import { FastSlotBar } from "./components/tools/FastSlotBar";
 import { ToolsPanel } from "./components/tools/ToolsPanel";
 import { FileManagementDialog } from "./components/world/FileManagementDialog";
@@ -192,43 +156,6 @@ type LoadState =
 // discarded, which left both users and failing e2e runs with nothing to act on.
 function worldLoadErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function canSaveEditorDraft(file: WorldFile, draft: EditorDraft): boolean {
-  if (!isDraftDirty(draft) || draft.status === "saving" || draft.externalChanged) {
-    return false;
-  }
-  if (file.media_kind === "csv" && !isRectangularCsv(parseCsv(draft.content))) {
-    return false;
-  }
-  if (isCardPath(file.path, file.extension) && !parseCardJson(draft.content).ok) {
-    return false;
-  }
-  return true;
-}
-
-function tabFromFileWithPages(file: WorldFile, pages: PageSummary[]): WorkspaceTab {
-  const tab = workspaceTabFromWorldFile(file);
-  const page = pages.find((pageItem) => pageItem.path === file.path);
-  const detail = page as Partial<PageDetail> | undefined;
-  const explicitTitle =
-    detail?.metadata && Object.keys(detail.metadata).length > 0 ? page?.title ?? null : null;
-  return {
-    ...tab,
-    title:
-      file.media_kind === "markdown" || file.media_kind === "card"
-        ? page?.title ?? tab.title
-        : explicitTitle ?? tab.title
-  };
-}
-
-function canHavePageLinks(tab: OpenTab): boolean {
-  return (
-    tab.mediaKind === "markdown" ||
-    tab.mediaKind === "card" ||
-    tab.mediaKind === "csv" ||
-    tab.mediaKind === "text"
-  );
 }
 
 function hasPageSavePreconditions(page: PageDetail): boolean {
@@ -306,11 +233,61 @@ export function App() {
     onTabShown: (path) => clearFailedDerivedFileState(path),
     onWorkspaceChanged: () => hp.refresh()
   });
-  const [pdfTargets, setPdfTargets] = useState<Record<string, string | null>>({});
-  const [fileStates, setFileStates] = useState<Record<string, FileLoadState>>({});
-  const [pageStates, setPageStates] = useState<Record<string, PageLoadState>>({});
-  const [linksStates, setLinksStates] = useState<Record<string, LinksLoadState>>({});
-  const [editorDrafts, setEditorDrafts] = useState<Record<string, EditorDraft>>({});
+  const {
+    pdfTargets,
+    fileStates,
+    linksStates,
+    editorDrafts,
+    dirtyPaths,
+    activeFileState,
+    activePageState,
+    activeLinksState,
+    activeMetadataEdit,
+    activeContentDirty,
+    confirmDiscardDirtyDrafts,
+    handleStartMetadataEdit,
+    handleChangeMetadataEdit,
+    handleCancelMetadataEdit,
+    handleRevertMetadataEdit,
+    handleReloadMetadataEdit,
+    handleSaveMetadataEdit,
+    handleDraftContentChange,
+    handleCsvDraftChange,
+    clearDerivedFileStates,
+    clearFailedDerivedFileState,
+    handleReloadActiveFile,
+    reloadTabFile,
+    requestEditMode,
+    handlePaneDoubleClick,
+    handleEditorSave,
+    handleEditorExit,
+    handleEditorRevert,
+    handlePaneKeyDown,
+    handleWorldEvent,
+    renameDocumentPath,
+    forgetDocumentPath,
+    forgetDraft,
+    adoptFile,
+    replaceTemporaryFile,
+    setPdfTarget,
+    dropLoadedWorldFiles,
+    resetDocuments
+  } = useDocuments({
+    activeTab,
+    visiblePaneTabs,
+    t,
+    refreshWorldStructure,
+    onWorldChanged: async (deletedPaths, affectedPaths) => {
+      invalidateSearch();
+      removeDeletedWorkspaceItems(deletedPaths);
+      await refreshWorldStructure(affectedPaths);
+    },
+    onMetadataSaved: (path, title, replacement) => {
+      retitleTab(path, title);
+      replaceWorkspaceCollections(path, replacement);
+    }
+  });
+  const { peekState, openPeekTab, openLinkPeek, closePeek } = usePeek();
   const {
     searchDialogOpen,
     setSearchDialogOpen,
@@ -352,7 +329,6 @@ export function App() {
     onRoll: () => openTool("dice")
   });
   const [linkContextMenu, setLinkContextMenu] = useState<LinkContextMenuState>({ open: false });
-  const [peekState, setPeekState] = useState<PeekState>({ open: false });
   const [dmsOutputSaveDialog, setDmsOutputSaveDialog] = useState<DmsOutputSaveDialogState>({
     open: false
   });
@@ -403,7 +379,6 @@ export function App() {
   const [worldCreateDialog, setWorldCreateDialog] = useState<WorldCreateDialogState>({
     open: false
   });
-  const [metadataEdits, setMetadataEdits] = useState<Record<string, MetadataEditState>>({});
   const captureWorldKey = worldLibrary?.current?.id ?? worldLibrary?.current?.path ?? "default";
   const {
     captureDialogOpen,
@@ -605,30 +580,6 @@ export function App() {
     t,
     refreshDisplayState: display.refreshDisplayState
   });
-  const dirtyPaths = new Set(
-    Object.entries(editorDrafts)
-      .filter(([, draft]) => isDraftDirty(draft))
-      .map(([path]) => path)
-  );
-  const hasDirtyDrafts = dirtyPaths.size > 0;
-  const idleFileState: FileLoadState = { status: "idle" };
-  const idlePageState: PageLoadState = { status: "idle" };
-  const idleLinksState: LinksLoadState = { status: "idle" };
-  const activeFileState = activeTab
-    ? fileStates[activeTab.path] ?? idleFileState
-    : idleFileState;
-  const activePageState = activeTab
-    ? pageStates[activeTab.path] ?? idlePageState
-    : idlePageState;
-  const activeLinksState = activeTab
-    ? linksStates[activeTab.path] ?? idleLinksState
-    : idleLinksState;
-  const activeDraft = activeTab ? editorDrafts[activeTab.path] ?? null : null;
-  const activeMetadataEdit: MetadataEditState = activeTab
-    ? metadataEdits[activeTab.path] ?? { mode: "view" }
-    : { mode: "view" };
-  const activeContentDirty = activeDraft ? isDraftDirty(activeDraft) : false;
-  const visiblePanePathKey = visiblePaneTabs.map((tab) => tab.path).join("\u0000");
 
   useEffect(() => {
     applyAutoOpen({
@@ -647,237 +598,12 @@ export function App() {
       }
       setLinkContextMenu({ open: false });
       closeWorldTreeContextMenu(true);
-      setPeekState({ open: false });
+      closePeek();
     }
 
     window.addEventListener("keydown", handleEscape);
     return () => window.removeEventListener("keydown", handleEscape);
   }, []);
-
-  useEffect(() => {
-    function handleEditorKeyDown(event: KeyboardEvent) {
-      if (event.defaultPrevented) {
-        return;
-      }
-      const shortcut = Boolean(event.ctrlKey || event.metaKey);
-      const key = event.key.toLowerCase();
-      const saveShortcut = shortcut && (key === "s" || event.code === "KeyS");
-      const splitShortcut = shortcut && event.key === "\\";
-      const editorEscape = !shortcut && event.key === "Escape";
-      if (!saveShortcut && !splitShortcut && !editorEscape) {
-        return;
-      }
-      const target = event.target instanceof HTMLElement ? event.target : null;
-      if (target?.closest("[role='dialog'],[role='menu']")) {
-        return;
-      }
-      if (!activeDraft || activeFileState.status !== "ready" || !isEditableFile(activeFileState.file)) {
-        return;
-      }
-      const intent = editorShortcutIntent(event, {
-        dirty: isDraftDirty(activeDraft),
-        mode: activeDraft.mode,
-        supportsSplit: supportsEditorMode(activeFileState.file, "split")
-      });
-      if (!intent) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      runEditorShortcutIntent(activeFileState.file, activeDraft, intent);
-    }
-
-    window.addEventListener("keydown", handleEditorKeyDown, true);
-    return () => window.removeEventListener("keydown", handleEditorKeyDown, true);
-  }, [activeDraft, activeFileState]);
-
-  useEffect(() => {
-    if (!hasDirtyDrafts) {
-      return;
-    }
-    function handleBeforeUnload(event: BeforeUnloadEvent) {
-      event.preventDefault();
-      event.returnValue = "";
-    }
-
-    window.addEventListener("beforeunload", handleBeforeUnload);
-    return () => window.removeEventListener("beforeunload", handleBeforeUnload);
-  }, [hasDirtyDrafts]);
-
-  const syncStateRef = useRef({
-    activeContentDirty,
-    activeDraft,
-    activeMetadataEdit,
-    activePageState,
-    activeTab,
-    tabState
-  });
-  syncStateRef.current = {
-    activeContentDirty,
-    activeDraft,
-    activeMetadataEdit,
-    activePageState,
-    activeTab,
-    tabState
-  };
-
-  function discardLocalWriteEvent(event: WorldEvent): WorldEvent | null {
-    const paths = event.paths.filter((path) => !isLocalWrite(path));
-    const deletedPaths = event.deleted_paths.filter((path) => !isLocalWrite(path));
-
-    if (paths.length === 0 && deletedPaths.length === 0) {
-      return null;
-    }
-    return { ...event, paths, deleted_paths: deletedPaths };
-  }
-
-  useEffect(() => {
-    for (const tab of visiblePaneTabs) {
-      if (
-        isVirtualTabPath(tab.path) ||
-        tab.mediaKind === "image" ||
-        tab.mediaKind === "pdf" ||
-        tab.mediaKind === "video" ||
-        tab.mediaKind === "folder" ||
-        tab.mediaKind === "unsupported"
-      ) {
-        continue;
-      }
-
-      const currentState = fileStates[tab.path];
-      if (
-        currentState?.status === "loading" ||
-        currentState?.status === "ready" ||
-        currentState?.status === "removed"
-      ) {
-        continue;
-      }
-
-      setFileStates((states) => ({
-        ...states,
-        [tab.path]: { status: "loading" }
-      }));
-
-      fetchWorldFile(tab.path)
-        .then((file) => {
-          setFileStates((states) => ({
-            ...states,
-            [tab.path]: { status: "ready", file }
-          }));
-        })
-        .catch((error: unknown) => {
-          const message = error instanceof Error ? error.message : "Unknown error";
-          setFileStates((states) => ({
-            ...states,
-            [tab.path]: { status: "error", message }
-          }));
-        });
-    }
-  }, [visiblePanePathKey, fileStates]);
-
-  useEffect(() => {
-    if (activeFileState.status !== "ready" || !isEditableFile(activeFileState.file)) {
-      return;
-    }
-
-    const file = activeFileState.file;
-    setEditorDrafts((drafts) => {
-      const currentDraft = drafts[file.path];
-      if (!currentDraft) {
-        return { ...drafts, [file.path]: createEditorDraft(file) };
-      }
-      if (isLocalWrite(file.path)) {
-        return drafts;
-      }
-      if (currentDraft.status === "saving" || currentDraft.status === "saved") {
-        return drafts;
-      }
-
-      if (
-        currentDraft.hash !== file.hash &&
-        !isDraftDirty(currentDraft) &&
-        currentDraft.status !== "conflict"
-      ) {
-        return { ...drafts, [file.path]: createEditorDraft(file) };
-      }
-
-      return drafts;
-    });
-  }, [activeFileState]);
-
-  useEffect(() => {
-    for (const tab of visiblePaneTabs) {
-      if (isVirtualTabPath(tab.path) || tab.mediaKind === "folder") {
-        continue;
-      }
-
-      const currentState = pageStates[tab.path];
-      if (
-        currentState?.status === "loading" ||
-        currentState?.status === "ready" ||
-        currentState?.status === "error"
-      ) {
-        continue;
-      }
-
-      setPageStates((states) => ({
-        ...states,
-        [tab.path]: { status: "loading" }
-      }));
-
-      fetchPage(tab.path)
-        .then((page) => {
-          setPageStates((states) => ({
-            ...states,
-            [tab.path]: { status: "ready", page }
-          }));
-        })
-        .catch((error: unknown) => {
-          const message = error instanceof Error ? error.message : "Unknown error";
-          setPageStates((states) => ({
-            ...states,
-            [tab.path]: { status: "error", message }
-          }));
-        });
-    }
-  }, [visiblePanePathKey, pageStates]);
-
-  useEffect(() => {
-    for (const tab of visiblePaneTabs) {
-      if (isVirtualTabPath(tab.path) || !canHavePageLinks(tab)) {
-        continue;
-      }
-
-      const currentState = linksStates[tab.path];
-      if (
-        currentState?.status === "loading" ||
-        currentState?.status === "ready" ||
-        currentState?.status === "error"
-      ) {
-        continue;
-      }
-
-      setLinksStates((states) => ({
-        ...states,
-        [tab.path]: { status: "loading" }
-      }));
-
-      Promise.all([fetchPageLinks(tab.path), fetchPageBacklinks(tab.path)])
-        .then(([outgoing, backlinks]) => {
-          setLinksStates((states) => ({
-            ...states,
-            [tab.path]: { status: "ready", outgoing, backlinks }
-          }));
-        })
-        .catch((error: unknown) => {
-          const message = error instanceof Error ? error.message : "Unknown error";
-          setLinksStates((states) => ({
-            ...states,
-            [tab.path]: { status: "error", message }
-          }));
-        });
-    }
-  }, [visiblePanePathKey, linksStates]);
 
   function confirmDiscardDirtyTab(path: string): boolean {
     if (!shouldConfirmDirtyTabClose(path, dirtyPaths)) {
@@ -891,22 +617,11 @@ export function App() {
     );
   }
 
-  function confirmDiscardDirtyDrafts(message: string): boolean {
-    return !hasDirtyDrafts || window.confirm(message);
-  }
-
   function handleCloseTab(path: string) {
     if (!confirmDiscardDirtyTab(path)) {
       return;
     }
-    setEditorDrafts((drafts) => {
-      if (!drafts[path]) {
-        return drafts;
-      }
-      const nextDrafts = { ...drafts };
-      delete nextDrafts[path];
-      return nextDrafts;
-    });
+    forgetDraft(path);
     closeWorkspaceTab(path);
   }
 
@@ -914,7 +629,7 @@ export function App() {
     const tab = linkToOpenTab(link);
     if (tab) {
       if (tab.mediaKind === "pdf") {
-        setPdfTargets((targets) => ({ ...targets, [tab.path]: link.heading ?? null }));
+        setPdfTarget(tab.path, link.heading ?? null);
       }
       openWorkspaceTab(openTabToWorkspaceTab(tab));
     }
@@ -926,61 +641,9 @@ export function App() {
       return;
     }
     if (tab.mediaKind === "pdf") {
-      setPdfTargets((targets) => ({ ...targets, [tab.path]: link.heading ?? null }));
+      setPdfTarget(tab.path, link.heading ?? null);
     }
     openInOtherPane(openTabToWorkspaceTab(tab));
-  }
-
-  function openPeekTab(tab: OpenTab) {
-    const peekTab = tab;
-    setPeekState({
-      open: true,
-      tab: peekTab,
-      fileState: canHavePageLinks(peekTab) ? { status: "loading" } : { status: "idle" },
-      linksState: { status: "idle" }
-    });
-    if (!canHavePageLinks(peekTab)) {
-      return;
-    }
-    Promise.all([
-      fetchWorldFile(peekTab.path),
-      fetchPageLinks(peekTab.path),
-      fetchPageBacklinks(peekTab.path)
-    ])
-      .then(([file, outgoing, backlinks]) => {
-        setPeekState((current) =>
-          current.open && current.tab.path === peekTab.path
-            ? {
-                open: true,
-                tab: peekTab,
-                fileState: { status: "ready", file },
-                linksState: { status: "ready", outgoing, backlinks }
-              }
-            : current
-        );
-      })
-      .catch((error: unknown) => {
-        setPeekState((current) =>
-          current.open && current.tab.path === peekTab.path
-            ? {
-                open: true,
-                tab: peekTab,
-                fileState: {
-                  status: "error",
-                  message: error instanceof Error ? error.message : "Could not load preview."
-                },
-                linksState: { status: "idle" }
-              }
-            : current
-        );
-      });
-  }
-
-  function openLinkPeek(link: PageLink) {
-    const tab = linkToOpenTab(link);
-    if (tab) {
-      openPeekTab(tab);
-    }
   }
 
   function handleLinkContext(link: PageLink, event: MouseEvent<HTMLElement>) {
@@ -1045,10 +708,7 @@ export function App() {
   function openDmsOutputTabs(run: DmsRunState) {
     for (const output of run.outputs) {
       const file = dmsOutputToWorldFile(output);
-      setFileStates((states) => ({
-        ...states,
-        [file.path]: { status: "ready", file }
-      }));
+      adoptFile(file, false);
       openVirtualTab({ path: file.path, name: file.name, title: file.name, mediaKind: file.media_kind });
     }
   }
@@ -1117,11 +777,7 @@ export function App() {
   // output tabs and screen/audio effects.
   async function handleDmsRunSucceeded(run: DmsRunState) {
     await refreshWorldStructure([]);
-    setFileStates((states) =>
-      Object.fromEntries(Object.entries(states).filter(([path]) => isTemporaryDmsPath(path)))
-    );
-    setPageStates({});
-    setLinksStates({});
+    dropLoadedWorldFiles();
     openDmsOutputTabs(run);
     await applyDmsEffects(run);
   }
@@ -1262,12 +918,7 @@ export function App() {
       const nextPages = await refreshWorldStructure([createdFile.path]);
       revealPaths([createdFile.path]);
       const tab = tabFromFileWithPages(createdFile, nextPages);
-      setFileStates((states) => {
-        const nextStates = { ...states };
-        delete nextStates[dmsOutputSaveDialog.file.path];
-        nextStates[createdFile.path] = { status: "ready", file: createdFile };
-        return nextStates;
-      });
+      replaceTemporaryFile(dmsOutputSaveDialog.file.path, createdFile);
       replaceVirtualTab(dmsOutputSaveDialog.file.path, tab);
       setDmsOutputSaveDialog({ open: false });
     } catch (error: unknown) {
@@ -1288,265 +939,20 @@ export function App() {
     toggleFavoriteTab(tabForEntry(entry));
   }
 
-  function handleStartMetadataEdit() {
-    if (!activeTab || activePageState.status !== "ready") {
-      return;
-    }
-
-    setMetadataEdits((states) => ({
-      ...states,
-      [activeTab.path]: {
-        mode: "edit",
-        form: metadataFormFromPage(activePageState.page),
-        status: "idle",
-        message: null,
-        expectedHash: activePageState.page.hash
-      }
-    }));
-  }
-
-  function handleChangeMetadataEdit(form: MetadataFormState) {
-    if (!activeTab || activeMetadataEdit.mode !== "edit") {
-      return;
-    }
-
-    setMetadataEdits((states) => ({
-      ...states,
-      [activeTab.path]: { ...activeMetadataEdit, form, status: "idle", message: null }
-    }));
-  }
-
-  function handleCancelMetadataEdit() {
-    if (!activeTab) {
-      return;
-    }
-
-    setMetadataEdits((states) => {
-      const nextStates = { ...states };
-      delete nextStates[activeTab.path];
-      return nextStates;
-    });
-  }
-
-  function handleRevertMetadataEdit() {
-    if (!activeTab || activePageState.status !== "ready" || activeMetadataEdit.mode !== "edit") {
-      return;
-    }
-
-    setMetadataEdits((states) => ({
-      ...states,
-      [activeTab.path]: {
-        ...activeMetadataEdit,
-        form: metadataFormFromPage(activePageState.page),
-        status: "idle",
-        message: null,
-        expectedHash: activePageState.page.hash
-      }
-    }));
-  }
-
-  async function handleReloadMetadataEdit() {
-    if (!activeTab) {
-      return;
-    }
-    const path = activeTab.path;
-    handleCancelMetadataEdit();
-    clearDerivedFileState(path);
-    if (
-      activeTab.mediaKind !== "image" &&
-      activeTab.mediaKind !== "pdf" &&
-      activeTab.mediaKind !== "video" &&
-      activeTab.mediaKind !== "unsupported"
-    ) {
-      await handleReloadActiveFile();
-    }
-  }
-
-  async function handleSaveMetadataEdit() {
-    if (
-      !activeTab ||
-      activeMetadataEdit.mode !== "edit" ||
-      activePageState.status !== "ready"
-    ) {
-      return;
-    }
-
-    const validation = validateMetadataForm(activeMetadataEdit.form);
-    if (
-      validation ||
-      activeContentDirty ||
-      !activeMetadataEdit.expectedHash
-    ) {
-      setMetadataEdits((states) => ({
-        ...states,
-        [activeTab.path]: {
-          ...activeMetadataEdit,
-          status: "error",
-          message:
-            validation ??
-            (activeContentDirty
-              ? "Save or revert content before editing metadata."
-              : "Reload metadata before saving.")
-        }
-      }));
-      return;
-    }
-
-    setMetadataEdits((states) => ({
-      ...states,
-      [activeTab.path]: { ...activeMetadataEdit, status: "saving", message: null }
-    }));
-
-    markLocalWrite([activeTab.path]);
-    try {
-      const response = await updatePageMetadata(activeTab.path, {
-        metadata: metadataPayloadFromForm(activeMetadataEdit.form),
-        expected_hash: activeMetadataEdit.expectedHash
-      });
-      const nextPages = await refreshWorldStructure([activeTab.path]);
-      const replacement = tabFromFileWithPages(response.file, [response.page, ...nextPages]);
-
-      setFileStates((states) => ({
-        ...states,
-        [activeTab.path]: { status: "ready", file: response.file }
-      }));
-      setPageStates((states) => ({
-        ...states,
-        [activeTab.path]: { status: "ready", page: response.page }
-      }));
-      setEditorDrafts((drafts) => {
-        const currentDraft = drafts[activeTab.path];
-        if (currentDraft && isDraftDirty(currentDraft)) {
-          return drafts;
-        }
-        return { ...drafts, [activeTab.path]: createEditorDraft(response.file) };
-      });
-      retitleTab(activeTab.path, response.page.title);
-      replaceWorkspaceCollections(activeTab.path, replacement);
-      setMetadataEdits((states) => {
-        const nextStates = { ...states };
-        delete nextStates[activeTab.path];
-        return nextStates;
-      });
-    } catch (error: unknown) {
-      unmarkLocalWrite([activeTab.path]);
-      const message = error instanceof Error ? error.message : "Unknown error";
-      setMetadataEdits((states) => ({
-        ...states,
-        [activeTab.path]: {
-          ...activeMetadataEdit,
-          status: message.includes("409") ? "conflict" : "error",
-          message: message.includes("409") ? "World file changed on disk." : message
-        }
-      }));
-    }
-  }
-
   function treeOperationBlockedByDirty(path: string): string | null {
     return hasDirtyDescendantPath(dirtyPaths, path)
       ? "Save or revert dirty open files before reorganizing this world path."
       : null;
   }
 
-  function remapLoadedFileRecords<T>(records: Record<string, T>, oldPath: string, newPath: string) {
-    const nextRecords: Record<string, T> = {};
-    Object.entries(records).forEach(([path, value]) => {
-      nextRecords[remapMovedWorldPath(path, oldPath, newPath)] = value;
-    });
-    return nextRecords;
-  }
-
-  function removeLoadedFileRecords<T>(records: Record<string, T>, deletedPath: string) {
-    const nextRecords: Record<string, T> = {};
-    Object.entries(records).forEach(([path, value]) => {
-      if (!isDescendantPath(path, deletedPath)) {
-        nextRecords[path] = value;
-      }
-    });
-    return nextRecords;
-  }
-
   function applyMovedPathToWorkspaceState(oldPath: string, newPath: string) {
-    setFileStates((states) => remapLoadedFileRecords(states, oldPath, newPath));
-    setPageStates((states) => remapLoadedFileRecords(states, oldPath, newPath));
-    setLinksStates((states) => remapLoadedFileRecords(states, oldPath, newPath));
-    setEditorDrafts((drafts) => remapLoadedFileRecords(drafts, oldPath, newPath));
+    renameDocumentPath(oldPath, newPath);
     remapWorkspacePath(oldPath, newPath);
   }
 
   function applyTrashedPathToWorkspaceState(path: string) {
-    setFileStates((states) => removeLoadedFileRecords(states, path));
-    setPageStates((states) => removeLoadedFileRecords(states, path));
-    setLinksStates((states) => removeLoadedFileRecords(states, path));
-    setEditorDrafts((drafts) => removeLoadedFileRecords(drafts, path));
+    forgetDocumentPath(path);
     forgetWorkspacePath(path);
-  }
-
-  function handleDraftModeChange(mode: EditorMode) {
-    if (!activeTab || !activeDraft || activeFileState.status !== "ready") {
-      return;
-    }
-
-    const nextMode = normalizeEditorModeForTarget(activeFileState.file, mode);
-    setEditorDrafts((drafts) => ({
-      ...drafts,
-      [activeTab.path]: setDraftMode(activeDraft, nextMode)
-    }));
-  }
-
-  function handleDraftContentChange(content: string) {
-    if (!activeTab || !activeDraft) {
-      return;
-    }
-
-    setEditorDrafts((drafts) => ({
-      ...drafts,
-      [activeTab.path]: updateDraftContent(activeDraft, content)
-    }));
-  }
-
-  function handleCsvDraftChange(data: CsvData) {
-    handleDraftContentChange(serializeCsv(data));
-  }
-
-  function clearDerivedFileStates(paths: string[]) {
-    setPageStates((states) => {
-      const nextStates = { ...states };
-      paths.forEach((path) => {
-        delete nextStates[path];
-      });
-      return nextStates;
-    });
-    setLinksStates((states) => {
-      const nextStates = { ...states };
-      paths.forEach((path) => {
-        delete nextStates[path];
-      });
-      return nextStates;
-    });
-  }
-
-  function clearDerivedFileState(path: string) {
-    clearDerivedFileStates([path]);
-  }
-
-  function clearFailedDerivedFileState(path: string) {
-    setPageStates((states) => {
-      if (states[path]?.status !== "error") {
-        return states;
-      }
-      const nextStates = { ...states };
-      delete nextStates[path];
-      return nextStates;
-    });
-    setLinksStates((states) => {
-      if (states[path]?.status !== "error") {
-        return states;
-      }
-      const nextStates = { ...states };
-      delete nextStates[path];
-      return nextStates;
-    });
   }
 
   async function refreshWorldStructure(pathsToClear: string[] = []) {
@@ -1562,90 +968,8 @@ export function App() {
 
   // A file created from the file dialog opens right away, with a clean draft to edit.
   function handleManagedFileCreated(file: WorldFile, nextPages: PageSummary[]) {
-    setFileStates((states) => ({ ...states, [file.path]: { status: "ready", file } }));
-    setEditorDrafts((drafts) => ({ ...drafts, [file.path]: createEditorDraft(file) }));
+    adoptFile(file, true);
     openWorkspaceTab(tabFromFileWithPages(file, nextPages));
-  }
-
-  async function handleSaveDraft() {
-    if (!activeTab || !activeDraft || activeFileState.status !== "ready") {
-      return;
-    }
-
-    if (activeDraft.externalChanged) {
-      setEditorDrafts((drafts) => ({
-        ...drafts,
-        [activeTab.path]: markDraftConflict(activeDraft, "World file changed on disk.")
-      }));
-      return;
-    }
-
-    setEditorDrafts((drafts) => ({
-      ...drafts,
-      [activeTab.path]: markDraftSaving(activeDraft)
-    }));
-
-    markLocalWrite([activeTab.path]);
-    try {
-      const savedFile = await saveWorldFile(activeTab.path, {
-        content: activeDraft.content,
-        expected_hash: activeDraft.hash
-      });
-      setFileStates((states) => ({
-        ...states,
-        [activeTab.path]: { status: "ready", file: savedFile }
-      }));
-      setEditorDrafts((drafts) => ({
-        ...drafts,
-        [activeTab.path]: markDraftSaved(activeDraft, savedFile)
-      }));
-      await refreshWorldStructure([activeTab.path]);
-    } catch (error: unknown) {
-      unmarkLocalWrite([activeTab.path]);
-      const message = error instanceof Error ? error.message : "Unknown error";
-      setEditorDrafts((drafts) => ({
-        ...drafts,
-        [activeTab.path]: message.includes("409")
-          ? markDraftConflict(activeDraft, "World file changed on disk.")
-          : markDraftError(activeDraft, message)
-      }));
-    }
-  }
-
-  async function reloadTabFile(tab: OpenTab) {
-    setFileStates((states) => ({
-      ...states,
-      [tab.path]: { status: "loading" }
-    }));
-
-    try {
-      const file = await fetchWorldFile(tab.path);
-      setFileStates((states) => ({
-        ...states,
-        [tab.path]: { status: "ready", file }
-      }));
-      setEditorDrafts((drafts) => ({
-        ...drafts,
-        [tab.path]: createEditorDraft(file)
-      }));
-      clearDerivedFileState(tab.path);
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      setFileStates((states) => ({
-        ...states,
-        [tab.path]: message.includes("404")
-          ? { status: "removed", message: "File removed from disk." }
-          : { status: "error", message }
-      }));
-    }
-  }
-
-  async function handleReloadActiveFile() {
-    if (!activeTab) {
-      return;
-    }
-
-    await reloadTabFile(activeTab);
   }
 
   function handleOpenFavorite(tab: WorkspaceTab) {
@@ -1654,84 +978,6 @@ export function App() {
 
   function handleOpenRecent(tab: WorkspaceTab) {
     openWorkspaceTab(tab);
-  }
-
-  async function handleWorldEvent(event: WorldEvent) {
-    const syncEvent = discardLocalWriteEvent(event);
-    if (!syncEvent) {
-      return;
-    }
-
-    const latest = syncStateRef.current;
-    const metadataDirty =
-      latest.activeMetadataEdit.mode === "edit" &&
-      latest.activePageState.status === "ready" &&
-      isMetadataFormDirty(latest.activeMetadataEdit.form, latest.activePageState.page);
-    const activeDirty =
-      (latest.activeDraft ? isDraftDirty(latest.activeDraft) : false) || metadataDirty;
-    const plan = planWorldEventUpdate(syncEvent, latest.activeTab?.path ?? null, activeDirty);
-
-    invalidateSearch();
-    removeDeletedWorkspaceItems(syncEvent.deleted_paths);
-    await refreshWorldStructure(plan.affectedPaths);
-
-    if (!latest.activeTab) {
-      return;
-    }
-    const eventActiveTab = latest.activeTab;
-
-    if (plan.activeDeleted) {
-      setFileStates((states) => ({
-        ...states,
-        [eventActiveTab.path]: {
-          status: "removed",
-          message: "File removed from disk."
-        }
-      }));
-      setMetadataEdits((states) => {
-        const nextStates = { ...states };
-        delete nextStates[eventActiveTab.path];
-        return nextStates;
-      });
-      return;
-    }
-
-    if (plan.markDraftChanged) {
-      if (latest.activeDraft && isDraftDirty(latest.activeDraft)) {
-        setEditorDrafts((drafts) => {
-          const draft = drafts[eventActiveTab.path];
-          return draft
-            ? { ...drafts, [eventActiveTab.path]: markDraftChangedOnDisk(draft) }
-            : drafts;
-        });
-      }
-      if (metadataDirty) {
-        setMetadataEdits((states) => {
-          const current = states[eventActiveTab.path];
-          return current?.mode === "edit"
-            ? {
-                ...states,
-                [eventActiveTab.path]: {
-                  ...current,
-                  status: "conflict",
-                  message: "World file changed on disk."
-                }
-              }
-            : states;
-        });
-      }
-      return;
-    }
-
-    if (
-      plan.refetchActive &&
-      eventActiveTab.mediaKind !== "image" &&
-      eventActiveTab.mediaKind !== "pdf" &&
-      eventActiveTab.mediaKind !== "video" &&
-      eventActiveTab.mediaKind !== "unsupported"
-    ) {
-      await reloadTabFile(eventActiveTab);
-    }
   }
 
   async function refreshWorldLibrary() {
@@ -1754,11 +1000,7 @@ export function App() {
     resetScripts();
     setDmsOutputSaveDialog({ open: false });
     resetWorkspace();
-    setFileStates({});
-    setPageStates({});
-    setLinksStates({});
-    setEditorDrafts({});
-    setMetadataEdits({});
+    resetDocuments();
     display.reset();
     map.reset();
     setFolderMenuPath(null);
@@ -1945,12 +1187,15 @@ export function App() {
     openWorkspaceTab(prepHealthIssueToOpenTab(issue));
   }
 
+  // The subscription lives across renders; route events to the latest handler.
+  const onWorldEvent = useStableHandler(handleWorldEvent);
+
   useEffect(() => {
     if (authState.status !== "unlocked") {
       return;
     }
     return subscribeToEvents<WorldEvent>(buildEventsUrl(), (event) => {
-      void handleWorldEvent(event);
+      void onWorldEvent(event);
     });
   }, [authState.status]);
 
@@ -1961,120 +1206,6 @@ export function App() {
   const contentLayoutStyle = {
     "--tools-panel-width": `${toolsPanelWidth}px`
   } as CSSProperties;
-
-  function requestEditMode(path: string, file: WorldFile) {
-    if (!isEditableFile(file)) {
-      return;
-    }
-    setEditorDrafts((drafts) => {
-      const draft = drafts[path] ?? createEditorDraft(file);
-      return { ...drafts, [path]: setDraftMode(draft, "edit") };
-    });
-  }
-
-  function handlePaneDoubleClick(
-    paneActive: boolean,
-    tab: OpenTab | null,
-    fileState: FileLoadState,
-    event: MouseEvent<HTMLElement>
-  ) {
-    if (!paneActive || !tab || fileState.status !== "ready") {
-      return;
-    }
-    const target = event.target instanceof HTMLElement ? event.target : null;
-    if (target?.closest("button,a,input,textarea,select,[role='menu'],[role='dialog']")) {
-      return;
-    }
-    requestEditMode(tab.path, fileState.file);
-  }
-
-  function setDraftMessage(draft: EditorDraft, message: string) {
-    setEditorDrafts((drafts) => ({
-      ...drafts,
-      [draft.path]: { ...draft, message }
-    }));
-  }
-
-  // The three editor intents below are named functions rather than branches inside
-  // runEditorShortcutIntent because the toolbar buttons call them too. While they lived
-  // only inside the shortcut runner there was no pointer-driven way to save or leave an
-  // edit at all, which made editing on a touchscreen a trap: double-tap got you in, and
-  // nothing got you out.
-  function handleEditorSave(file: WorldFile, draft: EditorDraft) {
-    if (canSaveEditorDraft(file, draft)) {
-      void handleSaveDraft();
-      return;
-    }
-    if (isDraftDirty(draft)) {
-      setDraftMessage(draft, t("document.fixBeforeSaving"));
-    }
-  }
-
-  function handleEditorExit(draft: EditorDraft) {
-    if (isDraftDirty(draft)) {
-      setDraftMessage(draft, t("document.saveOrRevertFirst"));
-      return;
-    }
-    handleDraftModeChange("preview");
-  }
-
-  function handleEditorRevert(draft: EditorDraft) {
-    if (!window.confirm(t("document.confirmRevert"))) {
-      return;
-    }
-    setEditorDrafts((drafts) => ({
-      ...drafts,
-      [draft.path]: setDraftMode(revertDraft(draft), "preview")
-    }));
-  }
-
-  function runEditorShortcutIntent(file: WorldFile, draft: EditorDraft, intent: EditorShortcutIntent) {
-    if (intent === "save") {
-      handleEditorSave(file, draft);
-      return;
-    }
-
-    if (intent === "toggle-split") {
-      handleDraftModeChange(draft.mode === "split" ? "edit" : "split");
-      return;
-    }
-
-    if (intent === "dirty-escape") {
-      setDraftMessage(draft, t("document.saveOrRevertFirst"));
-      return;
-    }
-
-    if (intent === "exit-edit") {
-      handleDraftModeChange("preview");
-      return;
-    }
-
-    if (intent === "revert") {
-      handleEditorRevert(draft);
-    }
-  }
-
-  function handlePaneKeyDown(
-    paneActive: boolean,
-    fileState: FileLoadState,
-    draft: EditorDraft | null,
-    event: ReactKeyboardEvent<HTMLElement>
-  ) {
-    if (!paneActive || fileState.status !== "ready" || !draft || !isEditableFile(fileState.file)) {
-      return;
-    }
-    const intent = editorShortcutIntent(event, {
-      dirty: isDraftDirty(draft),
-      mode: draft.mode,
-      supportsSplit: supportsEditorMode(fileState.file, "split")
-    });
-    if (!intent) {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    runEditorShortcutIntent(fileState.file, draft, intent);
-  }
 
   function renderWorkspacePane(paneId: WorkspacePaneId, tab: OpenTab | null) {
     const paneActive = normalizedWorkspaceLayout.activePaneId === paneId;
@@ -2734,7 +1865,7 @@ export function App() {
       />
       <PeekDialog
         completions={editorCompletions}
-        onClose={() => setPeekState({ open: false })}
+        onClose={closePeek}
         onContextLink={handleLinkContext}
         onDiceRoll={diceDisabled ? undefined : handleDiceRoll}
         onOpenLink={openResolvedLink}
