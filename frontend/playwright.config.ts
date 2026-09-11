@@ -13,6 +13,9 @@ export default defineConfig({
   },
   use: {
     baseURL: `http://127.0.0.1:${frontendPort}`,
+    // A failure whose page never booted has no accessibility snapshot at all; the
+    // screenshot is then the only record of what was on screen.
+    screenshot: "only-on-failure",
     trace: "on-first-retry"
   },
   projects: [
