@@ -3,13 +3,11 @@ import {
   useMemo,
   useRef,
   useState,
-  type ChangeEvent,
   type CSSProperties,
   type DragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
   type MouseEvent,
-  type PointerEvent,
-  type RefObject
+  type PointerEvent
 } from "react";
 import { ContextHelpDialog } from "./components/ContextHelpDialog";
 import { PluginToolsHost } from "./components/PluginToolsHost";
@@ -25,7 +23,6 @@ import {
 } from "./components/DmsDialogs";
 import { type LinksLoadState, type MetadataEditState, type PageLoadState } from "./components/MetadataTool";
 import { IconButton } from "./components/IconButton";
-import { Modal } from "./components/Modal";
 import { ScreenTool } from "./components/screen/ScreenTool";
 import { MapProvider } from "./contexts/MapContext";
 import { DisplayProvider } from "./contexts/DisplayContext";
@@ -82,12 +79,10 @@ import {
   fetchWorldFile,
   fetchWorldTree,
   fetchWorlds,
-  importSystemPack,
   loginAuth,
   moveWorldPath,
   openWorld,
   openDisplayPopup,
-  previewSystemPack,
   recordRecent,
   renameWorkspace,
   restoreTableSnapshot,
@@ -115,8 +110,6 @@ import {
   type PrepHealthIssue,
   type PrepHealthReport,
   type SearchResult,
-  type SystemPackImportResponse,
-  type SystemPackPreviewResponse,
   type TableSnapshotSummary,
   type TranslationCatalog,
   type AppConfig,
@@ -138,29 +131,15 @@ import {
   type WorkspaceTab
 } from "./lib/api";
 import {
-  groupSystemPackPreviewRows,
-  mapSystemPackImportResultSummary,
-  validateSystemPackConflictDecisions,
-  type SystemPackConflictDecision
-} from "./lib/systemPacks";
-import {
   AVAILABLE_LANGUAGES,
   createTranslator,
-  isUiLanguage,
   loadStoredUiLanguage,
   resolveInitialLanguage,
   saveStoredUiLanguage,
   type Translator,
   type UiLanguage
 } from "./lang";
-import {
-  filterPrepHealthIssues,
-  prepHealthCompactStatusLabel,
-  prepHealthIssueToOpenTab,
-  prepHealthStatusLabel,
-  sortPrepHealthIssues,
-  type PrepHealthFilter
-} from "./lib/prepHealth";
+import { prepHealthIssueToOpenTab, type PrepHealthFilter } from "./lib/prepHealth";
 import {
   canonicalShortcutFromEvent,
   isEditableHotkeyTarget,
@@ -186,14 +165,7 @@ import {
   type MidiBinding
 } from "./lib/midiBindings";
 import { hasLoadedAudio, loadAudioTrack, setAudioBusPlaying, setAudioBusVolume } from "./lib/audio";
-import {
-  CAPTURE_CATEGORY_OPTIONS,
-  clearCaptureDraft,
-  isCaptureSubmitShortcut,
-  loadCaptureDraft,
-  saveCaptureDraft,
-  type CaptureDraft
-} from "./lib/capture";
+import { clearCaptureDraft, loadCaptureDraft, saveCaptureDraft, type CaptureDraft } from "./lib/capture";
 import {
   addHpTrackerRow,
   adjustHpTrackerRow,
@@ -292,7 +264,6 @@ import {
   chooseSecondaryPaneActiveTab,
   clampWorkspaceSplitRatio,
   defaultWorkspaceLayout,
-  groupSearchResults,
   normalizeWorkspaceLayout,
   openFileInActivePane,
   recordRecentItem,
@@ -323,7 +294,6 @@ import {
   applyToolAutoOpenRules,
   createToolPanelState,
   DEFAULT_SCREEN_TOOL_TAB,
-  DISABLEABLE_TOOLS,
   isToolDisabled,
   isToolOpen,
   loadDisabledTools,
@@ -337,7 +307,6 @@ import {
   type ToolPanelState
 } from "./lib/toolPanel";
 import { livePrepHealthLabel } from "./lib/liveStatus";
-import { moveSearchResultSelection, selectedSearchResult } from "./lib/searchPalette";
 import {
   flattenWorldPathPickerEntries,
   type WorldPathPickerFilter
@@ -379,6 +348,12 @@ import {
   WorldTreeContextMenu,
   type WorldTreeContextMenuState
 } from "./components/world/WorldTreeContextMenu";
+import { CaptureDialog, type CaptureStatus } from "./components/dialogs/CaptureDialog";
+import { PrepHealthDialog, type PrepHealthStatus } from "./components/dialogs/PrepHealthDialog";
+import { SearchDialog, type SearchLoadState } from "./components/dialogs/SearchDialog";
+import { SettingsDialog } from "./components/dialogs/SettingsDialog";
+import { WorkspaceControls } from "./components/workspace/WorkspaceControls";
+import { WorkspaceDialog, type WorkspaceDialogState } from "./components/workspace/WorkspaceDialog";
 
 type LoadState =
   | { status: "idle" }
@@ -390,31 +365,6 @@ type AuthGateState =
   | { status: "unlocked"; auth: AuthStatus }
   | { status: "locked"; auth: AuthStatus; error: string | null }
   | { status: "unlocking"; auth: AuthStatus; error: string | null };
-type WorkspaceDialogState =
-  | { kind: "closed" }
-  | { kind: "create"; name: string; status: "idle" | "submitting"; error: string | null }
-  | {
-      kind: "rename";
-      workspace: NamedWorkspaceSummary;
-      name: string;
-      status: "idle" | "submitting";
-      error: string | null;
-    };
-type SearchLoadState =
-  | { status: "idle" }
-  | { status: "loading" }
-  | { status: "ready"; results: SearchResult[] }
-  | { status: "error"; message: string };
-type CaptureStatus =
-  | { status: "idle"; message: string | null }
-  | { status: "saving"; message: string | null }
-  | { status: "saved"; message: string }
-  | { status: "error"; message: string };
-type PrepHealthStatus =
-  | { status: "idle"; message: string | null }
-  | { status: "loading"; message: string | null }
-  | { status: "ready"; message: string }
-  | { status: "error"; message: string };
 
 function helpContextFromTarget(target: EventTarget | null): string | null {
   if (!(target instanceof HTMLElement)) {
@@ -440,21 +390,8 @@ type WorldPathPickerState =
       title: string;
       onSelect: (path: string) => void;
     };
-type SystemPackImportStatus = "idle" | "previewing" | "ready" | "importing" | "done" | "error";
-type SystemPackImportState = {
-  file: File | null;
-  preview: SystemPackPreviewResponse | null;
-  decisions: SystemPackConflictDecision[];
-  summary: SystemPackImportResponse | null;
-  status: SystemPackImportStatus;
-  error: string | null;
-};
 function delay(milliseconds: number): Promise<void> {
   return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-}
-
-function systemPackErrorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : "System pack import failed.";
 }
 
 // A failed world load used to render a bare "Could not load world." with the cause
@@ -548,466 +485,6 @@ function hasPageSavePreconditions(page: PageDetail): boolean {
   return page.modified_at.trim() !== "" && page.hash.trim() !== "";
 }
 
-function WorkspaceControls({
-  currentId,
-  currentName,
-  layout,
-  prepStatus,
-  summaries,
-  onActivate,
-  onCapture,
-  onDelete,
-  onHelp,
-  onNewCard,
-  onNew,
-  onOpenScreen,
-  onPrepCheck,
-  onSearch,
-  searchButtonRef,
-  onRename,
-  onModeChange,
-  onToggleTools,
-  toolsVisible,
-  t
-}: {
-  currentId: string;
-  currentName: string;
-  layout: WorkspaceLayout;
-  prepStatus: string;
-  summaries: NamedWorkspaceSummary[];
-  onActivate: (workspaceId: string) => void;
-  onCapture: () => void;
-  onDelete: () => void;
-  onHelp: () => void;
-  onNewCard: () => void;
-  onNew: () => void;
-  onOpenScreen: () => void;
-  onPrepCheck: () => void;
-  onSearch: () => void;
-  searchButtonRef: RefObject<HTMLButtonElement | null>;
-  onRename: () => void;
-  onModeChange: (mode: WorkspaceLayout["mode"]) => void;
-  onToggleTools: () => void;
-  toolsVisible: boolean;
-  t: Translator;
-}) {
-  return (
-    <section className="workspace-controls" aria-label={t("workspace.controls")} data-help-context="document-empty">
-      <label>
-        {t("workspace.workspace")}
-        <select
-          aria-label={t("workspace.select")}
-          onChange={(event) => onActivate(event.target.value)}
-          value={currentId}
-        >
-          {summaries.length === 0 ? (
-            <option value={currentId}>{currentName}</option>
-          ) : (
-            summaries.map((workspace) => (
-              <option key={workspace.id} value={workspace.id}>
-                {workspace.name}
-              </option>
-            ))
-          )}
-        </select>
-      </label>
-      <button onClick={onNew} type="button">
-        {t("workspace.new")}
-      </button>
-      <button onClick={onRename} type="button">
-        {t("workspace.rename")}
-      </button>
-      <button disabled={currentId === "default"} onClick={onDelete} type="button">
-        {t("workspace.delete")}
-      </button>
-      <button onClick={onSearch} ref={searchButtonRef} type="button">
-        {t("workspace.search")}
-      </button>
-      <button onClick={onCapture} type="button">
-        {t("workspace.capture")}
-      </button>
-      <button onClick={onOpenScreen} type="button">
-        {t("workspace.screen")}
-      </button>
-      <button onClick={onNewCard} type="button">
-        {t("workspace.newCard")}
-      </button>
-      <button onClick={onPrepCheck} type="button">
-        {t("workspace.prepCheckStatus", { status: prepStatus })}
-      </button>
-      <button
-        aria-label={t("help.open")}
-        className="workspace-help-button"
-        onClick={onHelp}
-        title={t("help.open")}
-        type="button"
-      >
-        {t("help.openShort")}
-      </button>
-      <div className="workspace-controls-divider" aria-hidden="true" />
-      <div className="workspace-view-toggles">
-        <IconButton
-          aria-pressed={toolsVisible}
-          label={`${toolsVisible ? t("tools.hidePanel") : t("tools.showPanel")} (Ctrl+B)`}
-          name="panel"
-          onClick={onToggleTools}
-        />
-        <div className="workspace-layout-toggle" role="group" aria-label={t("workspace.layout")}>
-          <IconButton
-            aria-pressed={layout.mode === "single"}
-            label={t("workspace.single")}
-            name="single"
-            onClick={() => onModeChange("single")}
-          />
-          <IconButton
-            aria-pressed={layout.mode === "vertical_split"}
-            label={t("workspace.split")}
-            name="split"
-            onClick={() => onModeChange("vertical_split")}
-          />
-        </div>
-      </div>
-    </section>
-  );
-}
-
-function SettingsDialog({
-  availableLanguages,
-  disabledTools,
-  language,
-  onClose,
-  onImportComplete,
-  onLanguageChange,
-  onToolDisabledChange,
-  open,
-  t
-}: {
-  availableLanguages: AppConfig["available_languages"];
-  disabledTools: ToolId[];
-  language: UiLanguage;
-  onClose: () => void;
-  onImportComplete: (summary: SystemPackImportResponse) => Promise<void>;
-  onLanguageChange: (language: UiLanguage) => void;
-  onToolDisabledChange: (tool: ToolId, disabled: boolean) => void;
-  open: boolean;
-  t: Translator;
-}) {
-  const [packState, setPackState] = useState<SystemPackImportState>({
-    file: null,
-    preview: null,
-    decisions: [],
-    summary: null,
-    status: "idle",
-    error: null
-  });
-  const conflictValidation = packState.preview
-    ? validateSystemPackConflictDecisions(packState.preview.rows, packState.decisions)
-    : { valid: false, errors: {} };
-  const previewGroups = packState.preview
-    ? groupSystemPackPreviewRows(packState.preview.rows)
-    : null;
-  const packHasInvalidRows = (previewGroups?.invalid.length ?? 0) > 0;
-
-  useEffect(() => {
-    if (!open) {
-      return;
-    }
-    function handleKeyDown(event: KeyboardEvent) {
-      if (document.querySelector("[data-context-help-dialog='true']")) {
-        return;
-      }
-      if (event.key === "Escape") {
-        event.preventDefault();
-        event.stopPropagation();
-        onClose();
-      }
-    }
-    window.addEventListener("keydown", handleKeyDown, true);
-    return () => window.removeEventListener("keydown", handleKeyDown, true);
-  }, [onClose, open]);
-
-  useEffect(() => {
-    if (!open) {
-      setPackState({
-        file: null,
-        preview: null,
-        decisions: [],
-        summary: null,
-        status: "idle",
-        error: null
-      });
-    }
-  }, [open]);
-
-  async function handlePackFileChange(event: ChangeEvent<HTMLInputElement>) {
-    const file = event.target.files?.[0] ?? null;
-    if (!file) {
-      setPackState({
-        file: null,
-        preview: null,
-        decisions: [],
-        summary: null,
-        status: "idle",
-        error: null
-      });
-      return;
-    }
-    setPackState({
-      file,
-      preview: null,
-      decisions: [],
-      summary: null,
-      status: "previewing",
-      error: null
-    });
-    try {
-      const preview = await previewSystemPack(file);
-      setPackState({
-        file,
-        preview,
-        decisions: [],
-        summary: null,
-        status: "ready",
-        error: null
-      });
-    } catch (error) {
-      setPackState({
-        file,
-        preview: null,
-        decisions: [],
-        summary: null,
-        status: "error",
-        error: systemPackErrorMessage(error)
-      });
-    }
-  }
-
-  function updatePackDecision(nextDecision: SystemPackConflictDecision) {
-    setPackState((state) => ({
-      ...state,
-      decisions: state.decisions.some((decision) => decision.target_path === nextDecision.target_path)
-        ? state.decisions.map((decision) =>
-            decision.target_path === nextDecision.target_path ? nextDecision : decision
-          )
-        : [...state.decisions, nextDecision],
-      summary: null,
-      status: state.status === "done" ? "ready" : state.status,
-      error: null
-    }));
-  }
-
-  async function handleImportPack() {
-    if (!packState.file || !packState.preview || !conflictValidation.valid) {
-      return;
-    }
-    setPackState((state) => ({ ...state, status: "importing", error: null }));
-    try {
-      const summary = await importSystemPack({
-        file: packState.file,
-        decisions: packState.decisions
-      });
-      markLocalWrite(
-        summary.files
-          .filter((file) => ["imported", "overwritten", "renamed"].includes(file.status))
-          .map((file) => file.target_path)
-      );
-      await onImportComplete(summary);
-      setPackState((state) => ({
-        ...state,
-        summary,
-        status: "done",
-        error: null
-      }));
-    } catch (error) {
-      setPackState((state) => ({
-        ...state,
-        status: "error",
-        error: systemPackErrorMessage(error)
-      }));
-    }
-  }
-
-  if (!open) {
-    return null;
-  }
-
-  return (
-    <Modal
-      ariaLabel={t("app.settingsTitle")}
-      className="settings-dialog"
-      closeLabel={t("app.closeSettings")}
-      dataHelpContext="settings"
-      dismissOnBackdrop
-      onClose={onClose}
-      title={t("app.settingsTitle")}
-    >
-        <label>
-          {t("app.language")}
-          <select
-            autoFocus
-            onChange={(event) => {
-              if (isUiLanguage(event.target.value)) {
-                onLanguageChange(event.target.value);
-              }
-            }}
-            value={language}
-          >
-            {availableLanguages.map((option) => (
-              <option key={option.code} value={option.code}>
-                {option.native_label}
-              </option>
-            ))}
-          </select>
-        </label>
-        <section className="settings-tools" aria-label={t("settings.toolsTitle")}>
-          <h3>{t("settings.toolsTitle")}</h3>
-          <p>{t("settings.toolsHint")}</p>
-          <div className="settings-tools-grid">
-            {DISABLEABLE_TOOLS.map((tool) => (
-              <label className="settings-tool-toggle" key={tool}>
-                <input
-                  checked={!disabledTools.includes(tool)}
-                  onChange={(event) => onToolDisabledChange(tool, !event.target.checked)}
-                  type="checkbox"
-                />
-                {t(`tools.${tool}`)}
-              </label>
-            ))}
-          </div>
-        </section>
-        <section className="settings-pack-import" aria-label={t("contentPack.importTitle")}>
-          <h3>{t("contentPack.importTitle")}</h3>
-          <label>
-            {t("contentPack.chooseZip")}
-            <input accept=".zip,application/zip" onChange={handlePackFileChange} type="file" />
-          </label>
-          <p>{t("contentPack.dmsSkipped")}</p>
-          {packState.status === "previewing" && <p>{t("contentPack.previewing")}</p>}
-          {packState.error && <p className="form-error">{packState.error}</p>}
-          {packState.preview && previewGroups && (
-            <div className="settings-pack-preview">
-              <h4>
-                {packState.preview.manifest.name} {packState.preview.manifest.version}
-              </h4>
-              <div className="settings-pack-counts" aria-label={t("contentPack.preview")}>
-                {(["ready", "conflict", "skipped", "invalid"] as const).map((status) => (
-                  <span key={status}>
-                    {t(`contentPack.status.${status}`)}: {packState.preview?.counts[status] ?? 0}
-                  </span>
-                ))}
-              </div>
-              {packState.preview.rows.length > 0 && (
-                <ul>
-                  {packState.preview.rows.map((row) => (
-                    <li key={row.id}>
-                      <span>
-                        <strong>{row.target_path}</strong>
-                        <small>{t(`contentPack.status.${row.status}`)}</small>
-                      </span>
-                      {row.status === "skipped" && row.target_path.toLowerCase().endsWith(".dms") && (
-                        <small>{t("contentPack.dmsSkipped")}</small>
-                      )}
-                      {row.message && <small>{row.message}</small>}
-                    </li>
-                  ))}
-                </ul>
-              )}
-              {previewGroups.conflict.length > 0 && (
-                <div className="settings-pack-conflicts">
-                  <h4>{t("contentPack.conflicts")}</h4>
-                  {previewGroups.conflict.map((row) => {
-                    const decision = packState.decisions.find(
-                      (item) => item.target_path === row.target_path
-                    );
-                    return (
-                      <div className="settings-pack-conflict" key={row.id}>
-                        <label>
-                          {row.target_path}
-                          <select
-                            onChange={(event) =>
-                              updatePackDecision({
-                                target_path: row.target_path,
-                                decision: event.target.value as SystemPackConflictDecision["decision"],
-                                rename_target_path:
-                                  event.target.value === "rename"
-                                    ? decision?.rename_target_path ?? row.target_path
-                                    : undefined
-                              })
-                            }
-                            value={decision?.decision ?? ""}
-                          >
-                            <option disabled value="">
-                              {t("contentPack.decision.choose")}
-                            </option>
-                            <option value="skip">{t("contentPack.decision.skip")}</option>
-                            <option value="overwrite">{t("contentPack.decision.replace")}</option>
-                            <option value="rename">{t("contentPack.decision.rename")}</option>
-                          </select>
-                        </label>
-                        {decision?.decision === "rename" && (
-                          <label>
-                            {t("contentPack.renameTarget")}
-                            <input
-                              onChange={(event) =>
-                                updatePackDecision({
-                                  ...decision,
-                                  rename_target_path: event.target.value
-                                })
-                              }
-                              value={decision.rename_target_path ?? ""}
-                            />
-                          </label>
-                        )}
-                        {conflictValidation.errors[row.target_path] && (
-                          <small className="form-error">
-                            {conflictValidation.errors[row.target_path]}
-                          </small>
-                        )}
-                      </div>
-                    );
-                  })}
-                </div>
-              )}
-              {!conflictValidation.valid && (
-                <p className="form-error">{t("contentPack.unresolvedConflicts")}</p>
-              )}
-              {packHasInvalidRows && <p className="form-error">{t("contentPack.invalidRows")}</p>}
-            </div>
-          )}
-          {packState.summary && (
-            <div className="settings-pack-summary">
-              <strong>{t("contentPack.summary")}</strong>
-              <p>
-                {t("contentPack.summaryCounts", mapSystemPackImportResultSummary(packState.summary))}
-              </p>
-              <p>{t("contentPack.refreshAfterImport")}</p>
-            </div>
-          )}
-          <button
-            disabled={
-              !packState.file ||
-              !packState.preview ||
-              packHasInvalidRows ||
-              !conflictValidation.valid ||
-              packState.status === "previewing" ||
-              packState.status === "importing" ||
-              packState.status === "done"
-            }
-            onClick={() => void handleImportPack()}
-            type="button"
-          >
-            {packState.status === "importing" ? t("contentPack.importing") : t("contentPack.import")}
-          </button>
-        </section>
-        <div className="dialog-actions">
-          <button onClick={onClose} type="button">
-            {t("app.close")}
-          </button>
-        </div>
-    </Modal>
-  );
-}
-
 function localizedWorldPathPickerFilterLabel(t: Translator, filter: WorldPathPickerFilter): string {
   if (filter === "any") {
     return t("pathPicker.allPaths");
@@ -1016,514 +493,6 @@ function localizedWorldPathPickerFilterLabel(t: Translator, filter: WorldPathPic
     return t("pathPicker.displayablePaths");
   }
   return t("pathPicker.kindPaths", { kind: filter });
-}
-
-function WorkspaceDialog({
-  state,
-  onClose,
-  onNameChange,
-  onSubmit
-}: {
-  state: WorkspaceDialogState;
-  onClose: () => void;
-  onNameChange: (name: string) => void;
-  onSubmit: () => void;
-}) {
-  if (state.kind === "closed") {
-    return null;
-  }
-
-  const title = state.kind === "create" ? "New Workspace" : "Rename Workspace";
-
-  return (
-    <Modal
-      ariaLabel={title}
-      className="world-dialog"
-      closeLabel={`Close ${title}`}
-      onClose={onClose}
-      title={title}
-    >
-        <label>
-          Workspace name
-          <input
-            autoFocus
-            onChange={(event) => onNameChange(event.target.value)}
-            value={state.name}
-          />
-        </label>
-        {state.error && <p className="dialog-error">{state.error}</p>}
-        <div className="dialog-actions">
-          <button disabled={state.status === "submitting"} onClick={onClose} type="button">
-            Cancel
-          </button>
-          <button disabled={state.status === "submitting"} onClick={onSubmit} type="button">
-            {state.status === "submitting" ? "Saving..." : "Save"}
-          </button>
-        </div>
-    </Modal>
-  );
-}
-
-function SearchTool({
-  inputRef,
-  query,
-  state,
-  t,
-  onOpenOtherPane,
-  onOpenResult,
-  onPeekResult,
-  onQueryChange,
-  onShowResult,
-  onStageResult
-}: {
-  inputRef: RefObject<HTMLInputElement | null>;
-  query: string;
-  state: SearchLoadState;
-  t: Translator;
-  onOpenOtherPane: (result: SearchResult) => void;
-  onOpenResult: (result: SearchResult) => void;
-  onPeekResult: (result: SearchResult) => void;
-  onQueryChange: (query: string) => void;
-  onShowResult: (result: SearchResult) => void;
-  onStageResult: (result: SearchResult) => void;
-}) {
-  const groups = state.status === "ready" ? groupSearchResults(state.results) : [];
-  const results = groups.flatMap((group) => group.results);
-  const [selectedIndex, setSelectedIndex] = useState<number | null>(null);
-
-  useEffect(() => {
-    setSelectedIndex(null);
-  }, [query, state.status]);
-
-  function handleSearchKeyDown(event: ReactKeyboardEvent<HTMLInputElement>) {
-    if (["ArrowDown", "ArrowUp", "Home", "End", "Escape"].includes(event.key)) {
-      event.preventDefault();
-      setSelectedIndex((index) => moveSearchResultSelection(index, event.key, results.length));
-      return;
-    }
-    if (event.key === "Enter") {
-      const selected = selectedSearchResult(results, selectedIndex);
-      if (selected) {
-        event.preventDefault();
-        onOpenResult(selected);
-      }
-    }
-  }
-
-  return (
-    <section aria-label={t("search.title")} className="search-tool">
-      <label htmlFor="world-search">{t("search.world")}</label>
-      <input
-        id="world-search"
-        onChange={(event) => onQueryChange(event.target.value)}
-        onKeyDown={handleSearchKeyDown}
-        placeholder={t("search.placeholder")}
-        ref={inputRef}
-        type="search"
-        value={query}
-      />
-      <div className="search-results">
-        {state.status === "idle" && <p>{t("search.idle")}</p>}
-        {state.status === "loading" && <p>{t("search.loading")}</p>}
-        {state.status === "error" && <p>{state.message}</p>}
-        {state.status === "ready" && groups.length === 0 && <p>{t("search.noResults")}</p>}
-        {groups.map((group) => (
-          <section aria-label={`${group.label} Results`} key={group.label}>
-            <h3>{group.label}</h3>
-            {group.results.map((result) => {
-              const resultIndex = results.findIndex((item) => item.path === result.path);
-              return (
-              <article
-                aria-label={`${result.title} ${result.path}`}
-                aria-selected={selectedIndex === resultIndex}
-                className="search-result"
-                key={result.path}
-              >
-                <button
-                  className="search-result-main"
-                  onClick={() => onOpenResult(result)}
-                  type="button"
-                >
-                  <span>{result.title}</span>
-                  <small>{result.path}</small>
-                  {result.tags.length > 0 && <em>{result.tags.join(", ")}</em>}
-                  {result.snippet && <p>{result.snippet}</p>}
-                </button>
-                <div className="search-result-actions">
-                  <button onClick={() => onOpenResult(result)} type="button">
-                    {t("search.open")}
-                  </button>
-                  <button onClick={() => onOpenOtherPane(result)} type="button">
-                    {t("search.otherPane")}
-                  </button>
-                  <button onClick={() => onPeekResult(result)} type="button">
-                    {t("search.peek")}
-                  </button>
-                  <button onClick={() => onStageResult(result)} type="button">
-                    {t("search.stage")}
-                  </button>
-                  <button onClick={() => onShowResult(result)} type="button">
-                    {t("search.showOnScreen")}
-                  </button>
-                </div>
-              </article>
-            )})}
-          </section>
-        ))}
-      </div>
-    </section>
-  );
-}
-
-function CaptureTool({
-  draft,
-  onCategoryChange,
-  onOpenLog,
-  onPersistDraft,
-  onSave,
-  onTextChange,
-  status,
-  t,
-  today
-}: {
-  draft: CaptureDraft;
-  onCategoryChange: (category: CaptureCategory) => void;
-  onOpenLog: () => void;
-  onPersistDraft: () => void;
-  onSave: () => void;
-  onTextChange: (text: string) => void;
-  status: CaptureStatus;
-  t: Translator;
-  today: CaptureTodayResponse | null;
-}) {
-  function handleKeyDown(event: ReactKeyboardEvent<HTMLTextAreaElement>) {
-    if (!isCaptureSubmitShortcut(event)) {
-      return;
-    }
-    event.preventDefault();
-    onSave();
-  }
-
-  return (
-    <section aria-label={t("capture.title")} className="capture-tool" data-help-context="capture">
-      <div className="capture-category-chips" role="group" aria-label={t("capture.title")}>
-        {CAPTURE_CATEGORY_OPTIONS.map((option) => (
-          <button
-            aria-pressed={draft.category === option.value}
-            disabled={status.status === "saving"}
-            key={option.value}
-            onBlur={onPersistDraft}
-            onClick={() => onCategoryChange(option.value)}
-            type="button"
-          >
-            {option.label}
-          </button>
-        ))}
-      </div>
-      <label>
-        {t("capture.text")} <small>{t("capture.shortcut")}</small>
-        <textarea
-          autoFocus
-          disabled={status.status === "saving"}
-          onBlur={onPersistDraft}
-          onChange={(event) => onTextChange(event.target.value)}
-          onKeyDown={handleKeyDown}
-          placeholder={t("capture.placeholder")}
-          rows={4}
-          value={draft.text}
-        />
-      </label>
-      <div className="capture-actions">
-        <button disabled={status.status === "saving"} onClick={onSave} type="button">
-          {status.status === "saving" ? t("capture.saving") : t("capture.save")}
-        </button>
-        <button disabled={!today?.exists} onClick={onOpenLog} type="button">
-          {t("capture.openLog")}
-        </button>
-      </div>
-      <p className={`capture-status capture-status-${status.status}`}>
-        {status.message ?? (today?.exists ? today.path : t("capture.noLog"))}
-      </p>
-    </section>
-  );
-}
-
-function SearchDialog({
-  inputRef,
-  onClose,
-  onOpenOtherPane,
-  onOpenResult,
-  onPeekResult,
-  onQueryChange,
-  onShowResult,
-  onStageResult,
-  open,
-  query,
-  state,
-  t
-}: {
-  inputRef: RefObject<HTMLInputElement | null>;
-  onClose: () => void;
-  onOpenOtherPane: (result: SearchResult) => void;
-  onOpenResult: (result: SearchResult) => void;
-  onPeekResult: (result: SearchResult) => void;
-  onQueryChange: (query: string) => void;
-  onShowResult: (result: SearchResult) => void;
-  onStageResult: (result: SearchResult) => void;
-  open: boolean;
-  query: string;
-  state: SearchLoadState;
-  t: Translator;
-}) {
-  if (!open) {
-    return null;
-  }
-
-  return (
-    <div className="dialog-overlay" role="presentation" onMouseDown={onClose}>
-      <section
-        aria-label={t("search.title")}
-        className="file-dialog tool-dialog"
-        data-help-context="search"
-        onKeyDown={(event) => {
-          if (event.key === "Escape") {
-            event.preventDefault();
-            onClose();
-          }
-        }}
-        onMouseDown={(event) => event.stopPropagation()}
-        role="dialog"
-      >
-        <div className="dialog-header">
-          <h2>{t("search.title")}</h2>
-          <button aria-label={t("search.close")} onClick={onClose} type="button">
-            x
-          </button>
-        </div>
-        <SearchTool
-          inputRef={inputRef}
-          onOpenOtherPane={onOpenOtherPane}
-          onOpenResult={onOpenResult}
-          onPeekResult={onPeekResult}
-          onQueryChange={onQueryChange}
-          onShowResult={onShowResult}
-          onStageResult={onStageResult}
-          query={query}
-          state={state}
-          t={t}
-        />
-      </section>
-    </div>
-  );
-}
-
-function CaptureDialog({
-  draft,
-  onCategoryChange,
-  onClose,
-  onOpenLog,
-  onPersistDraft,
-  onSave,
-  onTextChange,
-  open,
-  status,
-  today,
-  t
-}: {
-  draft: CaptureDraft;
-  onCategoryChange: (category: CaptureCategory) => void;
-  onClose: () => void;
-  onOpenLog: () => void;
-  onPersistDraft: () => void;
-  onSave: () => void;
-  onTextChange: (text: string) => void;
-  open: boolean;
-  status: CaptureStatus;
-  today: CaptureTodayResponse | null;
-  t: Translator;
-}) {
-  if (!open) {
-    return null;
-  }
-
-  function handleClose() {
-    onPersistDraft();
-    onClose();
-  }
-
-  return (
-    <Modal
-      ariaLabel={t("capture.title")}
-      className="tool-dialog"
-      closeLabel={t("capture.close")}
-      dataHelpContext="capture"
-      dismissOnBackdrop
-      onClose={handleClose}
-      title={t("capture.title")}
-    >
-        <CaptureTool
-          draft={draft}
-          onCategoryChange={onCategoryChange}
-          onOpenLog={onOpenLog}
-          onPersistDraft={onPersistDraft}
-          onSave={onSave}
-          onTextChange={onTextChange}
-          status={status}
-          t={t}
-          today={today}
-        />
-    </Modal>
-  );
-}
-
-const PREP_HEALTH_FILTERS: Array<{ id: PrepHealthFilter; label: string }> = [
-  { id: "all", label: "All" },
-  { id: "errors", label: "Errors" },
-  { id: "warnings", label: "Warnings" },
-  { id: "links", label: "Links" },
-  { id: "dms", label: "DMS" }
-];
-
-function prepHealthKindLabel(issue: PrepHealthIssue, t?: Translator): string {
-  if (issue.kind === "untrusted_dms") {
-    return t?.("prep.kind.untrustedDms") ?? "DMS not trusted";
-  }
-  if (issue.kind === "missing_embed") {
-    return t?.("prep.kind.missingEmbed") ?? "Missing embed";
-  }
-  if (issue.kind === "missing_dms_reference") {
-    return t?.("prep.kind.missingDmsReference") ?? "DMS reference";
-  }
-  if (issue.kind === "dms_parse_error") {
-    return t?.("prep.kind.dmsParseError") ?? "DMS parse";
-  }
-  return t?.("prep.kind.brokenLink") ?? "Broken link";
-}
-
-function PrepHealthDialog({
-  filter,
-  onClose,
-  onCopyTarget,
-  onFilterChange,
-  onOpenSource,
-  onRun,
-  onTrustAllScripts,
-  open,
-  report,
-  status,
-  t
-}: {
-  filter: PrepHealthFilter;
-  onClose: () => void;
-  onCopyTarget: (target: string) => void;
-  onFilterChange: (filter: PrepHealthFilter) => void;
-  onOpenSource: (issue: PrepHealthIssue) => void;
-  onRun: () => void;
-  onTrustAllScripts: () => void;
-  open: boolean;
-  report: PrepHealthReport | null;
-  status: PrepHealthStatus;
-  t: Translator;
-}) {
-  if (!open) {
-    return null;
-  }
-
-  const filteredIssues = report
-    ? filterPrepHealthIssues(sortPrepHealthIssues(report.issues), filter)
-    : [];
-  const hasUntrustedScripts = Boolean(report?.issues.some((issue) => issue.kind === "untrusted_dms"));
-
-  return (
-    <Modal
-      ariaLabel={t("prep.title")}
-      className="prep-health-dialog tool-dialog"
-      closeLabel={t("prep.close")}
-      dataHelpContext="prep-health"
-      dismissOnBackdrop
-      onClose={onClose}
-      title={t("prep.title")}
-    >
-        <div className="prep-health-summary">
-          <div>
-            <strong>{report ? prepHealthStatusLabel(report.status, t) : t("prep.status.notChecked")}</strong>
-            <span>
-              {report
-                ? prepHealthCompactStatusLabel(report, { status: "idle" }, t)
-                : t("prep.runDescription")}
-            </span>
-          </div>
-          <div className="prep-health-summary-actions">
-            <button disabled={status.status === "loading"} onClick={onRun} type="button">
-              {status.status === "loading" ? t("prep.checking") : t("prep.run")}
-            </button>
-            {hasUntrustedScripts && (
-              <button disabled={status.status === "loading"} onClick={onTrustAllScripts} type="button">
-                {t("prep.trustAllScripts")}
-              </button>
-            )}
-          </div>
-        </div>
-        {status.message && (
-          <p className={status.status === "error" ? "dialog-error" : "dialog-note"}>
-            {status.message}
-          </p>
-        )}
-        {report && (
-          <>
-            <div className="prep-health-filters" role="tablist" aria-label={t("prep.filters.label")}>
-              {PREP_HEALTH_FILTERS.map((item) => (
-                <button
-                  aria-selected={filter === item.id}
-                  key={item.id}
-                  onClick={() => onFilterChange(item.id)}
-                  role="tab"
-                  type="button"
-                >
-                  {localizedOrFallback(t, `prep.filter.${item.id}`, item.label)}
-                </button>
-              ))}
-            </div>
-            {filteredIssues.length === 0 ? (
-              <p className="dialog-note">{t("prep.noIssues")}</p>
-            ) : (
-              <div className="prep-health-issues" aria-label={t("prep.issues")}>
-                {filteredIssues.map((issue) => (
-                  <article className="prep-health-issue" key={issue.id}>
-                    <div>
-                      <strong>{prepHealthKindLabel(issue, t)}</strong>
-                      <span>{issue.source_path}</span>
-                    </div>
-                    <p>{issue.message}</p>
-                    <small>
-                      {t("prep.target")} {issue.raw_target || t("prep.scriptSyntax")}
-                      {issue.command ? ` / ${issue.command}` : ""}
-                    </small>
-                    <div className="prep-health-actions">
-                      <button onClick={() => onOpenSource(issue)} type="button">
-                        {t("prep.openSource")}
-                      </button>
-                      <button
-                        disabled={!issue.raw_target}
-                        onClick={() => onCopyTarget(issue.raw_target)}
-                        type="button"
-                      >
-                        {t("prep.copyTarget")}
-                      </button>
-                    </div>
-                  </article>
-                ))}
-              </div>
-            )}
-          </>
-        )}
-    </Modal>
-  );
-}
-
-function localizedOrFallback(t: Translator, key: string, fallback: string): string {
-  const value = t(key);
-  return value.startsWith("[[") ? fallback : value;
 }
 
 function mergeLoadedWorkspaceTabs(
