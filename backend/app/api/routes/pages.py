@@ -77,7 +77,6 @@ class ManagedPageMetadata(BaseModel):
 
 class UpdatePageMetadataRequest(BaseModel):
     metadata: ManagedPageMetadata
-    expected_modified_at: str
     expected_hash: str
 
 

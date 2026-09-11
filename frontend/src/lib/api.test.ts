@@ -337,7 +337,6 @@ describe("world API helpers", () => {
 
     const response = await saveWorldFile("README.md", {
       content: "# Updated",
-      expected_modified_at: "2026-05-05T09:00:00Z",
       expected_hash: "old-hash"
     });
 
@@ -347,7 +346,6 @@ describe("world API helpers", () => {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         content: "# Updated",
-        expected_modified_at: "2026-05-05T09:00:00Z",
         expected_hash: "old-hash"
       })
     });
@@ -740,7 +738,6 @@ describe("world API helpers", () => {
         aliases: ["Ilyra"],
         fields: { voice: "formal" }
       },
-      expected_modified_at: "2026-05-05T09:00:00Z",
       expected_hash: "old-hash"
     });
 
@@ -758,7 +755,6 @@ describe("world API helpers", () => {
             aliases: ["Ilyra"],
             fields: { voice: "formal" }
           },
-          expected_modified_at: "2026-05-05T09:00:00Z",
           expected_hash: "old-hash"
         })
       }

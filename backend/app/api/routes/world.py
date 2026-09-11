@@ -126,7 +126,6 @@ class WorldFile(BaseModel):
 
 class SaveWorldFileRequest(BaseModel):
     content: str
-    expected_modified_at: str
     expected_hash: str
 
 

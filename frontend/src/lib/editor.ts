@@ -31,7 +31,6 @@ export type EditorDraft = {
   status: EditorStatus;
   content: string;
   originalContent: string;
-  modifiedAt: string;
   hash: string;
   externalChanged: boolean;
   message: string | null;
@@ -44,7 +43,6 @@ export function createEditorDraft(file: WorldFile): EditorDraft {
     status: "clean",
     content: file.content,
     originalContent: file.content,
-    modifiedAt: file.modified_at,
     hash: file.hash,
     externalChanged: false,
     message: null
@@ -136,7 +134,6 @@ export function markDraftSaved(draft: EditorDraft, file: WorldFile): EditorDraft
     ...draft,
     content: file.content,
     originalContent: file.content,
-    modifiedAt: file.modified_at,
     hash: file.hash,
     externalChanged: false,
     status: "saved",

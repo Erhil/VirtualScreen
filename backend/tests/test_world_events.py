@@ -139,7 +139,6 @@ def test_api_writes_publish_modified_mixed_and_deleted_events(temp_world: Path) 
             params={"path": "README.md"},
             json={
                 "content": readme["content"] + "\nLive sync note.\n",
-                "expected_modified_at": readme["modified_at"],
                 "expected_hash": readme["hash"],
             },
         )
@@ -195,7 +194,6 @@ def test_metadata_save_publishes_modified_event(temp_world: Path) -> None:
                     "aliases": ["Live Home"],
                     "fields": {},
                 },
-                "expected_modified_at": readme["modified_at"],
                 "expected_hash": readme["hash"],
             },
         )

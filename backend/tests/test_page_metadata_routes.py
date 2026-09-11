@@ -17,7 +17,6 @@ def make_client(world: Path) -> TestClient:
 def file_preconditions(client: TestClient, path: str) -> dict[str, str]:
     current = client.get("/api/world/file", params={"path": path}).json()
     return {
-        "expected_modified_at": current["modified_at"],
         "expected_hash": current["hash"],
     }
 
@@ -176,7 +175,6 @@ def test_metadata_update_writes_sidecar_metadata_for_csv_and_media(tmp_path: Pat
                 "aliases": [],
                 "fields": {},
             },
-            "expected_modified_at": image_current["modified_at"],
             "expected_hash": image_current["hash"],
         },
     )
@@ -298,7 +296,6 @@ def test_metadata_update_rejects_unsafe_missing_and_stale_paths(
             "aliases": [],
             "fields": {},
         },
-        "expected_modified_at": "2026-01-01T00:00:00Z",
         "expected_hash": "stale",
     }
 

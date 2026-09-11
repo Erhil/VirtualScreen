@@ -225,7 +225,6 @@ test("shows live conflict state and keeps unsaved markdown visible", async ({
   await request.put("/api/world/file?path=README.md", {
     data: {
       content: "# External Change",
-      expected_modified_at: current.modified_at,
       expected_hash: current.hash
     }
   });

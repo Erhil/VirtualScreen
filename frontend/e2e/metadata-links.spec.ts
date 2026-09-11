@@ -81,7 +81,6 @@ test("shows metadata conflict and keeps unsaved values visible", async ({ page, 
   await request.put("/api/world/file?path=NPCs%2FCaptain%20Ilyra.md", {
     data: {
       content: `${current.content}\nExternal metadata conflict`,
-      expected_modified_at: current.modified_at,
       expected_hash: current.hash
     }
   });

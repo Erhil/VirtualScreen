@@ -191,7 +191,6 @@ export type WorldFile = {
 
 export type SaveWorldFileRequest = {
   content: string;
-  expected_modified_at: string;
   expected_hash: string;
 };
 
@@ -288,7 +287,6 @@ export type ManagedPageMetadata = {
 
 export type UpdatePageMetadataRequest = {
   metadata: ManagedPageMetadata;
-  expected_modified_at: string;
   expected_hash: string;
 };
 

@@ -17,7 +17,6 @@ def make_client(world: Path) -> TestClient:
 def file_preconditions(client: TestClient, path: str) -> dict[str, str]:
     current = client.get("/api/world/file", params={"path": path}).json()
     return {
-        "expected_modified_at": current["modified_at"],
         "expected_hash": current["hash"],
     }
 

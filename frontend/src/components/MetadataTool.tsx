@@ -30,7 +30,6 @@ export type MetadataEditState =
       form: MetadataFormState;
       status: "idle" | "saving" | "conflict" | "error";
       message: string | null;
-      expectedModifiedAt: string;
       expectedHash: string;
     };
 

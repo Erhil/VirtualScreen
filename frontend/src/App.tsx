@@ -2391,8 +2391,7 @@ function FolderKanbanView({
         const card = parseCard(file.content);
         await saveWorldFile(entity.path, {
           content: serializeCardWithKanbanValue(card, groupBy, value),
-          expected_hash: file.hash,
-          expected_modified_at: file.modified_at
+          expected_hash: file.hash
         });
         const updatedPage = await fetchPage(entity.path);
         setPageDetails((details) => details.map((detail) =>
@@ -2404,8 +2403,7 @@ function FolderKanbanView({
         const page = await fetchPage(entity.path);
         const updated = await updatePageMetadata(entity.path, {
           metadata: pageMetadataForKanbanMove(page, groupBy, value),
-          expected_hash: page.hash,
-          expected_modified_at: page.modified_at
+          expected_hash: page.hash
         });
         setPageDetails((details) => details.map((detail) =>
           detail.path === entity.path ? updated.page : detail
@@ -8645,7 +8643,6 @@ export function App() {
         form: metadataFormFromPage(activePageState.page),
         status: "idle",
         message: null,
-        expectedModifiedAt: activePageState.page.modified_at,
         expectedHash: activePageState.page.hash
       }
     }));
@@ -8686,7 +8683,6 @@ export function App() {
         form: metadataFormFromPage(activePageState.page),
         status: "idle",
         message: null,
-        expectedModifiedAt: activePageState.page.modified_at,
         expectedHash: activePageState.page.hash
       }
     }));
@@ -8722,7 +8718,6 @@ export function App() {
     if (
       validation ||
       activeContentDirty ||
-      !activeMetadataEdit.expectedModifiedAt ||
       !activeMetadataEdit.expectedHash
     ) {
       setMetadataEdits((states) => ({
@@ -8749,7 +8744,6 @@ export function App() {
     try {
       const response = await updatePageMetadata(activeTab.path, {
         metadata: metadataPayloadFromForm(activeMetadataEdit.form),
-        expected_modified_at: activeMetadataEdit.expectedModifiedAt,
         expected_hash: activeMetadataEdit.expectedHash
       });
       const nextPages = await refreshWorldStructure([activeTab.path]);
@@ -9467,7 +9461,6 @@ export function App() {
     try {
       const savedFile = await saveWorldFile(activeTab.path, {
         content: activeDraft.content,
-        expected_modified_at: activeDraft.modifiedAt,
         expected_hash: activeDraft.hash
       });
       setFileStates((states) => ({

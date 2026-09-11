@@ -18,12 +18,11 @@ def file_payload(client: TestClient, path: str, content: str) -> dict[str, str]:
     current = client.get("/api/world/file", params={"path": path}).json()
     return {
         "content": content,
-        "expected_modified_at": current["modified_at"],
         "expected_hash": current["hash"],
     }
 
 
-def test_saves_markdown_with_matching_hash_and_mtime(tmp_path: Path) -> None:
+def test_saves_markdown_with_matching_hash(tmp_path: Path) -> None:
     world = tmp_path / "world"
     world.mkdir()
     (world / "README.md").write_text("# Home\n", encoding="utf-8")
@@ -122,7 +121,6 @@ def test_mtime_change_without_content_change_does_not_return_409(tmp_path: Path)
     note.write_text("# Home\n", encoding="utf-8")
     client = make_client(world)
     payload = file_payload(client, "README.md", "# Updated\n")
-    payload["expected_modified_at"] = "2000-01-01T00:00:00Z"
 
     future = time.time() + 120
     os.utime(note, (future, future))
@@ -142,7 +140,6 @@ def test_save_rejects_missing_file(tmp_path: Path) -> None:
         params={"path": "missing.md"},
         json={
             "content": "# Missing",
-            "expected_modified_at": "2026-01-01T00:00:00Z",
             "expected_hash": "x",
         },
     )
@@ -156,7 +153,6 @@ def test_save_rejects_directory_and_traversal(tmp_path: Path) -> None:
     client = make_client(world)
     payload = {
         "content": "# Home",
-        "expected_modified_at": "2026-01-01T00:00:00Z",
         "expected_hash": "x",
     }
 
@@ -178,7 +174,6 @@ def test_save_rejects_unsupported_binary(tmp_path: Path) -> None:
         params={"path": "roll.bin"},
         json={
             "content": "x",
-            "expected_modified_at": "2026-01-01T00:00:00Z",
             "expected_hash": "x",
         },
     )

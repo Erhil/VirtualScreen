@@ -179,7 +179,7 @@ mid-session.
 
 If you want to host a friend's world, run a **second instance** instead. No code changes are needed: point it
 at a separate `.env` (for `VIRTUALSCREEN_WORLDS_ROOT` and `VIRTUALSCREEN_ACCESS_TOKEN`) and start it with its
-own port —`start-appliance.ps1 -Port 8001` for a second appliance, or a second `dev.ps1` checkout for
+own port — `start-appliance.ps1 -Port 8001` for a second appliance, or a second `dev.ps1` checkout for
 development.
 
 | | yours | theirs |
