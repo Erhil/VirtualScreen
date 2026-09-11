@@ -157,28 +157,38 @@ function fallbackSanitize(html: string): string {
     .replace(/javascript:/gi, "");
 }
 
+const RICH_HTML_CONFIG = {
+  ADD_ATTR: [
+    "aria-label",
+    "autoplay",
+    "class",
+    "controls",
+    "data-dice-expression",
+    "data-world-link-index",
+    "loop",
+    "muted",
+    "playsinline",
+    "rel",
+    "target"
+  ],
+  ADD_TAGS: ["math", "semantics", "annotation", "video"],
+  FORBID_TAGS: ["script", "iframe", "object", "embed"]
+};
+
+let purifier: ReturnType<typeof DOMPurify> | null = null;
+
 export function sanitizeRichHtml(html: string): string {
   if (typeof window === "undefined") {
     return fallbackSanitize(html);
   }
-
-  return DOMPurify.sanitize(html, {
-    ADD_ATTR: [
-      "aria-label",
-      "autoplay",
-      "class",
-      "controls",
-      "data-dice-expression",
-      "data-world-link-index",
-      "loop",
-      "muted",
-      "playsinline",
-      "rel",
-      "target"
-    ],
-    ADD_TAGS: ["math", "semantics", "annotation", "video"],
-    FORBID_TAGS: ["script", "iframe", "object", "embed"]
-  });
+  // One instance configured once. Handing the config to every sanitize() call makes
+  // DOMPurify re-parse it and copy its tag tables each time, and a card sanitizes every
+  // field separately - on a slow tablet that copying was most of the time to open one.
+  if (!purifier) {
+    purifier = DOMPurify(window);
+    purifier.setConfig(RICH_HTML_CONFIG);
+  }
+  return purifier.sanitize(html);
 }
 
 function renderMarkdown(
