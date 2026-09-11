@@ -5,14 +5,38 @@ import {
   canSendToScreen,
   closeToolSection,
   createToolPanelState,
+  DISABLEABLE_TOOLS,
+  isToolDisabled,
   isToolOpen,
+  isToolPinned,
+  loadDisabledTools,
   openToolSection,
   openToolSectionByUser,
   pinToolSection,
+  saveDisabledTools,
+  setToolDisabled,
   toggleToolSection,
   toggleToolSectionPin,
   type ToolPanelState
 } from "./toolPanel";
+
+function fakeStorage(): Storage {
+  const store = new Map<string, string>();
+  return {
+    getItem: (key: string) => store.get(key) ?? null,
+    setItem: (key: string, value: string) => {
+      store.set(key, value);
+    },
+    removeItem: (key: string) => {
+      store.delete(key);
+    },
+    clear: () => store.clear(),
+    key: () => null,
+    get length() {
+      return store.size;
+    }
+  } as Storage;
+}
 
 const blankDisplay = {
   fullscreen: null,
@@ -242,5 +266,113 @@ describe("tool panel helpers", () => {
     expect(closeToolSection(createToolPanelState(["metadata", "screen"]), "screen").openTools).toEqual([
       "metadata"
     ]);
+  });
+});
+
+describe("disableable tools", () => {
+  it("lists exactly the live tools as disableable, excluding metadata", () => {
+    expect(DISABLEABLE_TOOLS.sort()).toEqual(
+      ["actions", "audio", "dice", "hp", "screen", "scripts"].sort()
+    );
+  });
+
+  it("seeds disabled tools from createToolPanelState and keeps them out of open/pinned sets", () => {
+    const state = createToolPanelState(["dice", "metadata"], [], ["dice"], ["dice"]);
+
+    expect(state.disabledTools).toEqual(["dice"]);
+    expect(state.openTools).toEqual(["metadata"]);
+    expect(state.pinnedTools).toEqual([]);
+    expect(isToolOpen(state, "dice")).toBe(false);
+  });
+
+  it("ignores metadata and unknown values passed as disabled tools", () => {
+    const state = createToolPanelState([], [], [], ["metadata", "dice", "not-a-tool" as never]);
+
+    expect(state.disabledTools).toEqual(["dice"]);
+  });
+
+  it("closes and unpins a tool the moment it is disabled", () => {
+    const pinned = pinToolSection(createToolPanelState(), "audio");
+    const disabled = setToolDisabled(pinned, "audio", true);
+
+    expect(isToolDisabled(disabled, "audio")).toBe(true);
+    expect(disabled.openTools).toEqual([]);
+    expect(disabled.pinnedTools).toEqual([]);
+    expect(isToolOpen(disabled, "audio")).toBe(false);
+    expect(isToolPinned(disabled, "audio")).toBe(false);
+  });
+
+  it("leaves a disabled tool closed when re-enabled, ready to be opened again", () => {
+    const disabled = setToolDisabled(createToolPanelState(["scripts"]), "scripts", true);
+    const reenabled = setToolDisabled(disabled, "scripts", false);
+
+    expect(isToolDisabled(reenabled, "scripts")).toBe(false);
+    expect(reenabled.openTools).toEqual([]);
+    expect(isToolOpen(openToolSection(reenabled, "scripts"), "scripts")).toBe(true);
+  });
+
+  it("refuses to disable metadata", () => {
+    const state = setToolDisabled(createToolPanelState(["metadata"]), "metadata", true);
+
+    expect(state.disabledTools).toEqual([]);
+    expect(isToolOpen(state, "metadata")).toBe(true);
+  });
+
+  it("blocks every automation entry point from opening a disabled tool", () => {
+    const disabled = setToolDisabled(createToolPanelState(), "hp", true);
+
+    expect(isToolOpen(openToolSection(disabled, "hp"), "hp")).toBe(false);
+    expect(isToolOpen(openToolSectionByUser(disabled, "hp"), "hp")).toBe(false);
+    expect(
+      isToolOpen(
+        applyToolAutoOpenRules(disabled, {
+          activePath: null,
+          audioActive: true,
+          displayState: { fullscreen: null, popups: [], updated_at: "2026-05-08T12:00:00Z" },
+          metadataEditing: false
+        }),
+        "hp"
+      )
+    ).toBe(false);
+  });
+
+  it("keeps pinToolSection from pinning or reopening a disabled tool", () => {
+    const disabled = setToolDisabled(createToolPanelState(), "actions", true);
+    const stillDisabled = pinToolSection(disabled, "actions");
+
+    expect(stillDisabled).toEqual(disabled);
+    expect(isToolPinned(stillDisabled, "actions")).toBe(false);
+  });
+
+  it("hides a disabled tool from isToolOpen even if it lingers in openTools", () => {
+    const state: ToolPanelState = {
+      openTools: ["dice"],
+      userControlledTools: [],
+      pinnedTools: [],
+      disabledTools: ["dice"]
+    };
+
+    expect(isToolOpen(state, "dice")).toBe(false);
+  });
+
+  it("round-trips the disabled set through storage, keyed separately from other values", () => {
+    const storage = fakeStorage();
+
+    expect(loadDisabledTools(storage)).toEqual([]);
+    saveDisabledTools(["dice", "actions", "dice"], storage);
+
+    expect(loadDisabledTools(storage)).toEqual(["dice", "actions"]);
+  });
+
+  it("recovers from corrupted or invalid disabled-tools storage", () => {
+    const storage = fakeStorage();
+    storage.setItem("virtualscreen.disabledTools", "not json");
+    expect(loadDisabledTools(storage)).toEqual([]);
+
+    storage.setItem("virtualscreen.disabledTools", JSON.stringify({ not: "an array" }));
+    expect(loadDisabledTools(storage)).toEqual([]);
+
+    storage.setItem("virtualscreen.disabledTools", JSON.stringify(["metadata", "dice", 42]));
+    expect(loadDisabledTools(storage)).toEqual(["dice"]);
   });
 });

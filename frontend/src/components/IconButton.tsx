@@ -4,6 +4,7 @@ export type IconName =
   | "close"
   | "favorite"
   | "next"
+  | "panel"
   | "pause"
   | "play"
   | "previous"
@@ -19,6 +20,9 @@ const ICON_PATHS: Record<IconName, string> = {
   close: "M6 6l12 12M18 6L6 18",
   favorite: "M12 5l2.2 4.5 5 .7-3.6 3.5.9 5-4.5-2.4-4.5 2.4.9-5L4.8 10.2l5-.7L12 5z",
   next: "M6 5l9 7-9 7V5zm10 0h2v14h-2V5z",
+  // A rectangle with a narrow divided right-hand column, mirroring how
+  // single/split depict panes: this reads as "side panel", not "menu".
+  panel: "M5 6h14v12H5V6zm10 0v12",
   pause: "M7 5h3v14H7V5zm7 0h3v14h-3V5z",
   play: "M7 5l12 7-12 7V5z",
   previous: "M18 5l-9 7 9 7V5zM6 5h2v14H6V5z",

@@ -18,6 +18,8 @@
   "app.show": "Показать",
   "app.hide": "Скрыть",
   "app.copy": "Копировать",
+  "settings.toolsTitle": "Инструменты",
+  "settings.toolsHint": "Скрытые инструменты сохраняют свои данные и продолжают реагировать на привязки.",
   "contentPack.importTitle": "Импорт набора",
   "contentPack.chooseZip": "Выбрать ZIP",
   "contentPack.preview": "Предпросмотр",

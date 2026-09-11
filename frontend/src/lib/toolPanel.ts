@@ -19,12 +19,21 @@ export const DEFAULT_ACTIONS_TOOL_TAB: ActionsToolTabId = "slots";
 
 export const DEFAULT_SCREEN_TOOL_TAB: ScreenToolTabId = "display";
 
-const LIVE_TOOLS: ToolId[] = ["screen", "audio", "dice", "actions", "scripts", "hp"];
+// Tools with their own live state that are not the document-context (metadata)
+// section. The same property makes a tool exclusive-open-at-a-time among its
+// peers, and makes it safe to let the DM turn off entirely: metadata is left
+// out of both because `applyToolAutoOpenRules` force-opens it while editing
+// and `closeToolSection` refuses to close it, so disabling it could strand a
+// DM mid-edit.
+export const DISABLEABLE_TOOLS: ToolId[] = ["screen", "audio", "dice", "actions", "scripts", "hp"];
+
+const DISABLED_TOOLS_STORAGE_KEY = "virtualscreen.disabledTools";
 
 export type ToolPanelState = {
   openTools: ToolId[];
   userControlledTools: ToolId[];
   pinnedTools: ToolId[];
+  disabledTools: ToolId[];
 };
 
 export type ToolAutoOpenInput = {
@@ -43,21 +52,80 @@ function uniqueTools(tools: ToolId[]): ToolId[] {
   return Array.from(new Set(tools));
 }
 
+function sanitizeDisabledTools(disabledTools: ToolId[]): ToolId[] {
+  return uniqueTools(disabledTools.filter((tool) => DISABLEABLE_TOOLS.includes(tool)));
+}
+
 export function createToolPanelState(
   openTools: ToolId[] = [],
   userControlledTools: ToolId[] = [],
-  pinnedTools: ToolId[] = []
+  pinnedTools: ToolId[] = [],
+  disabledTools: ToolId[] = []
 ): ToolPanelState {
-  const uniquePinnedTools = uniqueTools(pinnedTools);
+  const uniqueDisabledTools = sanitizeDisabledTools(disabledTools);
+  const uniquePinnedTools = uniqueTools(pinnedTools).filter(
+    (tool) => !uniqueDisabledTools.includes(tool)
+  );
   return {
-    openTools: uniqueTools([...openTools, ...uniquePinnedTools]),
+    openTools: uniqueTools([...openTools, ...uniquePinnedTools]).filter(
+      (tool) => !uniqueDisabledTools.includes(tool)
+    ),
     userControlledTools: uniqueTools(userControlledTools),
-    pinnedTools: uniquePinnedTools
+    pinnedTools: uniquePinnedTools,
+    disabledTools: uniqueDisabledTools
+  };
+}
+
+export function loadDisabledTools(storage: Storage = window.localStorage): ToolId[] {
+  const rawValue = storage.getItem(DISABLED_TOOLS_STORAGE_KEY);
+  if (!rawValue) {
+    return [];
+  }
+  try {
+    const parsed: unknown = JSON.parse(rawValue);
+    if (!Array.isArray(parsed)) {
+      return [];
+    }
+    return sanitizeDisabledTools(parsed.filter((value): value is ToolId => typeof value === "string") as ToolId[]);
+  } catch {
+    return [];
+  }
+}
+
+export function saveDisabledTools(
+  disabledTools: ToolId[],
+  storage: Storage = window.localStorage
+): ToolId[] {
+  const sanitized = sanitizeDisabledTools(disabledTools);
+  storage.setItem(DISABLED_TOOLS_STORAGE_KEY, JSON.stringify(sanitized));
+  return sanitized;
+}
+
+export function isToolDisabled(state: ToolPanelState, tool: ToolId): boolean {
+  return state.disabledTools.includes(tool);
+}
+
+export function setToolDisabled(
+  state: ToolPanelState,
+  tool: ToolId,
+  disabled: boolean
+): ToolPanelState {
+  if (!DISABLEABLE_TOOLS.includes(tool) || disabled === isToolDisabled(state, tool)) {
+    return state;
+  }
+  if (!disabled) {
+    return { ...state, disabledTools: state.disabledTools.filter((disabledTool) => disabledTool !== tool) };
+  }
+  return {
+    ...state,
+    disabledTools: [...state.disabledTools, tool],
+    openTools: state.openTools.filter((openTool) => openTool !== tool),
+    pinnedTools: state.pinnedTools.filter((pinnedTool) => pinnedTool !== tool)
   };
 }
 
 export function isToolOpen(state: ToolPanelState, tool: ToolId): boolean {
-  return state.openTools.includes(tool);
+  return !isToolDisabled(state, tool) && state.openTools.includes(tool);
 }
 
 function isUserControlled(state: ToolPanelState, tool: ToolId): boolean {
@@ -69,7 +137,7 @@ export function isToolPinned(state: ToolPanelState, tool: ToolId): boolean {
 }
 
 function isLiveTool(tool: ToolId): boolean {
-  return LIVE_TOOLS.includes(tool);
+  return DISABLEABLE_TOOLS.includes(tool);
 }
 
 function hasOpenUserControlledLiveTool(state: ToolPanelState, targetTool: ToolId): boolean {
@@ -99,6 +167,9 @@ function markUserControlled(state: ToolPanelState, tool: ToolId): ToolPanelState
 }
 
 export function openToolSection(state: ToolPanelState, tool: ToolId): ToolPanelState {
+  if (isToolDisabled(state, tool)) {
+    return state;
+  }
   const openTools = openToolsForOpening(state, tool);
   if (openTools.includes(tool)) {
     return openTools === state.openTools ? state : { ...state, openTools };
@@ -138,6 +209,9 @@ export function toggleToolSection(
 }
 
 export function pinToolSection(state: ToolPanelState, tool: ToolId): ToolPanelState {
+  if (isToolDisabled(state, tool)) {
+    return state;
+  }
   const pinnedState = isToolPinned(state, tool)
     ? state
     : { ...state, pinnedTools: [...state.pinnedTools, tool] };

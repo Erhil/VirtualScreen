@@ -18,6 +18,8 @@
   "app.show": "Show",
   "app.hide": "Hide",
   "app.copy": "Copy",
+  "settings.toolsTitle": "Tools",
+  "settings.toolsHint": "Hidden tools keep their data and keep responding to bindings.",
   "contentPack.importTitle": "Import Pack",
   "contentPack.chooseZip": "Choose ZIP",
   "contentPack.preview": "Preview",

@@ -586,10 +586,22 @@ select {
   padding-right: 6px;
 }
 
+.workspace-controls-divider {
+  align-self: stretch;
+  background: #c9c1b1;
+  margin-left: auto;
+  width: 1px;
+}
+
+.workspace-view-toggles {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
 .workspace-layout-toggle {
   display: flex;
   gap: 4px;
-  margin-left: auto;
 }
 
 .workspace-layout-toggle button[aria-pressed="true"] {
@@ -3237,6 +3249,31 @@ td {
 
 .context-help-dialog {
   max-width: 500px;
+}
+
+.settings-tools {
+  border-top: 1px solid #d1c6b5;
+  display: grid;
+  gap: 8px;
+  margin-top: 6px;
+  padding-top: 12px;
+}
+
+.settings-tools h3 {
+  font-size: 14px;
+  margin: 0;
+}
+
+.settings-tools-grid {
+  display: grid;
+  gap: 6px;
+  grid-template-columns: repeat(2, minmax(120px, 1fr));
+}
+
+.settings-tool-toggle {
+  align-items: center;
+  display: flex;
+  gap: 6px;
 }
 
 .settings-pack-import {

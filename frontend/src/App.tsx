@@ -433,9 +433,14 @@ import {
   createToolPanelState,
   DEFAULT_ACTIONS_TOOL_TAB,
   DEFAULT_SCREEN_TOOL_TAB,
+  DISABLEABLE_TOOLS,
+  isToolDisabled,
   isToolPinned,
   isToolOpen,
+  loadDisabledTools,
   openToolSectionByUser,
+  saveDisabledTools,
+  setToolDisabled,
   toggleToolSection,
   toggleToolSectionPin,
   type ActionsToolTabId,
@@ -3022,24 +3027,28 @@ function WorkspaceControls({
       >
         {t("help.openShort")}
       </button>
-      <IconButton
-        label={toolsVisible ? t("tools.hidePanel") : t("tools.showPanel")}
-        name="tools"
-        onClick={onToggleTools}
-      />
-      <div className="workspace-layout-toggle" role="group" aria-label={t("workspace.layout")}>
+      <div className="workspace-controls-divider" aria-hidden="true" />
+      <div className="workspace-view-toggles">
         <IconButton
-          aria-pressed={layout.mode === "single"}
-          label={t("workspace.single")}
-          name="single"
-          onClick={() => onModeChange("single")}
+          aria-pressed={toolsVisible}
+          label={`${toolsVisible ? t("tools.hidePanel") : t("tools.showPanel")} (Ctrl+B)`}
+          name="panel"
+          onClick={onToggleTools}
         />
-        <IconButton
-          aria-pressed={layout.mode === "vertical_split"}
-          label={t("workspace.split")}
-          name="split"
-          onClick={() => onModeChange("vertical_split")}
-        />
+        <div className="workspace-layout-toggle" role="group" aria-label={t("workspace.layout")}>
+          <IconButton
+            aria-pressed={layout.mode === "single"}
+            label={t("workspace.single")}
+            name="single"
+            onClick={() => onModeChange("single")}
+          />
+          <IconButton
+            aria-pressed={layout.mode === "vertical_split"}
+            label={t("workspace.split")}
+            name="split"
+            onClick={() => onModeChange("vertical_split")}
+          />
+        </div>
       </div>
     </section>
   );
@@ -3047,18 +3056,22 @@ function WorkspaceControls({
 
 function SettingsDialog({
   availableLanguages,
+  disabledTools,
   language,
   onClose,
   onImportComplete,
   onLanguageChange,
+  onToolDisabledChange,
   open,
   t
 }: {
   availableLanguages: AppConfig["available_languages"];
+  disabledTools: ToolId[];
   language: UiLanguage;
   onClose: () => void;
   onImportComplete: (summary: SystemPackImportResponse) => Promise<void>;
   onLanguageChange: (language: UiLanguage) => void;
+  onToolDisabledChange: (tool: ToolId, disabled: boolean) => void;
   open: boolean;
   t: Translator;
 }) {
@@ -3229,6 +3242,22 @@ function SettingsDialog({
             ))}
           </select>
         </label>
+        <section className="settings-tools" aria-label={t("settings.toolsTitle")}>
+          <h3>{t("settings.toolsTitle")}</h3>
+          <p>{t("settings.toolsHint")}</p>
+          <div className="settings-tools-grid">
+            {DISABLEABLE_TOOLS.map((tool) => (
+              <label className="settings-tool-toggle" key={tool}>
+                <input
+                  checked={!disabledTools.includes(tool)}
+                  onChange={(event) => onToolDisabledChange(tool, !event.target.checked)}
+                  type="checkbox"
+                />
+                {t(`tools.${tool}`)}
+              </label>
+            ))}
+          </div>
+        </section>
         <section className="settings-pack-import" aria-label={t("contentPack.importTitle")}>
           <h3>{t("contentPack.importTitle")}</h3>
           <label>
@@ -6019,138 +6048,150 @@ function ToolsPanel({
           tab={activeTab}
         />
       </ToolSection>
-      <ToolSection
-        onTogglePin={onToolPin}
-        onToggle={onToolToggle}
-        open={isToolOpen(openTools, "audio")}
-        pinned={isToolPinned(openTools, "audio")}
-        summary={audioSummary(audioMixer, t)}
-        t={t}
-        title={t("tools.audio")}
-        tool="audio"
-      >
-        <AudioTool />
-      </ToolSection>
-      <ToolSection
-        onTogglePin={onToolPin}
-        onToggle={onToolToggle}
-        open={isToolOpen(openTools, "dice")}
-        pinned={isToolPinned(openTools, "dice")}
-        summary={diceSummary(diceHistory, diceStatus, t)}
-        t={t}
-        title={t("tools.dice")}
-        tool="dice"
-      >
-        <DiceTool
-          history={diceHistory}
-          onClearHistory={onDiceClearHistory}
-          onRoll={onDiceRoll}
-          status={diceStatus}
+      {!isToolDisabled(openTools, "audio") && (
+        <ToolSection
+          onTogglePin={onToolPin}
+          onToggle={onToolToggle}
+          open={isToolOpen(openTools, "audio")}
+          pinned={isToolPinned(openTools, "audio")}
+          summary={audioSummary(audioMixer, t)}
           t={t}
-        />
-      </ToolSection>
-      <ToolSection
-        onTogglePin={onToolPin}
-        onToggle={onToolToggle}
-        open={isToolOpen(openTools, "hp")}
-        pinned={isToolPinned(openTools, "hp")}
-        summary={hpSummary(hpRows, hpStatus, t)}
-        t={t}
-        title={t("tools.hp")}
-        tool="hp"
-      >
-        <HpTool
-          onAdd={onHpAdd}
-          onAdjust={onHpAdjust}
-          onClear={onHpClear}
-          onPersist={onHpPersist}
-          onRemove={onHpRemove}
-          onUpdate={onHpUpdate}
-          rows={hpRows}
-          status={hpStatus}
+          title={t("tools.audio")}
+          tool="audio"
+        >
+          <AudioTool />
+        </ToolSection>
+      )}
+      {!isToolDisabled(openTools, "dice") && (
+        <ToolSection
+          onTogglePin={onToolPin}
+          onToggle={onToolToggle}
+          open={isToolOpen(openTools, "dice")}
+          pinned={isToolPinned(openTools, "dice")}
+          summary={diceSummary(diceHistory, diceStatus, t)}
           t={t}
-        />
-      </ToolSection>
-      <ToolSection
-        onTogglePin={onToolPin}
-        onToggle={onToolToggle}
-        open={isToolOpen(openTools, "actions")}
-        pinned={isToolPinned(openTools, "actions")}
-        summary={actionsSummary(fastSlots, actionBindings, midiBindings, t)}
-        t={t}
-        title={t("tools.actions")}
-        tool="actions"
-      >
-        <ActionsTool
-          activeTab={activeTab}
-          actionBindings={actionBindings}
-          bindingMessage={actionBindingMessage}
-          message={fastSlotError}
-          midiBindingMessage={midiBindingMessage}
-          midiBindings={midiBindings}
-          midiInputs={midiInputs}
-          midiLearnedControl={midiLearnedControl}
-          midiLearning={midiLearning}
-          midiStatus={midiStatus}
-          onClearMidiLearned={onClearMidiLearned}
-          onClearSlot={onClearFastSlot}
-          onConnectMidi={onConnectMidi}
-          onDeleteBinding={onActionBindingDelete}
-          onDeleteMidiBinding={onDeleteMidiBinding}
-          onDeleteSnapshot={onDeleteTableSnapshot}
-          onLoadSnapshot={onLoadTableSnapshot}
-          onPickPath={onPickPath}
-          onRunMidiBinding={onMidiBindingRun}
-          onRunBinding={onActionBindingRun}
-          onSaveBinding={onActionBindingSave}
-          onSaveMidiBinding={onMidiBindingSave}
-          onSaveSnapshot={onSaveTableSnapshot}
-          onSaveSlot={onSaveFastSlot}
-          onSelectSnapshot={onSelectTableSnapshot}
-          onStartMidiLearn={onStartMidiLearn}
-          onSnapshotNameChange={onTableSnapshotNameChange}
-          slots={fastSlots}
-          snapshotName={tableSnapshotName}
-          snapshotSelectedId={tableSnapshotSelectedId}
-          snapshotStatus={tableSnapshotStatus}
-          snapshots={tableSnapshots}
+          title={t("tools.dice")}
+          tool="dice"
+        >
+          <DiceTool
+            history={diceHistory}
+            onClearHistory={onDiceClearHistory}
+            onRoll={onDiceRoll}
+            status={diceStatus}
+            t={t}
+          />
+        </ToolSection>
+      )}
+      {!isToolDisabled(openTools, "hp") && (
+        <ToolSection
+          onTogglePin={onToolPin}
+          onToggle={onToolToggle}
+          open={isToolOpen(openTools, "hp")}
+          pinned={isToolPinned(openTools, "hp")}
+          summary={hpSummary(hpRows, hpStatus, t)}
           t={t}
-        />
-      </ToolSection>
-      <ToolSection
-        onTogglePin={onToolPin}
-        onToggle={onToolToggle}
-        open={isToolOpen(openTools, "scripts")}
-        pinned={isToolPinned(openTools, "scripts")}
-        summary={scriptsSummary(scriptState, scriptRunState, t)}
-        t={t}
-        title={t("tools.scripts")}
-        tool="scripts"
-      >
-        <ScriptsTool
-          onCancel={onCancelScript}
-          onRun={onScriptRun}
-          runState={scriptRunState}
-          state={scriptState}
+          title={t("tools.hp")}
+          tool="hp"
+        >
+          <HpTool
+            onAdd={onHpAdd}
+            onAdjust={onHpAdjust}
+            onClear={onHpClear}
+            onPersist={onHpPersist}
+            onRemove={onHpRemove}
+            onUpdate={onHpUpdate}
+            rows={hpRows}
+            status={hpStatus}
+            t={t}
+          />
+        </ToolSection>
+      )}
+      {!isToolDisabled(openTools, "actions") && (
+        <ToolSection
+          onTogglePin={onToolPin}
+          onToggle={onToolToggle}
+          open={isToolOpen(openTools, "actions")}
+          pinned={isToolPinned(openTools, "actions")}
+          summary={actionsSummary(fastSlots, actionBindings, midiBindings, t)}
           t={t}
-        />
-      </ToolSection>
-      <ToolSection
-        onTogglePin={onToolPin}
-        onToggle={onToolToggle}
-        open={isToolOpen(openTools, "screen")}
-        pinned={isToolPinned(openTools, "screen")}
-        summary={screenSummary(displayState, mapState, t)}
-        t={t}
-        title={t("tools.screen")}
-        tool="screen"
-      >
-        <ScreenTool
-          activeTab={activeDocumentTab}
-          onTabChange={onScreenToolTabChange}
-          tab={screenToolTab}
-        />
-      </ToolSection>
+          title={t("tools.actions")}
+          tool="actions"
+        >
+          <ActionsTool
+            activeTab={activeTab}
+            actionBindings={actionBindings}
+            bindingMessage={actionBindingMessage}
+            message={fastSlotError}
+            midiBindingMessage={midiBindingMessage}
+            midiBindings={midiBindings}
+            midiInputs={midiInputs}
+            midiLearnedControl={midiLearnedControl}
+            midiLearning={midiLearning}
+            midiStatus={midiStatus}
+            onClearMidiLearned={onClearMidiLearned}
+            onClearSlot={onClearFastSlot}
+            onConnectMidi={onConnectMidi}
+            onDeleteBinding={onActionBindingDelete}
+            onDeleteMidiBinding={onDeleteMidiBinding}
+            onDeleteSnapshot={onDeleteTableSnapshot}
+            onLoadSnapshot={onLoadTableSnapshot}
+            onPickPath={onPickPath}
+            onRunMidiBinding={onMidiBindingRun}
+            onRunBinding={onActionBindingRun}
+            onSaveBinding={onActionBindingSave}
+            onSaveMidiBinding={onMidiBindingSave}
+            onSaveSnapshot={onSaveTableSnapshot}
+            onSaveSlot={onSaveFastSlot}
+            onSelectSnapshot={onSelectTableSnapshot}
+            onStartMidiLearn={onStartMidiLearn}
+            onSnapshotNameChange={onTableSnapshotNameChange}
+            slots={fastSlots}
+            snapshotName={tableSnapshotName}
+            snapshotSelectedId={tableSnapshotSelectedId}
+            snapshotStatus={tableSnapshotStatus}
+            snapshots={tableSnapshots}
+            t={t}
+          />
+        </ToolSection>
+      )}
+      {!isToolDisabled(openTools, "scripts") && (
+        <ToolSection
+          onTogglePin={onToolPin}
+          onToggle={onToolToggle}
+          open={isToolOpen(openTools, "scripts")}
+          pinned={isToolPinned(openTools, "scripts")}
+          summary={scriptsSummary(scriptState, scriptRunState, t)}
+          t={t}
+          title={t("tools.scripts")}
+          tool="scripts"
+        >
+          <ScriptsTool
+            onCancel={onCancelScript}
+            onRun={onScriptRun}
+            runState={scriptRunState}
+            state={scriptState}
+            t={t}
+          />
+        </ToolSection>
+      )}
+      {!isToolDisabled(openTools, "screen") && (
+        <ToolSection
+          onTogglePin={onToolPin}
+          onToggle={onToolToggle}
+          open={isToolOpen(openTools, "screen")}
+          pinned={isToolPinned(openTools, "screen")}
+          summary={screenSummary(displayState, mapState, t)}
+          t={t}
+          title={t("tools.screen")}
+          tool="screen"
+        >
+          <ScreenTool
+            activeTab={activeDocumentTab}
+            onTabChange={onScreenToolTabChange}
+            tab={screenToolTab}
+          />
+        </ToolSection>
+      )}
     </aside>
   );
 }
@@ -6369,7 +6410,7 @@ export function App() {
   const searchInputRef = useRef<HTMLInputElement | null>(null);
   const searchButtonRef = useRef<HTMLButtonElement | null>(null);
   const [toolPanelState, setToolPanelState] = useState<ToolPanelState>(() =>
-    createToolPanelState()
+    createToolPanelState([], [], [], loadDisabledTools())
   );
   const [searchDialogOpen, setSearchDialogOpen] = useState(false);
   const [captureDialogOpen, setCaptureDialogOpen] = useState(false);
@@ -6469,6 +6510,8 @@ export function App() {
   const scriptsToolOpen = isToolOpen(toolPanelState, "scripts");
   const actionsToolOpen = isToolOpen(toolPanelState, "actions");
   const screenToolOpen = isToolOpen(toolPanelState, "screen");
+  const diceDisabled = isToolDisabled(toolPanelState, "dice");
+  const actionsDisabled = isToolDisabled(toolPanelState, "actions");
   const t = useMemo(() => createTranslator(uiCatalog ?? undefined), [uiCatalog]);
   const audio = useAudio({
     worldId: worldLibrary?.current?.id,
@@ -6770,6 +6813,14 @@ export function App() {
         openSearchDialog();
         return;
       }
+      if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
+        event.preventDefault();
+        setToolsPanelVisible((visible) => saveToolsPanelVisible(!visible));
+        return;
+      }
+      if (actionsDisabled) {
+        return;
+      }
       const position = dispatchableHotkeyPosition({
         altKey: event.altKey,
         key: event.key,
@@ -6799,7 +6850,7 @@ export function App() {
 
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [actionBindings, fastSlots, tabState.activePath]);
+  }, [actionBindings, actionsDisabled, fastSlots, tabState.activePath]);
 
   useEffect(() => {
     if (!workspaceReady) {
@@ -9623,7 +9674,7 @@ export function App() {
   function prepareWorldSwitch() {
     setLoadState({ status: "loading" });
     setWorkspaceReady(false);
-    setToolPanelState(createToolPanelState());
+    setToolPanelState(createToolPanelState([], [], [], loadDisabledTools()));
     setSearchQuery("");
     setSearchState({ status: "idle" });
     audio.reset();
@@ -10109,6 +10160,14 @@ export function App() {
     setToolPanelState((state) => toggleToolSectionPin(state, tool));
   }
 
+  function handleToolDisabledChange(tool: ToolId, disabled: boolean) {
+    setToolPanelState((state) => {
+      const nextState = setToolDisabled(state, tool, disabled);
+      saveDisabledTools(nextState.disabledTools);
+      return nextState;
+    });
+  }
+
   useEffect(() => {
     if (authState.status !== "unlocked") {
       return;
@@ -10346,7 +10405,7 @@ export function App() {
               loadState={paneFileState}
               onContextLink={handleLinkContext}
               onCsvDraftChange={handleCsvDraftChange}
-              onDiceRoll={handleDiceRoll}
+              onDiceRoll={diceDisabled ? undefined : handleDiceRoll}
               onDraftContentChange={handleDraftContentChange}
               onOpenLink={openResolvedLink}
               onPickWorldPath={handleOpenWorldPathPicker}
@@ -10747,7 +10806,9 @@ export function App() {
               </button>
             )}
           </div>
-          <FastSlotBar slots={fastSlots} onTrigger={(slot) => void handleFastSlotTrigger(slot)} t={t} />
+          {!actionsDisabled && (
+            <FastSlotBar slots={fastSlots} onTrigger={(slot) => void handleFastSlotTrigger(slot)} t={t} />
+          )}
         </div>
       </section>
       <SearchDialog
@@ -10807,6 +10868,7 @@ export function App() {
       />
       <SettingsDialog
         availableLanguages={availableLanguageOptions}
+        disabledTools={toolPanelState.disabledTools}
         language={uiLanguage}
         onClose={closeSettingsDialog}
         onImportComplete={async (summary) => {
@@ -10820,6 +10882,7 @@ export function App() {
           setSearchRevision((revision) => revision + 1);
         }}
         onLanguageChange={handleLanguageChange}
+        onToolDisabledChange={handleToolDisabledChange}
         open={settingsDialogOpen}
         t={t}
       />
@@ -10929,7 +10992,7 @@ export function App() {
         completions={buildEditorCompletions(pages, worldTree, audio.audioAutocompleteTracks)}
         onClose={() => setPeekState({ open: false })}
         onContextLink={handleLinkContext}
-        onDiceRoll={handleDiceRoll}
+        onDiceRoll={diceDisabled ? undefined : handleDiceRoll}
         onOpenLink={openResolvedLink}
         onPeekLink={openLinkPeek}
         state={peekState}
