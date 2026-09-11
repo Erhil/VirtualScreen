@@ -294,3 +294,8 @@ export function managementErrorMessage(error: unknown): string {
   }
   return message;
 }
+
+// A path as typed in a dialog: trimmed, with Windows separators turned into "/".
+export function normalizeDialogPath(path: string): string {
+  return path.trim().replace(/\\/g, "/");
+}

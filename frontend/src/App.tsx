@@ -27,19 +27,12 @@ import { useDisplay } from "./hooks/useDisplay";
 import { useBindings } from "./hooks/useBindings";
 import { useContextHelp } from "./hooks/useContextHelp";
 import { useDmsScripts } from "./hooks/useDmsScripts";
+import { useFileManagement } from "./hooks/useFileManagement";
 import { useHpTracker } from "./hooks/useHpTracker";
 import { useLanguage } from "./hooks/useLanguage";
 import { useMap } from "./hooks/useMap";
 import { useTableSnapshots } from "./hooks/useTableSnapshots";
 import { useStableHandler } from "./hooks/useStableHandler";
-import {
-  builtInCardTemplates,
-  serializeCard,
-  defaultCardPath,
-  normalizeCardTemplateCatalog,
-  renderCardTemplate,
-  type CardTemplateCatalog
-} from "./lib/cards";
 import {
   acknowledgeDmsTrust,
   activateWorkspace,
@@ -48,13 +41,9 @@ import {
   createCapture,
   createWorkspace,
   createWorld,
-  createWorldFolder,
   createWorldFile,
   deleteWorkspace,
-  deleteTrash,
-  duplicateWorldPath,
   fetchAudioLibrary,
-  fetchCardTemplates,
   fetchCaptureToday,
   fetchDisplayState,
   fetchPage,
@@ -62,18 +51,15 @@ import {
   fetchPageLinks,
   fetchPages,
   fetchPrepHealth,
-  fetchTrash,
   fetchWorkspace,
   fetchWorkspaces,
   fetchWorldFile,
   fetchWorldTree,
   fetchWorlds,
-  moveWorldPath,
   openWorld,
   openDisplayPopup,
   recordRecent,
   renameWorkspace,
-  restoreTrash,
   rotateDisplayFullscreen,
   rollDice,
   saveFavorites,
@@ -84,7 +70,6 @@ import {
   searchWorld,
   setDisplayFullscreen,
   showActiveOnDisplay,
-  trashWorldPath,
   updatePageMetadata,
   type PageDetail,
   type PageLink,
@@ -98,7 +83,6 @@ import {
   type DmsRunState,
   type DiceRollResponse,
   type NamedWorkspaceSummary,
-  type TrashEntry,
   type WorldEntry,
   type WorldFile,
   type WorldLibraryState,
@@ -138,24 +122,16 @@ import {
 } from "./lib/editor";
 import { buildEditorCompletionItems } from "./lib/editorAutocomplete";
 import {
-  contextualManagedFilePath,
-  defaultManagedFileName,
   managementErrorMessage,
-  defaultManagedFilePath,
-  defaultManagedFolderPath,
+  normalizeDialogPath,
   affectedDescendantPaths,
-  fileNameFromPath,
   hasDirtyDescendantPath,
   isDescendantPath,
-  joinWorldPath,
   remapMovedWorldPath,
   remapMovedWorkspacePaths,
   removeDescendantWorkspacePaths,
   removeWorkspacePath,
   replaceWorkspacePath,
-  revealWorldTreePaths,
-  validateContextualFileName,
-  validateManagedFolderPath,
   validateManagedFilePath,
   workspaceTabFromWorldFile,
   type ManagedFileType
@@ -252,25 +228,17 @@ import { isCardPath, isEditableFile, parseCardJson } from "./components/document
 import { type DiceStatus } from "./components/tools/DiceTool";
 import { FastSlotBar } from "./components/tools/FastSlotBar";
 import { ToolsPanel } from "./components/tools/ToolsPanel";
-import {
-  DEFAULT_CARD_TEMPLATE_ID,
-  type FileDialogState,
-  FileManagementDialog,
-  selectedCardTemplate
-} from "./components/world/FileManagementDialog";
+import { FileManagementDialog } from "./components/world/FileManagementDialog";
 import { QuickFileList } from "./components/world/QuickFileList";
-import { type TrashDialogState, TrashManagerDialog } from "./components/world/TrashManagerDialog";
+import { TrashManagerDialog } from "./components/world/TrashManagerDialog";
 import {
   WorldCreateDialog,
   type WorldCreateDialogState,
   WorldOpenDialog,
   WorldSelector
 } from "./components/world/WorldLibrary";
-import { type FolderCreateKind, WorldTree } from "./components/world/WorldTree";
-import {
-  WorldTreeContextMenu,
-  type WorldTreeContextMenuState
-} from "./components/world/WorldTreeContextMenu";
+import { WorldTree } from "./components/world/WorldTree";
+import { WorldTreeContextMenu } from "./components/world/WorldTreeContextMenu";
 import { CaptureDialog, type CaptureStatus } from "./components/dialogs/CaptureDialog";
 import { PrepHealthDialog, type PrepHealthStatus } from "./components/dialogs/PrepHealthDialog";
 import { SearchDialog, type SearchLoadState } from "./components/dialogs/SearchDialog";
@@ -295,50 +263,6 @@ type WorldPathPickerState =
 // discarded, which left both users and failing e2e runs with nothing to act on.
 function worldLoadErrorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-const DEFAULT_CARD_TITLE = "New Card";
-const DEFAULT_CARD_TEMPLATE_CATALOG: CardTemplateCatalog = {
-  templates: builtInCardTemplates,
-  warnings: []
-};
-
-function cardTitleFromPath(path: string): string {
-  const name = path.split(/[\\/]/).filter(Boolean).at(-1) ?? "";
-  return name.replace(/\.cs$/i, "").trim() || DEFAULT_CARD_TITLE;
-}
-
-function createFileDialogState(
-  fileType: ManagedFileType,
-  folderPath: string,
-  contextual = false
-): Extract<FileDialogState, { kind: "create" }> {
-  const cardTitle = DEFAULT_CARD_TITLE;
-  const name = defaultManagedFileName(fileType);
-  return {
-    kind: "create",
-    fileType,
-    folderPath,
-    contextual,
-    name,
-    path:
-      fileType === "card"
-        ? defaultCardPath(folderPath, cardTitle)
-        : contextual
-          ? contextualManagedFilePath(folderPath, name, fileType)
-          : defaultManagedFilePath(folderPath, fileType),
-    cardTemplateId: DEFAULT_CARD_TEMPLATE_ID,
-    cardTitle,
-    cardTemplateCatalog: DEFAULT_CARD_TEMPLATE_CATALOG,
-    cardTemplateStatus: fileType === "card" ? "loading" : "idle",
-    cardTemplateError: null,
-    status: "idle",
-    error: null
-  };
-}
-
-function normalizeDialogPath(path: string): string {
-  return path.trim().replace(/\\/g, "/");
 }
 
 function canSaveEditorDraft(file: WorldFile, draft: EditorDraft): boolean {
@@ -483,7 +407,6 @@ export function App() {
   });
   const [favorites, setFavorites] = useState<WorkspaceTab[]>([]);
   const [recentFiles, setRecentFiles] = useState<WorkspaceTab[]>([]);
-  const [expandedPaths, setExpandedPaths] = useState<Set<string>>(new Set([""]));
   const [tabState, setTabState] = useState<TabState>({ tabs: [], activePath: null });
   const tabStateRef = useRef<TabState>({ tabs: [], activePath: null });
   const activeDocumentTabRef = useRef<OpenTab | null>(null);
@@ -533,16 +456,50 @@ export function App() {
   const [dmsOutputSaveDialog, setDmsOutputSaveDialog] = useState<DmsOutputSaveDialogState>({
     open: false
   });
-  const [fileDialog, setFileDialog] = useState<FileDialogState>({ kind: "closed" });
-  const [folderMenuPath, setFolderMenuPath] = useState<string | null>(null);
-  const [worldTreeContextMenu, setWorldTreeContextMenu] =
-    useState<WorldTreeContextMenuState>({ open: false });
-  const worldTreeContextTriggerRef = useRef<HTMLElement | null>(null);
-  const [worldTreeDragPath, setWorldTreeDragPath] = useState<string | null>(null);
-  const [worldTreeDropPath, setWorldTreeDropPath] = useState<string | null>(null);
-  const [worldTreeStatus, setWorldTreeStatus] = useState<string | null>(null);
-  const [trashDialog, setTrashDialog] = useState<TrashDialogState>({ open: false });
   const [worldOpenDialog, setWorldOpenDialog] = useState(false);
+  const {
+    fileDialog,
+    trashDialog,
+    worldTreeStatus,
+    folderMenuPath,
+    setFolderMenuPath,
+    worldTreeContextMenu,
+    worldTreeDragPath,
+    worldTreeDropPath,
+    setWorldTreeDropPath,
+    expandedPaths,
+    revealPaths,
+    collapseAll,
+    closeFileDialog,
+    closeTrashDialog,
+    setTrashConfirmDelete,
+    closeWorldTreeContextMenu,
+    handleWorldTreeContextEntry,
+    handleWorldTreeRename,
+    handleWorldTreeDuplicate,
+    handleWorldTreeTrash,
+    handleWorldTreeDragStart,
+    handleWorldTreeDragEnd,
+    handleWorldTreeDrop,
+    handleFolderAdd,
+    handleOpenNewCardDialog,
+    handleFileDialogPathChange,
+    handleFileDialogTypeChange,
+    handleFileDialogCardTemplateChange,
+    handleFileDialogCardTitleChange,
+    handleSubmitFileDialog,
+    loadTrashDialog,
+    handleTrashRestorePathChange,
+    handleRestoreTrashEntry,
+    handleDeleteTrashEntry,
+    handleToggleFolder
+  } = useFileManagement({
+    refreshWorldStructure,
+    blockedByUnsavedChanges: treeOperationBlockedByDirty,
+    onPathMoved: applyMovedPathToWorkspaceState,
+    onPathTrashed: applyTrashedPathToWorkspaceState,
+    onFileCreated: handleManagedFileCreated
+  });
   const [worldCreateDialog, setWorldCreateDialog] = useState<WorldCreateDialogState>({
     open: false
   });
@@ -945,13 +902,6 @@ export function App() {
     : { mode: "view" };
   const activeContentDirty = activeDraft ? isDraftDirty(activeDraft) : false;
   const visiblePanePathKey = visiblePaneTabs.map((tab) => tab.path).join("\u0000");
-
-  function closeWorldTreeContextMenu(restoreFocus = false) {
-    setWorldTreeContextMenu({ open: false });
-    if (restoreFocus) {
-      window.requestAnimationFrame(() => worldTreeContextTriggerRef.current?.focus());
-    }
-  }
 
   useEffect(() => {
     setToolPanelState((state) =>
@@ -1452,117 +1402,6 @@ export function App() {
     openWorkspaceTab(folderKanbanTab(entry));
   }
 
-  function handleWorldTreeContextEntry(entry: WorldEntry, event: MouseEvent<HTMLElement>) {
-    event.preventDefault();
-    worldTreeContextTriggerRef.current = event.currentTarget;
-    setFolderMenuPath(null);
-    setWorldTreeContextMenu({
-      open: true,
-      entry,
-      x: Math.min(event.clientX, Math.max(8, window.innerWidth - 190)),
-      y: Math.min(event.clientY, Math.max(8, window.innerHeight - 190))
-    });
-  }
-
-  function handleWorldTreeRename(entry: WorldEntry) {
-    if (entry.path === "") {
-      return;
-    }
-    setFileDialog({
-      kind: "rename",
-      path: entry.path,
-      newPath: entry.path,
-      entryKind: entry.kind,
-      status: "idle",
-      error: null
-    });
-  }
-
-  async function handleWorldTreeDuplicate(entry: WorldEntry) {
-    if (entry.path === "") {
-      return;
-    }
-    const validation = treeOperationBlockedByDirty(entry.path);
-    if (validation) {
-      setWorldTreeStatus(validation);
-      return;
-    }
-    markLocalWrite([entry.path]);
-    try {
-      const duplicated = await duplicateWorldPath({ path: entry.path });
-      await refreshWorldStructure(duplicated.affected_paths);
-      setExpandedPaths((paths) => revealWorldTreePaths(paths, [duplicated.path]));
-      setWorldTreeStatus(`Duplicated ${entry.path} to ${duplicated.path}.`);
-    } catch (error: unknown) {
-      unmarkLocalWrite([entry.path]);
-      setWorldTreeStatus(managementErrorMessage(error));
-    }
-  }
-
-  function handleWorldTreeTrash(entry: WorldEntry) {
-    if (entry.path === "") {
-      return;
-    }
-    setFileDialog({
-      kind: "trash",
-      path: entry.path,
-      entryKind: entry.kind,
-      status: "idle",
-      error: null
-    });
-  }
-
-  function handleWorldTreeDragStart(entry: WorldEntry, event: DragEvent<HTMLElement>) {
-    if (entry.path === "") {
-      event.preventDefault();
-      return;
-    }
-    setWorldTreeDragPath(entry.path);
-    setWorldTreeDropPath(null);
-    event.dataTransfer.effectAllowed = "move";
-    event.dataTransfer.setData("text/plain", entry.path);
-  }
-
-  function handleWorldTreeDragEnd() {
-    setWorldTreeDragPath(null);
-    setWorldTreeDropPath(null);
-  }
-
-  async function handleWorldTreeDrop(targetEntry: WorldEntry, event: DragEvent<HTMLElement>) {
-    if (targetEntry.kind !== "directory") {
-      return;
-    }
-    event.preventDefault();
-    event.stopPropagation();
-    const sourcePath = worldTreeDragPath ?? event.dataTransfer.getData("text/plain");
-    handleWorldTreeDragEnd();
-    if (!sourcePath || sourcePath === targetEntry.path || isDescendantPath(targetEntry.path, sourcePath)) {
-      return;
-    }
-    const currentParent = sourcePath.split("/").slice(0, -1).join("/");
-    if (currentParent === targetEntry.path) {
-      return;
-    }
-    const validation = treeOperationBlockedByDirty(sourcePath);
-    if (validation) {
-      setWorldTreeStatus(validation);
-      return;
-    }
-    const targetPath = joinWorldPath(targetEntry.path, fileNameFromPath(sourcePath));
-    markLocalWrite([sourcePath, targetPath]);
-    try {
-      const moved = await moveWorldPath({ path: sourcePath, new_path: targetPath });
-      markLocalWrite([moved.path, ...moved.affected_paths, ...moved.deleted_paths]);
-      await refreshWorldStructure([sourcePath, moved.path, ...moved.affected_paths]);
-      applyMovedPathToWorkspaceState(sourcePath, moved.path);
-      setExpandedPaths((paths) => revealWorldTreePaths(paths, [moved.path]));
-      setWorldTreeStatus(`Moved ${sourcePath} to ${moved.path}.`);
-    } catch (error: unknown) {
-      unmarkLocalWrite([sourcePath, targetPath]);
-      setWorldTreeStatus(managementErrorMessage(error));
-    }
-  }
-
   function handleOpenSearchResult(result: SearchResult) {
     openWorkspaceTab(searchResultToTab(result));
   }
@@ -1995,7 +1834,7 @@ export function App() {
         content: dmsOutputSaveDialog.file.content
       });
       const nextPages = await refreshWorldStructure([createdFile.path]);
-      setExpandedPaths((paths) => revealWorldTreePaths(paths, [createdFile.path]));
+      revealPaths([createdFile.path]);
       const tab = tabFromFileWithPages(createdFile, nextPages);
       setFileStates((states) => {
         const nextStates = { ...states };
@@ -2208,88 +2047,6 @@ export function App() {
     }
   }
 
-  function handleFolderAdd(folderPath: string, kind: FolderCreateKind) {
-    setFolderMenuPath(null);
-    if (kind === "folder") {
-      setFileDialog({
-        kind: "create-folder",
-        path: defaultManagedFolderPath(folderPath),
-        status: "idle",
-        error: null
-      });
-      return;
-    }
-
-    const nextState = createFileDialogState(kind, folderPath, true);
-    setFileDialog(nextState);
-    if (kind === "card") {
-      void loadCardTemplateCatalog(nextState.cardTemplateId);
-    }
-  }
-
-  function handleOpenNewCardDialog() {
-    const nextState = createFileDialogState("card", "");
-    setFileDialog(nextState);
-    void loadCardTemplateCatalog(nextState.cardTemplateId);
-  }
-
-  async function loadCardTemplateCatalog(preferredTemplateId: string) {
-    try {
-      const catalog = normalizeCardTemplateCatalog(await fetchCardTemplates());
-      setFileDialog((state) => {
-        if (state.kind !== "create" || state.fileType !== "card") {
-          return state;
-        }
-        return {
-          ...state,
-          cardTemplateCatalog: catalog,
-          cardTemplateId: catalog.templates.some(
-            (template) => template.id === preferredTemplateId
-          )
-            ? preferredTemplateId
-            : catalog.templates[0]?.id ?? DEFAULT_CARD_TEMPLATE_ID,
-          cardTemplateStatus: "ready",
-          cardTemplateError: null
-        };
-      });
-    } catch (error: unknown) {
-      setFileDialog((state) =>
-        state.kind === "create" && state.fileType === "card"
-          ? {
-              ...state,
-              cardTemplateCatalog: DEFAULT_CARD_TEMPLATE_CATALOG,
-              cardTemplateStatus: "error",
-              cardTemplateError:
-                error instanceof Error ? error.message : "Card templates could not load."
-            }
-          : state
-      );
-    }
-  }
-
-  function treePathValidation(path: string, entryKind: "file" | "directory"): string | null {
-    if (entryKind === "directory") {
-      return validateManagedFolderPath(path);
-    }
-    const trimmedPath = path.trim();
-    if (!trimmedPath) {
-      return "Enter a world-relative path.";
-    }
-    if (trimmedPath.startsWith("/") || /^[a-z]:/i.test(trimmedPath)) {
-      return "Use a world-relative path.";
-    }
-    if (trimmedPath.split(/[\\/]/).some((part) => part === "..")) {
-      return "Path cannot contain parent-directory traversal.";
-    }
-    if (trimmedPath.replace(/\\/g, "/").split("/")[0] === ".virtualscreen") {
-      return "VirtualScreen internal paths cannot be managed.";
-    }
-    if (trimmedPath.replace(/\\/g, "/").split("/")[0] === ".music") {
-      return "Music library paths cannot be managed here.";
-    }
-    return null;
-  }
-
   function treeOperationBlockedByDirty(path: string): string | null {
     return hasDirtyDescendantPath(dirtyPaths, path)
       ? "Save or revert dirty open files before reorganizing this world path."
@@ -2384,81 +2141,6 @@ export function App() {
     void saveRecentFiles(nextRecentFiles)
       .then((workspace) => setRecentFiles(workspace.recentFiles))
       .catch(() => {});
-  }
-
-  function handleFileDialogPathChange(path: string) {
-    setFileDialog((state) => {
-      if (state.kind === "create") {
-        if (state.contextual) {
-          const nextPath =
-            state.fileType === "card"
-              ? defaultCardPath(state.folderPath, cardTitleFromPath(contextualManagedFilePath(state.folderPath, path, state.fileType)))
-              : contextualManagedFilePath(state.folderPath, path, state.fileType);
-          return {
-            ...state,
-            name: path,
-            path: nextPath,
-            cardTitle:
-              state.fileType === "card"
-                ? cardTitleFromPath(nextPath)
-                : state.cardTitle,
-            error: null
-          };
-        }
-        return {
-          ...state,
-          path,
-          folderPath: path.split("/").slice(0, -1).join("/"),
-          cardTitle:
-            state.fileType === "card" && state.cardTitle === DEFAULT_CARD_TITLE
-              ? cardTitleFromPath(path)
-              : state.cardTitle,
-          error: null
-        };
-      }
-      if (state.kind === "create-folder") {
-        return { ...state, path, error: null };
-      }
-      if (state.kind === "rename") {
-        return { ...state, newPath: path, error: null };
-      }
-      return state;
-    });
-  }
-
-  function handleFileDialogTypeChange(fileType: ManagedFileType) {
-    setFileDialog((state) => {
-      if (state.kind !== "create") {
-        return state;
-      }
-      const folderPath = state.folderPath || state.path.split("/").slice(0, -1).join("/");
-      const nextState = createFileDialogState(fileType, folderPath, state.contextual);
-      if (fileType === "card") {
-        void loadCardTemplateCatalog(nextState.cardTemplateId);
-      }
-      return nextState;
-    });
-  }
-
-  function handleFileDialogCardTemplateChange(cardTemplateId: string) {
-    setFileDialog((state) =>
-      state.kind === "create" ? { ...state, cardTemplateId, error: null } : state
-    );
-  }
-
-  function handleFileDialogCardTitleChange(cardTitle: string) {
-    setFileDialog((state) => {
-      if (state.kind !== "create") {
-        return state;
-      }
-      const folderPath = state.folderPath || state.path.split("/").slice(0, -1).join("/");
-      return {
-        ...state,
-        cardTitle,
-        path: defaultCardPath(folderPath, cardTitle),
-        error: null
-      };
-    });
   }
 
   function handleDraftModeChange(mode: EditorMode) {
@@ -2582,268 +2264,11 @@ export function App() {
       .catch(() => {});
   }
 
-  async function handleCreateFileDialog(
-    state: Extract<FileDialogState, { kind: "create" }>
-  ) {
-    const path = normalizeDialogPath(state.path);
-    const contextualNameError = state.contextual
-      ? validateContextualFileName(state.name)
-      : null;
-    if (contextualNameError) {
-      setFileDialog({ ...state, path, error: contextualNameError, status: "idle" });
-      return;
-    }
-    if (state.fileType === "card" && !state.cardTitle.trim()) {
-      setFileDialog({ ...state, path, error: "Enter a card title.", status: "idle" });
-      return;
-    }
-    const validation = validateManagedFilePath(path, state.fileType);
-    if (validation) {
-      setFileDialog({ ...state, path, error: validation, status: "idle" });
-      return;
-    }
-
-    setFileDialog({ ...state, path, status: "submitting", error: null });
-    markLocalWrite([path]);
-    try {
-      const createdFile = await createWorldFile({
-        path,
-        file_type: state.fileType,
-        content:
-          state.fileType === "card"
-            ? serializeCard(renderCardTemplate(selectedCardTemplate(state), state.cardTitle))
-            : undefined
-      });
-      const nextPages = await refreshWorldStructure([createdFile.path]);
-      setExpandedPaths((paths) => revealWorldTreePaths(paths, [createdFile.path]));
-      const tab = tabFromFileWithPages(createdFile, nextPages);
-      setFileStates((states) => ({
-        ...states,
-        [createdFile.path]: { status: "ready", file: createdFile }
-      }));
-      setEditorDrafts((drafts) => ({
-        ...drafts,
-        [createdFile.path]: createEditorDraft(createdFile)
-      }));
-      openWorkspaceTab(tab);
-      setFileDialog({ kind: "closed" });
-    } catch (error: unknown) {
-      unmarkLocalWrite([path]);
-      setFileDialog({
-        ...state,
-        path,
-        status: "idle",
-        error: managementErrorMessage(error)
-      });
-    }
-  }
-
-  async function handleCreateFolderDialog(
-    state: Extract<FileDialogState, { kind: "create-folder" }>
-  ) {
-    const path = normalizeDialogPath(state.path);
-    const validation = validateManagedFolderPath(path);
-    if (validation) {
-      setFileDialog({ ...state, path, error: validation, status: "idle" });
-      return;
-    }
-
-    setFileDialog({ ...state, path, status: "submitting", error: null });
-    markLocalWrite([path]);
-    try {
-      const folder = await createWorldFolder({ path });
-      await refreshWorldStructure([folder.path]);
-      setExpandedPaths((paths) => new Set([...revealWorldTreePaths(paths, [folder.path]), folder.path]));
-      setFileDialog({ kind: "closed" });
-    } catch (error: unknown) {
-      unmarkLocalWrite([path]);
-      setFileDialog({
-        ...state,
-        path,
-        status: "idle",
-        error: managementErrorMessage(error)
-      });
-    }
-  }
-
-  async function handleRenameFileDialog(
-    state: Extract<FileDialogState, { kind: "rename" }>
-  ) {
-    const newPath = normalizeDialogPath(state.newPath);
-    const validation =
-      treeOperationBlockedByDirty(state.path) ?? treePathValidation(newPath, state.entryKind);
-    if (
-      !validation &&
-      state.entryKind === "file" &&
-      fileNameFromPath(state.path).split(".").at(-1)?.toLowerCase() !==
-        fileNameFromPath(newPath).split(".").at(-1)?.toLowerCase()
-    ) {
-      setFileDialog({ ...state, newPath, status: "idle", error: "File extension cannot change." });
-      return;
-    }
-    if (validation) {
-      setFileDialog({ ...state, newPath, status: "idle", error: validation });
-      return;
-    }
-
-    setFileDialog({ ...state, newPath, status: "submitting", error: null });
-    markLocalWrite([state.path, newPath]);
-    try {
-      const moved = await moveWorldPath({
-        path: state.path,
-        new_path: newPath
-      });
-      markLocalWrite([moved.path, ...moved.affected_paths, ...moved.deleted_paths]);
-      await refreshWorldStructure([state.path, moved.path, ...moved.affected_paths]);
-      applyMovedPathToWorkspaceState(state.path, moved.path);
-      setExpandedPaths((paths) => revealWorldTreePaths(paths, [moved.path]));
-      setWorldTreeStatus(`Moved ${state.path} to ${moved.path}.`);
-      setFileDialog({ kind: "closed" });
-    } catch (error: unknown) {
-      unmarkLocalWrite([state.path, newPath]);
-      setFileDialog({
-        ...state,
-        newPath,
-        status: "idle",
-        error: managementErrorMessage(error)
-      });
-    }
-  }
-
-  async function handleTrashFileDialog(
-    state: Extract<FileDialogState, { kind: "trash" }>
-  ) {
-    const validation = treeOperationBlockedByDirty(state.path);
-    if (validation) {
-      setFileDialog({ ...state, status: "idle", error: validation });
-      return;
-    }
-
-    setFileDialog({ ...state, status: "submitting", error: null });
-    markLocalWrite([state.path]);
-    try {
-      const trashed = await trashWorldPath({ path: state.path });
-      markLocalWrite(trashed.deleted_paths);
-      await refreshWorldStructure([state.path, ...trashed.deleted_paths]);
-      applyTrashedPathToWorkspaceState(state.path);
-      setWorldTreeStatus(`Moved ${state.path} to trash.`);
-      setFileDialog({ kind: "closed" });
-    } catch (error: unknown) {
-      unmarkLocalWrite([state.path]);
-      setFileDialog({
-        ...state,
-        status: "idle",
-        error: managementErrorMessage(error)
-      });
-    }
-  }
-
-  async function loadTrashDialog() {
-    setTrashDialog({
-      open: true,
-      status: "loading",
-      entries: [],
-      restorePaths: {},
-      confirmDeletePath: null,
-      error: null
-    });
-    try {
-      const entries = await fetchTrash();
-      setTrashDialog({
-        open: true,
-        status: "ready",
-        entries,
-        restorePaths: Object.fromEntries(
-          entries.map((entry) => [entry.trashed_path, entry.original_path])
-        ),
-        confirmDeletePath: null,
-        error: null
-      });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      setTrashDialog({
-        open: true,
-        status: "error",
-        entries: [],
-        restorePaths: {},
-        confirmDeletePath: null,
-        error: message
-      });
-    }
-  }
-
-  function handleTrashRestorePathChange(entry: TrashEntry, path: string) {
-    setTrashDialog((state) =>
-      state.open
-        ? {
-            ...state,
-            restorePaths: { ...state.restorePaths, [entry.trashed_path]: path },
-            error: null
-          }
-        : state
-    );
-  }
-
-  async function handleRestoreTrashEntry(entry: TrashEntry) {
-    if (!trashDialog.open) {
-      return;
-    }
-    const restorePath = normalizeDialogPath(
-      trashDialog.restorePaths[entry.trashed_path] ?? entry.original_path
-    );
-    const validation = validateManagedFilePath(restorePath) ?? null;
-    if (validation && entry.kind === "file") {
-      setTrashDialog({ ...trashDialog, error: validation });
-      return;
-    }
-
-    setTrashDialog({ ...trashDialog, status: "submitting", error: null });
-    markLocalWrite([restorePath]);
-    try {
-      await restoreTrash({
-        trashed_path: entry.trashed_path,
-        ...(restorePath !== entry.original_path ? { restore_path: restorePath } : {})
-      });
-      await refreshWorldStructure([restorePath]);
-      setExpandedPaths((paths) => revealWorldTreePaths(paths, [restorePath]));
-      await loadTrashDialog();
-    } catch (error: unknown) {
-      unmarkLocalWrite([restorePath]);
-      setTrashDialog({
-        ...trashDialog,
-        status: "ready",
-        error: managementErrorMessage(error)
-      });
-    }
-  }
-
-  async function handleDeleteTrashEntry(entry: TrashEntry) {
-    if (!trashDialog.open) {
-      return;
-    }
-    setTrashDialog({ ...trashDialog, status: "submitting", error: null });
-    try {
-      await deleteTrash({ trashed_path: entry.trashed_path });
-      await loadTrashDialog();
-    } catch (error: unknown) {
-      setTrashDialog({
-        ...trashDialog,
-        status: "ready",
-        error: managementErrorMessage(error)
-      });
-    }
-  }
-
-  function handleSubmitFileDialog() {
-    if (fileDialog.kind === "create") {
-      void handleCreateFileDialog(fileDialog);
-    } else if (fileDialog.kind === "create-folder") {
-      void handleCreateFolderDialog(fileDialog);
-    } else if (fileDialog.kind === "rename") {
-      void handleRenameFileDialog(fileDialog);
-    } else if (fileDialog.kind === "trash") {
-      void handleTrashFileDialog(fileDialog);
-    }
+  // A file created from the file dialog opens right away, with a clean draft to edit.
+  function handleManagedFileCreated(file: WorldFile, nextPages: PageSummary[]) {
+    setFileStates((states) => ({ ...states, [file.path]: { status: "ready", file } }));
+    setEditorDrafts((drafts) => ({ ...drafts, [file.path]: createEditorDraft(file) }));
+    openWorkspaceTab(tabFromFileWithPages(file, nextPages));
   }
 
   async function handleSaveDraft() {
@@ -2943,18 +2368,6 @@ export function App() {
   function closeSearchDialog() {
     setSearchDialogOpen(false);
     window.setTimeout(() => searchButtonRef.current?.focus(), 0);
-  }
-
-  function handleToggleFolder(path: string) {
-    setExpandedPaths((paths) => {
-      const nextPaths = new Set(paths);
-      if (nextPaths.has(path)) {
-        nextPaths.delete(path);
-      } else {
-        nextPaths.add(path);
-      }
-      return nextPaths;
-    });
   }
 
   function removeDeletedWorkspaceItems(deletedPaths: string[]) {
@@ -3131,7 +2544,7 @@ export function App() {
       setSearchRevision((revision) => revision + 1);
     }
     setWorkspaceLayout(normalizeWorkspaceLayout(workspace.layout, workspace.tabs));
-    setExpandedPaths(new Set([""]));
+    collapseAll();
     setWorkspaceReady(true);
     setLoadState({ status: "ready" });
   }
@@ -3310,7 +2723,7 @@ export function App() {
       });
       markLocalWrite([response.path]);
       const nextPages = await refreshWorldStructure([response.path]);
-      setExpandedPaths((paths) => revealWorldTreePaths(paths, [response.path]));
+      revealPaths([response.path]);
       const logTab = captureLogTab(response.path, nextPages);
       const openLogTab = tabState.tabs.find((tab) => tab.path === response.path);
       const logDraft = editorDrafts[response.path];
@@ -3649,7 +3062,7 @@ export function App() {
             dirtyPaths={dirtyPaths}
             onChanged={async (paths) => {
               await refreshWorldStructure(paths);
-              setExpandedPaths((expanded) => revealWorldTreePaths(expanded, paths));
+              revealPaths(paths);
               setSearchRevision((revision) => revision + 1);
             }}
             onOpenEntity={(path) => openWorkspaceTab(workspaceTabFromPath(path, pages))}
@@ -3821,7 +3234,7 @@ export function App() {
               type="search"
               value={treeFilter}
             />
-            <button onClick={() => setExpandedPaths(new Set([""]))} type="button">
+            <button onClick={() => collapseAll()} type="button">
               {t("side.collapseAll")}
             </button>
           </div>
@@ -4181,7 +3594,7 @@ export function App() {
             .map((file) => file.target_path);
           await refreshWorldStructure(importedPaths);
           if (importedPaths.length > 0) {
-            setExpandedPaths((paths) => revealWorldTreePaths(paths, importedPaths));
+            revealPaths(importedPaths);
           }
           setSearchRevision((revision) => revision + 1);
         }}
@@ -4218,20 +3631,18 @@ export function App() {
       <FileManagementDialog
         onCardTemplateChange={handleFileDialogCardTemplateChange}
         onCardTitleChange={handleFileDialogCardTitleChange}
-        onClose={() => setFileDialog({ kind: "closed" })}
+        onClose={closeFileDialog}
         onFileTypeChange={handleFileDialogTypeChange}
         onPathChange={handleFileDialogPathChange}
         onSubmit={handleSubmitFileDialog}
         state={fileDialog}
       />
       <TrashManagerDialog
-        onClose={() => setTrashDialog({ open: false })}
+        onClose={closeTrashDialog}
         onDelete={(entry) => void handleDeleteTrashEntry(entry)}
         onRestore={(entry) => void handleRestoreTrashEntry(entry)}
         onRestorePathChange={handleTrashRestorePathChange}
-        onSetConfirmDelete={(path) =>
-          setTrashDialog((state) => (state.open ? { ...state, confirmDeletePath: path } : state))
-        }
+        onSetConfirmDelete={setTrashConfirmDelete}
         state={trashDialog}
       />
       {worldOpenDialog && (
