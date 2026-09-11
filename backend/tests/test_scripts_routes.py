@@ -2,19 +2,12 @@ import json
 import time
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.core import scripts as scripts_core
 from app.core.config import Settings, get_settings
 from app.core.map import map_state_from_payload, save_map_preset
 from app.main import create_app
-
-
-@pytest.fixture(autouse=True)
-def clear_cached_settings():
-    yield
-    get_settings.cache_clear()
 
 
 def make_client(

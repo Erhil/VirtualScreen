@@ -7,13 +7,6 @@ from app.core.config import Settings, get_settings
 from app.main import create_app
 
 
-@pytest.fixture(autouse=True)
-def clear_cached_settings() -> None:
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
-
-
 def make_client(world: Path, monkeypatch: pytest.MonkeyPatch) -> TestClient:
     monkeypatch.setenv("VIRTUALSCREEN_ACCESS_TOKEN", " ")
     monkeypatch.setenv("VIRTUALSCREEN_WORLD_ROOT", str(world))

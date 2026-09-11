@@ -1,12 +1,10 @@
 import json
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from helpers import make_client
 
-from app.core.config import Settings, get_settings
 from app.core.database import initialize_database
 from app.core.map import map_state_from_payload, save_map_preset
-from app.main import create_app
 
 
 def make_world(tmp_path: Path) -> Path:
@@ -21,12 +19,6 @@ def make_world(tmp_path: Path) -> Path:
     (world / ".music" / "effects").mkdir(parents=True)
     (world / ".music" / "effects" / "glass.mp3").write_bytes(b"mp3")
     return world
-
-
-def make_client(world: Path) -> TestClient:
-    app = create_app()
-    app.dependency_overrides[get_settings] = lambda: Settings(world_root=world)
-    return TestClient(app)
 
 
 def slot(position: int, action: dict[str, object]) -> dict[str, object]:

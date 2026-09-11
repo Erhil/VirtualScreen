@@ -2,17 +2,9 @@ import hashlib
 import mimetypes
 from pathlib import Path
 
-from fastapi.testclient import TestClient
+from helpers import make_client
 
-from app.core.config import Settings, get_settings
 from app.core.index import rebuild_index
-from app.main import create_app
-
-
-def make_client(world: Path) -> TestClient:
-    app = create_app()
-    app.dependency_overrides[get_settings] = lambda: Settings(world_root=world)
-    return TestClient(app)
 
 
 def test_reads_markdown_file_with_metadata(tmp_path: Path) -> None:

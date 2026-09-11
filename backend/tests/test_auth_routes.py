@@ -1,17 +1,10 @@
 from pathlib import Path
 
-import pytest
 from fastapi.testclient import TestClient
 
 from app.core.auth import _is_public
 from app.core.config import get_settings
 from app.main import create_app
-
-
-@pytest.fixture(autouse=True)
-def clear_cached_settings():
-    yield
-    get_settings.cache_clear()
 
 
 def make_client(tmp_path: Path, monkeypatch, token: str | None = None) -> TestClient:

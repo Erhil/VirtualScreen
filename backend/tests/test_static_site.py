@@ -10,13 +10,6 @@ from app.main import create_app
 INDEX_MARKER = '<div id="root">SPA</div>'
 
 
-@pytest.fixture(autouse=True)
-def clear_cached_settings():
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
-
-
 def make_fake_dist(tmp_path: Path) -> Path:
     dist = tmp_path / "dist"
     dist.mkdir()

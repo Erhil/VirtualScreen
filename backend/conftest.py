@@ -6,11 +6,20 @@ developer's machine has to live here, at the rootdir, or a plugin's co-located t
 quietly run without it.
 """
 
+from collections.abc import Iterator
 from pathlib import Path
 
 import pytest
 
 from app.core import world_library
+from app.core.config import get_settings
+
+
+@pytest.fixture(autouse=True)
+def clear_cached_settings() -> Iterator[None]:
+    get_settings.cache_clear()
+    yield
+    get_settings.cache_clear()
 
 
 @pytest.fixture(autouse=True)

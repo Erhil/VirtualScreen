@@ -15,13 +15,6 @@ from app.core.system_packs import MAX_ZIP_BYTES
 from app.main import create_app
 
 
-@pytest.fixture(autouse=True)
-def clear_cached_settings():
-    get_settings.cache_clear()
-    yield
-    get_settings.cache_clear()
-
-
 def make_client(world: Path, token: str | None = None) -> TestClient:
     app = create_app()
     app.dependency_overrides[get_settings] = lambda: Settings(
