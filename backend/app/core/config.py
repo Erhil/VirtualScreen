@@ -23,7 +23,6 @@ class Settings(BaseSettings):
     watch_world: bool = False
     language: str = "en"
     language_dir: Path = Field(default=Path("lang"))
-    enable_legacy_scenarios: bool = False
     static_dir: Path | None = None
 
     @property

@@ -70,12 +70,6 @@ describe("fast slot helpers", () => {
         action: { kind: "map_preset", preset_id: "city-gate", present: true }
       })
     ).toBe("Map preset city-gate");
-    expect(
-      fastSlotSummary({
-        ...slot,
-        action: { kind: "scenario", scenario_id: "create-npc", inputs: {} }
-      })
-    ).toBe("Legacy scenario create-npc");
   });
 
   it("builds validated actions for slot creation", () => {
@@ -109,9 +103,6 @@ describe("fast slot helpers", () => {
     });
     expect(buildFastSlotAction({ kind: "map_preset", presetId: " " })).toEqual({
       error: "Choose a map preset id."
-    });
-    expect(buildFastSlotAction({ kind: "scenario" as never, scenarioId: "create-npc" })).toEqual({
-      error: "Scenario slots are deprecated. Use Run script."
     });
   });
 

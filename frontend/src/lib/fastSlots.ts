@@ -43,12 +43,11 @@ function basename(path: string): string {
 }
 
 export type FastSlotActionDraft = {
-  kind: FastSlotAction["kind"] | "scenario";
+  kind: FastSlotAction["kind"];
   path?: string;
   preset?: DisplayPopupPreset;
   presetId?: string;
   present?: boolean;
-  scenarioId?: string;
 };
 
 export type FastSlotActionBuildResult =
@@ -60,13 +59,9 @@ export function buildFastSlotAction({
   path = "",
   preset,
   presetId = "",
-  present = true,
-  scenarioId = ""
+  present = true
 }: FastSlotActionDraft): FastSlotActionBuildResult {
   const trimmedPath = path.trim();
-  if (kind === "scenario") {
-    return { error: "Scenario slots are deprecated. Use Run script." };
-  }
   if (kind === "open_file") {
     return trimmedPath
       ? { action: { kind, path: trimmedPath } }
@@ -92,24 +87,15 @@ export function buildFastSlotAction({
       ? { action: { kind, path: trimmedPath } }
       : { error: "Choose a DMS script path." };
   }
-  if (kind === "map_preset") {
-    const trimmedPresetId = presetId.trim();
-    return trimmedPresetId
-      ? { action: { kind, preset_id: trimmedPresetId, present } }
-      : { error: "Choose a map preset id." };
-  }
-  const trimmedScenarioId = scenarioId.trim();
-  return trimmedScenarioId
-    ? { action: { kind: "scenario", scenario_id: trimmedScenarioId, inputs: {} } }
-    : { error: "Choose a scenario id." };
+  const trimmedPresetId = presetId.trim();
+  return trimmedPresetId
+    ? { action: { kind, preset_id: trimmedPresetId, present } }
+    : { error: "Choose a map preset id." };
 }
 
 export function visibleFastSlots(slots: FastSlot[]): FastSlot[] {
   return sortFastSlots(
     slots.filter((slot) => {
-      if (slot.action.kind === "scenario") {
-        return false;
-      }
       if (slot.action.kind === "map_preset") {
         return (
           typeof slot.action.preset_id === "string" &&
@@ -136,7 +122,5 @@ export function fastSlotSummary(slot: FastSlot): string {
       return `Run ${basename(action.path)}`;
     case "map_preset":
       return `Map preset ${action.preset_id}`;
-    case "scenario":
-      return `Legacy scenario ${action.scenario_id}`;
   }
 }

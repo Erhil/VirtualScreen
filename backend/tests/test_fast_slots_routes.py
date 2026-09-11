@@ -20,24 +20,12 @@ def make_world(tmp_path: Path) -> Path:
     (world / "Scripts" / "hello.dms").write_text("render_md('# Hi')", encoding="utf-8")
     (world / ".music" / "effects").mkdir(parents=True)
     (world / ".music" / "effects" / "glass.mp3").write_bytes(b"mp3")
-    (world / ".virtualscreen" / "scenarios" / "create-npc").mkdir(parents=True)
-    (world / ".virtualscreen" / "scenarios" / "create-npc" / "scenario.json").write_text(
-        '{"id":"create-npc","name":"Create NPC","script":"main.py","inputs":[]}',
-        encoding="utf-8",
-    )
-    (world / ".virtualscreen" / "scenarios" / "create-npc" / "main.py").write_text(
-        "print('ok')",
-        encoding="utf-8",
-    )
     return world
 
 
-def make_client(world: Path, *, enable_legacy_scenarios: bool = True) -> TestClient:
+def make_client(world: Path) -> TestClient:
     app = create_app()
-    app.dependency_overrides[get_settings] = lambda: Settings(
-        world_root=world,
-        enable_legacy_scenarios=enable_legacy_scenarios,
-    )
+    app.dependency_overrides[get_settings] = lambda: Settings(world_root=world)
     return TestClient(app)
 
 
@@ -250,7 +238,7 @@ def test_fast_slots_reject_unsafe_file_path(tmp_path: Path) -> None:
     assert response.status_code == 400
 
 
-def test_fast_slots_reject_missing_file_audio_and_scenario(tmp_path: Path) -> None:
+def test_fast_slots_reject_missing_file_audio_and_script(tmp_path: Path) -> None:
     client = make_client(make_world(tmp_path))
 
     missing_file = client.put(
@@ -273,14 +261,6 @@ def test_fast_slots_reject_missing_file_audio_and_scenario(tmp_path: Path) -> No
             ]
         },
     )
-    missing_scenario = client.put(
-        "/api/fast-slots",
-        json={
-            "slots": [
-                slot(1, {"kind": "scenario", "scenario_id": "missing", "inputs": {}})
-            ]
-        },
-    )
     missing_script = client.put(
         "/api/fast-slots",
         json={"slots": [slot(1, {"kind": "script_run", "path": "Scripts/missing.dms"})]},
@@ -288,17 +268,4 @@ def test_fast_slots_reject_missing_file_audio_and_scenario(tmp_path: Path) -> No
 
     assert missing_file.status_code == 404
     assert missing_audio.status_code == 404
-    assert missing_scenario.status_code == 404
     assert missing_script.status_code == 404
-
-
-def test_fast_slots_reject_legacy_scenario_actions_by_default(tmp_path: Path) -> None:
-    client = make_client(make_world(tmp_path), enable_legacy_scenarios=False)
-
-    response = client.put(
-        "/api/fast-slots",
-        json={"slots": [slot(1, {"kind": "scenario", "scenario_id": "create-npc", "inputs": {}})]},
-    )
-
-    assert Settings(world_root=tmp_path / "world").enable_legacy_scenarios is False
-    assert response.status_code == 400

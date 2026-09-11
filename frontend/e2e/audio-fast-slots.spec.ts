@@ -182,7 +182,6 @@ test("open file fast slot requires an explicit file path", async ({ page }) => {
   await openToolSection(page, "Actions");
   const actions = toolsPanel(page).getByRole("region", { name: "Fast Slot Configuration" });
   await actions.getByLabel("Action").selectOption("open_file");
-  await expect(actions.getByLabel("Action")).not.toContainText("Scenario");
   await expect(actions.getByLabel("Action")).not.toContainText("Search query");
   await expect(actions.getByLabel("Action")).toContainText("Run script");
   await actions.getByRole("textbox", { name: "Fast slot path" }).fill("");

@@ -198,16 +198,6 @@ def initialize_database(root: Path) -> sqlite3.Connection:
           position integer primary key,
           slot_json text not null
         );
-
-        create table if not exists scenario_runs (
-          run_id text primary key,
-          scenario_id text not null,
-          status text not null,
-          output_kind text not null,
-          output text not null,
-          stderr text not null,
-          created_at text not null
-        );
         """
                 )
                 columns = {

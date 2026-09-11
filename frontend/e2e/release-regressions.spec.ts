@@ -37,9 +37,6 @@ function resetE2eWorld() {
   mkdirSync(resolve(e2eWorld, ".music", "ambient", "Tavern"), { recursive: true });
   mkdirSync(resolve(e2eWorld, ".music", "music", "Bard"), { recursive: true });
   mkdirSync(resolve(e2eWorld, ".music", "effects"), { recursive: true });
-  mkdirSync(resolve(e2eWorld, ".virtualscreen", "scenarios", "create-npc"), {
-    recursive: true
-  });
 
   writeFileSync(resolve(e2eWorld, ".music", "ambient", "Tavern", "tavern-crowd.mp3"), tinyMp3);
   writeFileSync(resolve(e2eWorld, ".music", "music", "Bard", "bard-song.ogg"), tinyOgg);
@@ -47,33 +44,6 @@ function resetE2eWorld() {
   writeFileSync(
     resolve(e2eWorld, "Scripts", "trust_gate.dms"),
     "render_md('# Trusted Gate Output')\n",
-    "utf-8"
-  );
-  writeFileSync(
-    resolve(e2eWorld, ".virtualscreen", "scenarios", "create-npc", "scenario.json"),
-    JSON.stringify({
-      id: "create-npc",
-      name: "Create NPC",
-      description: "Legacy scenario fixture for release regression tests.",
-      script: "main.py",
-      timeout_seconds: 5,
-      output_kind: "markdown",
-      inputs: [
-        {
-          name: "name",
-          label: "Name",
-          input_type: "text",
-          required: true,
-          default: "Ilyra",
-          options: []
-        }
-      ]
-    }),
-    "utf-8"
-  );
-  writeFileSync(
-    resolve(e2eWorld, ".virtualscreen", "scenarios", "create-npc", "main.py"),
-    "import json, sys\ninputs = json.load(sys.stdin)\nprint('# ' + inputs.get('name', 'NPC'))\n",
     "utf-8"
   );
 
@@ -387,65 +357,6 @@ test("Search close button restores focus to Search", async ({ page }) => {
 
   await expect(dialog).toHaveCount(0);
   await expect(searchButton).toBeFocused();
-});
-
-test("DMS run flow has a trust gate and labels scripts as DMS", async ({ page }) => {
-  await page.goto("/");
-
-  await openWorldFile(page, /trust_gate\.dms/, "Scripts");
-  await page
-    .getByRole("region", { name: "Document status" })
-    .getByRole("button", { name: "Run Active Script", exact: true })
-    .click();
-
-  const trust = page.getByRole("dialog", { name: "Trust DMS Scripts" });
-  await expect(trust).toBeVisible();
-  await expect(trust).toContainText("Scripts/trust_gate.dms");
-  await expect(trust).toContainText(/trusted local Python/i);
-  await expect(page.getByRole("heading", { name: "Trusted Gate Output" })).toHaveCount(0);
-  await trust.getByRole("button", { name: "Trust and Run Script" }).click();
-  await expect(page.getByRole("heading", { name: "Trusted Gate Output" })).toBeVisible();
-
-  await openWorldFile(page, /trust_gate\.dms/, "Scripts");
-  await enterEditMode(page);
-  await fillCodeEditor(page, "DMS editor", "render_md('# Unsaved trusted edit')\n");
-  const status = page.getByRole("region", { name: "Document status" });
-  await expect(status).toContainText("Save before running.");
-  await expect(status.getByRole("button", { name: "Run Active Script", exact: true })).toBeDisabled();
-
-  const scripts = await scriptsTool(page);
-  await expect(toolsPanel(page).getByRole("button", { name: /^Scenarios/ })).toHaveCount(0);
-  await expect(scripts.getByText("Trust Gate")).toBeVisible();
-  await expect(scripts.getByText("Scripts/trust_gate.dms")).toBeVisible();
-});
-
-test("legacy scenario fast slots stay hidden while scenarios are disabled", async ({
-  page,
-  request
-}) => {
-  const scenariosResponse = await request.get("/api/scenarios");
-  expect(scenariosResponse.status()).toBe(404);
-
-  const saveResponse = await request.put("/api/fast-slots", {
-    data: {
-      slots: [
-        {
-          id: "slot-1",
-          position: 1,
-          label: "Legacy scenario",
-          icon: null,
-          action: { kind: "scenario", scenario_id: "create-npc", inputs: { name: "Mira" } }
-        }
-      ]
-    }
-  });
-  expect(saveResponse.ok()).toBe(false);
-
-  await page.goto("/");
-  await expect(page.getByRole("button", { name: "Fast slot 1 empty" })).toBeVisible();
-  await expect(page.getByRole("button", { name: /Legacy scenario/ })).toHaveCount(0);
-  const actions = await actionsTool(page);
-  await expect(actions.getByLabel("Action")).not.toContainText("Scenario");
 });
 
 test("system-pack import success disables repeated import", async ({ page }) => {

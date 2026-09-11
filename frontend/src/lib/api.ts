@@ -516,8 +516,7 @@ export type FastSlotAction =
   | { kind: "screen_popup"; path?: string | null; preset?: DisplayPopupPreset | null }
   | { kind: "audio_track"; path: string; bus: AudioBus; play: boolean }
   | { kind: "script_run"; path: string }
-  | { kind: "map_preset"; preset_id: string; present: boolean }
-  | { kind: "scenario"; scenario_id: string; inputs: Record<string, string | number | boolean> };
+  | { kind: "map_preset"; preset_id: string; present: boolean };
 
 export type FastSlot = {
   id: string;

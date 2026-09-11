@@ -94,9 +94,6 @@ export function resetE2eWorld() {
   mkdirSync(resolve(e2eWorld, ".music", "ambient", "Tavern"), { recursive: true });
   mkdirSync(resolve(e2eWorld, ".music", "music", "Bard"), { recursive: true });
   mkdirSync(resolve(e2eWorld, ".music", "effects"), { recursive: true });
-  mkdirSync(resolve(e2eWorld, ".virtualscreen", "scenarios", "create-npc"), {
-    recursive: true
-  });
   mkdirSync(resolve(e2eWorld, ".virtualscreen", "card-templates"), {
     recursive: true
   });
@@ -303,33 +300,6 @@ export function resetE2eWorld() {
   writeFileSync(
     resolve(e2eWorld, "Scripts", "map_preset_demo.dms"),
     "map_preset('Session setup', present=True)\nmap_fog(True)\n",
-    "utf-8"
-  );
-  writeFileSync(
-    resolve(e2eWorld, ".virtualscreen", "scenarios", "create-npc", "scenario.json"),
-    JSON.stringify({
-      id: "create-npc",
-      name: "Create NPC",
-      description: "Generate a quick NPC",
-      script: "main.py",
-      timeout_seconds: 5,
-      output_kind: "markdown",
-      inputs: [
-        {
-          name: "name",
-          label: "Name",
-          input_type: "text",
-          required: true,
-          default: "Ilyra",
-          options: []
-        }
-      ]
-    }),
-    "utf-8"
-  );
-  writeFileSync(
-    resolve(e2eWorld, ".virtualscreen", "scenarios", "create-npc", "main.py"),
-    "import json, sys\ninputs = json.load(sys.stdin)\nprint('# ' + inputs.get('name', 'NPC'))\n",
     "utf-8"
   );
   resetWorldDirectory(sideWorld);

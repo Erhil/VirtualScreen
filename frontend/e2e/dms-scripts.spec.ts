@@ -8,7 +8,6 @@ useE2eWorld();
 test("DMS scripts run from editor and scripts tool @smoke", async ({ page }) => {
   await page.goto("/");
 
-  await expect(toolsPanel(page).getByRole("button", { name: /^Scenarios/ })).toHaveCount(0);
   await openScriptsFile(page, "hello_world1\\.dms");
   await expect(
     page

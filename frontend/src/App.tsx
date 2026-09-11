@@ -528,7 +528,7 @@ type TableSnapshotStatus =
   | { status: "loaded"; message: string }
   | { status: "error"; message: string };
 type BindingActionKind =
-  | Exclude<FastSlotAction["kind"], "scenario">
+  | FastSlotAction["kind"]
   | "table_snapshot_restore";
 type MidiInputSummary = {
   id: string | null;
@@ -8342,11 +8342,6 @@ export function App() {
     const validatedAction = validation.action;
     if (isTableSnapshotRestoreAction(validatedAction)) {
       await handleLoadTableSnapshot(validatedAction.snapshot_id);
-      return;
-    }
-    if (validatedAction.kind === "scenario") {
-      reportError("Legacy scenario slots are deprecated. Create a Run script slot.");
-      setToolPanelState((state) => openToolSectionByUser(state, "actions"));
       return;
     }
     const dispatchAction = validatedAction;

@@ -35,13 +35,7 @@ def _slot_model(slot: FastSlot) -> FastSlotModel:
 
 @router.get("/fast-slots", response_model=list[FastSlotModel])
 def fast_slots(settings: SettingsDep) -> list[FastSlotModel]:
-    return [
-        _slot_model(slot)
-        for slot in load_fast_slots(
-            settings.resolved_world_root,
-            enable_legacy_scenarios=settings.enable_legacy_scenarios,
-        )
-    ]
+    return [_slot_model(slot) for slot in load_fast_slots(settings.resolved_world_root)]
 
 
 @router.put("/fast-slots", response_model=list[FastSlotModel])
@@ -53,7 +47,6 @@ def update_fast_slots(
         slots = save_fast_slots(
             settings.resolved_world_root,
             [slot.model_dump() for slot in payload.slots],
-            enable_legacy_scenarios=settings.enable_legacy_scenarios,
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc

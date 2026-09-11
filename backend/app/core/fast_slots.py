@@ -13,7 +13,6 @@ from app.core.paths import (
     normalize_relative_path,
     resolve_under_root,
 )
-from app.core.scenarios import get_scenario
 from app.core.scripts import validate_script_path
 
 SlotBus = Literal["ambient", "music", "effect"]
@@ -22,12 +21,10 @@ SlotKind = Literal[
     "screen_fullscreen",
     "screen_popup",
     "audio_track",
-    "scenario",
     "script_run",
     "map_preset",
 ]
 
-VALID_BUSES = {"ambient", "music", "effect"}
 SCREEN_ACTIONS = {"screen_fullscreen", "screen_popup"}
 MAX_SLOTS = 10
 
@@ -94,12 +91,7 @@ def _validate_map_preset(root: Path, action: dict[str, object]) -> dict[str, obj
     }
 
 
-def _validate_action(
-    root: Path,
-    action: object,
-    *,
-    enable_legacy_scenarios: bool,
-) -> dict[str, object]:
+def _validate_action(root: Path, action: object) -> dict[str, object]:
     if not isinstance(action, dict):
         raise ValueError("Fast slot action must be an object.")
     kind = str(action.get("kind") or "")
@@ -124,15 +116,6 @@ def _validate_action(
             "bus": "effect",
             "play": True,
         }
-    if kind == "scenario":
-        if not enable_legacy_scenarios:
-            raise ValueError("Fast slot scenario actions are disabled.")
-        scenario_id = str(action.get("scenario_id") or "").strip()
-        get_scenario(root, scenario_id)
-        inputs = action.get("inputs") or {}
-        if not isinstance(inputs, dict):
-            raise ValueError("Fast slot scenario inputs must be an object.")
-        return {"kind": kind, "scenario_id": scenario_id, "inputs": inputs}
     if kind == "script_run":
         return {"kind": kind, "path": validate_script_path(root, action.get("path"))}
     if kind == "map_preset":
@@ -140,12 +123,7 @@ def _validate_action(
     raise ValueError("Fast slot action kind is invalid.")
 
 
-def _slot_from_dict(
-    root: Path,
-    value: object,
-    *,
-    enable_legacy_scenarios: bool,
-) -> FastSlot:
+def _slot_from_dict(root: Path, value: object) -> FastSlot:
     if not isinstance(value, dict):
         raise ValueError("Fast slot must be an object.")
     position = int(value.get("position") or 0)
@@ -160,43 +138,25 @@ def _slot_from_dict(
         position=position,
         label=label,
         icon=str(icon) if icon is not None else None,
-        action=_validate_action(
-            root,
-            value.get("action"),
-            enable_legacy_scenarios=enable_legacy_scenarios,
-        ),
+        action=_validate_action(root, value.get("action")),
     )
 
 
-def load_fast_slots(root: Path, *, enable_legacy_scenarios: bool = False) -> list[FastSlot]:
+def load_fast_slots(root: Path) -> list[FastSlot]:
     conn = initialize_database(root)
     rows = conn.execute("select slot_json from fast_slots order by position").fetchall()
     conn.close()
     slots: list[FastSlot] = []
     for row in rows:
         try:
-            slots.append(
-                _slot_from_dict(
-                    root,
-                    json.loads(row["slot_json"]),
-                    enable_legacy_scenarios=enable_legacy_scenarios,
-                )
-            )
+            slots.append(_slot_from_dict(root, json.loads(row["slot_json"])))
         except (ValueError, FileNotFoundError, WorldPathError, json.JSONDecodeError):
             continue
     return slots
 
 
-def save_fast_slots(
-    root: Path,
-    values: list[object],
-    *,
-    enable_legacy_scenarios: bool = False,
-) -> list[FastSlot]:
-    slots = [
-        _slot_from_dict(root, item, enable_legacy_scenarios=enable_legacy_scenarios)
-        for item in values
-    ]
+def save_fast_slots(root: Path, values: list[object]) -> list[FastSlot]:
+    slots = [_slot_from_dict(root, item) for item in values]
     positions = [slot.position for slot in slots]
     if len(positions) != len(set(positions)):
         raise ValueError("Fast slot positions must be unique.")
@@ -213,4 +173,4 @@ def save_fast_slots(
                 ),
             )
     conn.close()
-    return load_fast_slots(root, enable_legacy_scenarios=enable_legacy_scenarios)
+    return load_fast_slots(root)
