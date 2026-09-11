@@ -13,14 +13,7 @@ import { ContextHelpDialog } from "./components/ContextHelpDialog";
 import { PluginToolsHost } from "./components/PluginToolsHost";
 import { AudioPlaybackHost } from "./components/audio/AudioPlaybackHost";
 import { AudioProvider } from "./contexts/AudioContext";
-import {
-  DmsFormDialog,
-  DmsOutputSaveDialog,
-  DmsTrustDialog,
-  type DmsFormDialogState,
-  type DmsOutputSaveDialogState,
-  type DmsTrustDialogState
-} from "./components/DmsDialogs";
+import { DmsFormDialog, DmsOutputSaveDialog, DmsTrustDialog, type DmsOutputSaveDialogState } from "./components/DmsDialogs";
 import { type LinksLoadState, type MetadataEditState, type PageLoadState } from "./components/MetadataTool";
 import { IconButton } from "./components/IconButton";
 import { ScreenTool } from "./components/screen/ScreenTool";
@@ -29,9 +22,13 @@ import { DisplayProvider } from "./contexts/DisplayContext";
 import { UnlockScreen } from "./UnlockScreen";
 import { WorldPathPicker } from "./WorldPathPicker";
 import { useAudio } from "./hooks/useAudio";
+import { useAuthGate } from "./hooks/useAuthGate";
 import { useDisplay } from "./hooks/useDisplay";
 import { useBindings } from "./hooks/useBindings";
+import { useContextHelp } from "./hooks/useContextHelp";
+import { useDmsScripts } from "./hooks/useDmsScripts";
 import { useHpTracker } from "./hooks/useHpTracker";
+import { useLanguage } from "./hooks/useLanguage";
 import { useMap } from "./hooks/useMap";
 import { useTableSnapshots } from "./hooks/useTableSnapshots";
 import { useStableHandler } from "./hooks/useStableHandler";
@@ -47,7 +44,6 @@ import {
   acknowledgeDmsTrust,
   activateWorkspace,
   blankDisplay,
-  cancelDmsRun,
   clearDisplayPopups,
   createCapture,
   createWorkspace,
@@ -57,28 +53,21 @@ import {
   deleteWorkspace,
   deleteTrash,
   duplicateWorldPath,
-  fetchAppConfig,
-  fetchAuthStatus,
   fetchAudioLibrary,
   fetchCardTemplates,
   fetchCaptureToday,
   fetchDisplayState,
-  fetchDmsTrust,
-  fetchDmsRun,
-  fetchLanguageCatalog,
   fetchPage,
   fetchPageBacklinks,
   fetchPageLinks,
   fetchPages,
   fetchPrepHealth,
-  fetchScripts,
   fetchTrash,
   fetchWorkspace,
   fetchWorkspaces,
   fetchWorldFile,
   fetchWorldTree,
   fetchWorlds,
-  loginAuth,
   moveWorldPath,
   openWorld,
   openDisplayPopup,
@@ -87,7 +76,6 @@ import {
   restoreTrash,
   rotateDisplayFullscreen,
   rollDice,
-  runDmsScript,
   saveFavorites,
   saveRecentFiles,
   saveWorldFile,
@@ -96,7 +84,6 @@ import {
   searchWorld,
   setDisplayFullscreen,
   showActiveOnDisplay,
-  submitDmsForm,
   trashWorldPath,
   updatePageMetadata,
   type PageDetail,
@@ -106,9 +93,6 @@ import {
   type PrepHealthReport,
   type SearchResult,
   type RestoreTableSnapshotResponse,
-  type TranslationCatalog,
-  type AppConfig,
-  type AuthStatus,
   type CaptureCategory,
   type CaptureTodayResponse,
   type DmsRunState,
@@ -123,15 +107,7 @@ import {
   type WorkspaceState,
   type WorkspaceTab
 } from "./lib/api";
-import {
-  AVAILABLE_LANGUAGES,
-  createTranslator,
-  loadStoredUiLanguage,
-  resolveInitialLanguage,
-  saveStoredUiLanguage,
-  type Translator,
-  type UiLanguage
-} from "./lang";
+import { type Translator } from "./lang";
 import { prepHealthIssueToOpenTab, type PrepHealthFilter } from "./lib/prepHealth";
 import { canonicalShortcutFromEvent, isEditableHotkeyTarget, type ActionBindingAction } from "./lib/actionBindings";
 import {
@@ -234,7 +210,7 @@ import {
   workspacePersistPayload
 } from "./lib/workspace";
 import { addDiceHistoryEntry, type DiceHistoryEntry } from "./lib/dice";
-import { buildDmsFormDefaults, dmsOutputToWorldFile, isTemporaryDmsPath, normalizeDmsFormSchema } from "./lib/scripts";
+import { dmsOutputToWorldFile, isTemporaryDmsPath } from "./lib/scripts";
 import {
   DEFAULT_TREE_PANEL_WIDTH,
   loadToolsPanelVisible,
@@ -266,14 +242,13 @@ import {
   flattenWorldPathPickerEntries,
   type WorldPathPickerFilter
 } from "./lib/worldPathPicker";
-import { helpContextForMediaKind, resolveContextHelpTopic, type ContextHelpTopic } from "./lib/contextHelp";
+import { helpContextForMediaKind } from "./lib/contextHelp";
 import { DocumentChrome } from "./components/documents/DocumentChrome";
 import { type FileLoadState, FileViewer } from "./components/documents/FileViewer";
 import { FolderKanbanView } from "./components/documents/FolderKanbanView";
 import { LinkContextMenu, type LinkContextMenuState } from "./components/documents/LinkContextMenu";
 import { PeekDialog, type PeekState } from "./components/documents/PeekDialog";
 import { isCardPath, isEditableFile, parseCardJson } from "./components/documents/documentFiles";
-import { type ScriptLoadState, type ScriptRunState } from "./components/tools/ScriptsTool";
 import { type DiceStatus } from "./components/tools/DiceTool";
 import { FastSlotBar } from "./components/tools/FastSlotBar";
 import { ToolsPanel } from "./components/tools/ToolsPanel";
@@ -308,18 +283,6 @@ type LoadState =
   | { status: "loading" }
   | { status: "ready" }
   | { status: "error"; message: string };
-type AuthGateState =
-  | { status: "checking" }
-  | { status: "unlocked"; auth: AuthStatus }
-  | { status: "locked"; auth: AuthStatus; error: string | null }
-  | { status: "unlocking"; auth: AuthStatus; error: string | null };
-
-function helpContextFromTarget(target: EventTarget | null): string | null {
-  if (!(target instanceof HTMLElement)) {
-    return null;
-  }
-  return target.closest("[data-help-context]")?.getAttribute("data-help-context") ?? null;
-}
 type WorldPathPickerState =
   | { open: false }
   | {
@@ -328,10 +291,6 @@ type WorldPathPickerState =
       title: string;
       onSelect: (path: string) => void;
     };
-function delay(milliseconds: number): Promise<void> {
-  return new Promise((resolve) => window.setTimeout(resolve, milliseconds));
-}
-
 // A failed world load used to render a bare "Could not load world." with the cause
 // discarded, which left both users and failing e2e runs with nothing to act on.
 function worldLoadErrorMessage(error: unknown): string {
@@ -501,17 +460,10 @@ function layoutWithMode(
 }
 
 export function App() {
-  const [appConfig, setAppConfig] = useState<AppConfig | null>(null);
-  const [uiLanguage, setUiLanguage] = useState<UiLanguage>(() =>
-    resolveInitialLanguage({ stored: loadStoredUiLanguage() })
-  );
-  const [uiCatalog, setUiCatalog] = useState<TranslationCatalog | null>(null);
+  const { uiLanguage, t, availableLanguageOptions, handleLanguageChange } = useLanguage();
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
   const settingsButtonRef = useRef<HTMLButtonElement | null>(null);
-  const [contextHelpTopic, setContextHelpTopic] = useState<ContextHelpTopic | null>(null);
-  const contextHelpReturnFocusRef = useRef<HTMLElement | null>(null);
-  const lastHelpContextRef = useRef<string | null>(null);
-  const [authState, setAuthState] = useState<AuthGateState>({ status: "checking" });
+  const { authState, handleAuthUnlock } = useAuthGate();
   const [loadState, setLoadState] = useState<LoadState>({ status: "idle" });
   const [worldLibrary, setWorldLibrary] = useState<WorldLibraryState | null>(null);
   const [worldTree, setWorldTree] = useState<WorldEntry | null>(null);
@@ -576,14 +528,8 @@ export function App() {
   });
   const [diceHistory, setDiceHistory] = useState<DiceHistoryEntry[]>([]);
   const [diceStatus, setDiceStatus] = useState<DiceStatus>({ status: "idle", message: null });
-  const [scriptState, setScriptState] = useState<ScriptLoadState>({ status: "idle" });
-  const [scriptRunState, setScriptRunState] = useState<ScriptRunState>({ status: "idle" });
-  const cancelledDmsRuns = useRef<Set<string>>(new Set());
-  const [dmsWorldTrusted, setDmsWorldTrusted] = useState(false);
   const [linkContextMenu, setLinkContextMenu] = useState<LinkContextMenuState>({ open: false });
   const [peekState, setPeekState] = useState<PeekState>({ open: false });
-  const [dmsTrustDialog, setDmsTrustDialog] = useState<DmsTrustDialogState>({ open: false });
-  const [dmsFormDialog, setDmsFormDialog] = useState<DmsFormDialogState>({ open: false });
   const [dmsOutputSaveDialog, setDmsOutputSaveDialog] = useState<DmsOutputSaveDialogState>({
     open: false
   });
@@ -620,7 +566,27 @@ export function App() {
   const screenToolOpen = isToolOpen(toolPanelState, "screen");
   const diceDisabled = isToolDisabled(toolPanelState, "dice");
   const actionsDisabled = isToolDisabled(toolPanelState, "actions");
-  const t = useMemo(() => createTranslator(uiCatalog ?? undefined), [uiCatalog]);
+  const {
+    scriptState,
+    scriptRunState,
+    dmsTrustDialog,
+    dmsFormDialog,
+    markDmsTrusted,
+    closeDmsFormDialog,
+    resetScripts,
+    handleRunDmsScript,
+    handleConfirmDmsTrust,
+    handleCancelDmsTrust,
+    handleDmsFormChange,
+    handleDmsFormSubmit,
+    handleCancelDmsScript
+  } = useDmsScripts({
+    scriptsToolOpen,
+    workspaceReady,
+    worldId: worldLibrary?.current?.id,
+    onRunSucceeded: handleDmsRunSucceeded,
+    onShowScripts: () => setToolPanelState((state) => openToolSectionByUser(state, "scripts"))
+  });
   const audio = useAudio({
     worldId: worldLibrary?.current?.id,
     workspaceReady,
@@ -637,94 +603,11 @@ export function App() {
     worldTree,
     audio.audioState.status === "ready" ? audio.audioState.tracks : audio.audioAutocompleteTracks
   );
-  const availableLanguageOptions = appConfig?.available_languages ?? AVAILABLE_LANGUAGES;
-
-  function applyLanguage(language: UiLanguage, catalog: TranslationCatalog, persist: boolean) {
-    setUiLanguage(language);
-    setUiCatalog(catalog);
-    if (persist) {
-      saveStoredUiLanguage(language);
-    }
-  }
-
-  function loadLanguage(language: UiLanguage, persist = false) {
-    fetchLanguageCatalog(language)
-      .then((catalog) => applyLanguage(language, catalog, persist))
-      .catch(() => {
-        if (language !== "en") {
-          void fetchLanguageCatalog("en")
-            .then((catalog) => applyLanguage("en", catalog, persist))
-            .catch(() => {
-              setUiLanguage("en");
-              setUiCatalog(null);
-            });
-          return;
-        }
-        setUiLanguage("en");
-        setUiCatalog(null);
-      });
-  }
-
-  function handleLanguageChange(language: UiLanguage) {
-    loadLanguage(language, true);
-  }
 
   function closeSettingsDialog() {
     setSettingsDialogOpen(false);
     window.setTimeout(() => settingsButtonRef.current?.focus(), 0);
   }
-
-  useEffect(() => {
-    let mounted = true;
-    fetchAppConfig()
-      .then((config) => {
-        if (!mounted) {
-          return;
-        }
-        setAppConfig(config);
-        loadLanguage(
-          resolveInitialLanguage({
-            stored: loadStoredUiLanguage(),
-            configured: config.language,
-            available: config.available_languages
-          })
-        );
-      })
-      .catch(() => {
-        if (mounted) {
-          loadLanguage(resolveInitialLanguage({ stored: loadStoredUiLanguage() }));
-        }
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
-
-  useEffect(() => {
-    let mounted = true;
-    fetchAuthStatus()
-      .then((status) => {
-        if (!mounted) {
-          return;
-        }
-        setAuthState(
-          !status.enabled || status.authenticated
-            ? { status: "unlocked", auth: status }
-            : { status: "locked", auth: status, error: null }
-        );
-      })
-      .catch(() => {
-        if (mounted) {
-          setAuthState({
-            status: "unlocked",
-            auth: { enabled: false, authenticated: true }
-          });
-        }
-      });
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   useEffect(() => {
     if (authState.status !== "unlocked") {
@@ -982,53 +865,6 @@ export function App() {
   }, [audio.audioState.status, pathPickerOpen, pathPickerState]);
 
   useEffect(() => {
-    if (!scriptsToolOpen) {
-      return;
-    }
-
-    let cancelled = false;
-    setScriptState({ status: "loading" });
-    fetchScripts()
-      .then((scripts) => {
-        if (cancelled) {
-          return;
-        }
-        setScriptState({ status: "ready", scripts });
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          const message = error instanceof Error ? error.message : "Unknown error";
-          setScriptState({ status: "error", message });
-        }
-      });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [scriptsToolOpen, worldLibrary?.current?.id]);
-
-  useEffect(() => {
-    if (!workspaceReady) {
-      return;
-    }
-    let cancelled = false;
-    fetchDmsTrust()
-      .then((state) => {
-        if (!cancelled) {
-          setDmsWorldTrusted(state.trusted);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setDmsWorldTrusted(false);
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [workspaceReady, worldLibrary?.current?.id]);
-
-  useEffect(() => {
     if (!screenToolOpen && !actionsToolOpen) {
       return;
     }
@@ -1045,6 +881,9 @@ export function App() {
     tabState.tabs.map(openTabToWorkspaceTab)
   );
   const activeTab = tabState.tabs.find((tab) => tab.path === tabState.activePath) ?? null;
+  const { contextHelpTopic, openContextHelp, closeContextHelp } = useContextHelp(
+    activeTab?.mediaKind ?? null
+  );
   // "Active tab" and "active document" diverge for synthetic tabs (the Screen tab, DMS
   // temporary output): those can be focused in the workspace, but screen actions that mean
   // "the document I'm looking at" should keep targeting the last real document instead of
@@ -1107,25 +946,6 @@ export function App() {
   const activeContentDirty = activeDraft ? isDraftDirty(activeDraft) : false;
   const visiblePanePathKey = visiblePaneTabs.map((tab) => tab.path).join("\u0000");
 
-  function openContextHelp(context: string | null = null, restoreFocusTo?: HTMLElement | null) {
-    const topic = resolveContextHelpTopic({
-      activeMediaKind: activeTab?.mediaKind ?? null,
-      focusedContext: context ?? lastHelpContextRef.current
-    });
-    if (!topic) {
-      return;
-    }
-    contextHelpReturnFocusRef.current =
-      restoreFocusTo ??
-      (document.activeElement instanceof HTMLElement ? document.activeElement : null);
-    setContextHelpTopic(topic);
-  }
-
-  function closeContextHelp() {
-    setContextHelpTopic(null);
-    window.requestAnimationFrame(() => contextHelpReturnFocusRef.current?.focus());
-  }
-
   function closeWorldTreeContextMenu(restoreFocus = false) {
     setWorldTreeContextMenu({ open: false });
     if (restoreFocus) {
@@ -1150,46 +970,6 @@ export function App() {
       searchInputRef.current?.focus();
     }
   }, [searchToolOpen]);
-
-  useEffect(() => {
-    function handleFocusIn(event: FocusEvent) {
-      const context = helpContextFromTarget(event.target);
-      if (context) {
-        lastHelpContextRef.current = context;
-      }
-    }
-
-    window.addEventListener("focusin", handleFocusIn);
-    return () => window.removeEventListener("focusin", handleFocusIn);
-  }, []);
-
-  useEffect(() => {
-    function handleHelpKeyDown(event: KeyboardEvent) {
-      if (event.key !== "F1" || contextHelpTopic) {
-        return;
-      }
-      const context = helpContextFromTarget(event.target);
-      const topic = resolveContextHelpTopic({
-        activeMediaKind: activeTab?.mediaKind ?? null,
-        focusedContext: context ?? lastHelpContextRef.current
-      });
-      if (!topic) {
-        return;
-      }
-      event.preventDefault();
-      event.stopPropagation();
-      contextHelpReturnFocusRef.current =
-        event.target instanceof HTMLElement
-          ? event.target
-          : document.activeElement instanceof HTMLElement
-            ? document.activeElement
-            : null;
-      setContextHelpTopic(topic);
-    }
-
-    window.addEventListener("keydown", handleHelpKeyDown, true);
-    return () => window.removeEventListener("keydown", handleHelpKeyDown, true);
-  }, [activeTab?.mediaKind, contextHelpTopic]);
 
   useEffect(() => {
     function handleEscape(event: KeyboardEvent) {
@@ -1943,23 +1723,6 @@ export function App() {
     window.addEventListener("pointerup", handlePointerUp, { once: true });
   }
 
-  async function handleAuthUnlock(token: string) {
-    if (authState.status !== "locked" && authState.status !== "unlocking") {
-      return;
-    }
-    setAuthState({ status: "unlocking", auth: authState.auth, error: null });
-    try {
-      const nextStatus = await loginAuth(token);
-      if (nextStatus.authenticated) {
-        setAuthState({ status: "unlocked", auth: nextStatus });
-      } else {
-        setAuthState({ status: "locked", auth: nextStatus, error: "Invalid access code." });
-      }
-    } catch {
-      setAuthState({ status: "locked", auth: authState.auth, error: "Invalid access code." });
-    }
-  }
-
   function openDmsOutputTabs(run: DmsRunState) {
     for (const output of run.outputs) {
       const file = dmsOutputToWorldFile(output);
@@ -2068,97 +1831,17 @@ export function App() {
     }
   }
 
-  async function waitForDmsRun(run: DmsRunState): Promise<DmsRunState> {
-    let current = run;
-    while (current.status === "running") {
-      if (cancelledDmsRuns.current.has(current.run_id)) {
-        return {
-          ...current,
-          status: "cancelled",
-          stderr: current.stderr || "Cancelled."
-        };
-      }
-      setScriptRunState({
-        status: "running",
-        path: current.path,
-        runId: current.run_id,
-        run: current
-      });
-      await delay(250);
-      current = await fetchDmsRun(current.run_id);
-    }
-    return current;
-  }
-
-  async function handleDmsRunResult(run: DmsRunState) {
-    const finalRun = run.status === "running" ? await waitForDmsRun(run) : run;
-    setScriptRunState({ status: "ready", run: finalRun });
-    if (finalRun.status === "waiting_for_form" && finalRun.form_request) {
-      const fields = normalizeDmsFormSchema(finalRun.form_request.schema);
-      setDmsFormDialog({
-        open: true,
-        run: finalRun,
-        fields,
-        values: buildDmsFormDefaults(fields)
-      });
-      return;
-    }
-    setDmsFormDialog({ open: false });
-    if (finalRun.status === "success") {
-      await refreshWorldStructure([]);
-      setFileStates((states) =>
-        Object.fromEntries(
-          Object.entries(states).filter(([path]) => isTemporaryDmsPath(path))
-        )
-      );
-      setPageStates({});
-      setLinksStates({});
-      openDmsOutputTabs(finalRun);
-      await applyDmsEffects(finalRun);
-    }
-  }
-
-  async function runTrustedDmsScript(path: string) {
-    cancelledDmsRuns.current.clear();
-    setScriptRunState({ status: "running", path, runId: null });
-    setToolPanelState((state) => openToolSectionByUser(state, "scripts"));
-    try {
-      await handleDmsRunResult(await runDmsScript(path));
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      setScriptRunState({ status: "error", message });
-    }
-  }
-
-  async function handleRunDmsScript(path: string) {
-    if (!dmsWorldTrusted) {
-      setDmsTrustDialog({ open: true, path });
-      setToolPanelState((state) => openToolSectionByUser(state, "scripts"));
-      return;
-    }
-    await runTrustedDmsScript(path);
-  }
-
-  async function handleConfirmDmsTrust() {
-    if (!dmsTrustDialog.open) {
-      return;
-    }
-    const path = dmsTrustDialog.path;
-    try {
-      await acknowledgeDmsTrust();
-      setDmsWorldTrusted(true);
-      setDmsTrustDialog({ open: false });
-      await runTrustedDmsScript(path);
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      setDmsTrustDialog({ open: false });
-      setScriptRunState({ status: "error", message });
-      setToolPanelState((state) => openToolSectionByUser(state, "scripts"));
-    }
-  }
-
-  function handleCancelDmsTrust() {
-    setDmsTrustDialog({ open: false });
+  // A DMS run succeeded: the world may have changed on disk, and the run may have produced
+  // output tabs and screen/audio effects.
+  async function handleDmsRunSucceeded(run: DmsRunState) {
+    await refreshWorldStructure([]);
+    setFileStates((states) =>
+      Object.fromEntries(Object.entries(states).filter(([path]) => isTemporaryDmsPath(path)))
+    );
+    setPageStates({});
+    setLinksStates({});
+    openDmsOutputTabs(run);
+    await applyDmsEffects(run);
   }
 
   async function handleTrustAllDmsScripts() {
@@ -2168,51 +1851,13 @@ export function App() {
     setPrepHealthStatus({ status: "loading", message: null });
     try {
       await acknowledgeDmsTrust();
-      setDmsWorldTrusted(true);
+      markDmsTrusted();
       const report = await fetchPrepHealth();
       setPrepHealthReport(report);
       setPrepHealthStatus({ status: "ready", message: t("prep.trustAllScriptsDone") });
     } catch (error: unknown) {
       const message = error instanceof Error ? error.message : t("prep.trustAllScriptsError");
       setPrepHealthStatus({ status: "error", message });
-    }
-  }
-
-  function handleDmsFormChange(name: string, value: string | number | boolean) {
-    setDmsFormDialog((state) =>
-      state.open
-        ? { ...state, values: { ...state.values, [name]: value } }
-        : state
-    );
-  }
-
-  async function handleDmsFormSubmit() {
-    if (!dmsFormDialog.open) {
-      return;
-    }
-    setScriptRunState({
-      status: "running",
-      path: dmsFormDialog.run.path,
-      runId: dmsFormDialog.run.run_id,
-      run: dmsFormDialog.run
-    });
-    try {
-      await handleDmsRunResult(
-        await submitDmsForm(dmsFormDialog.run.run_id, dmsFormDialog.values)
-      );
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      setScriptRunState({ status: "error", message });
-    }
-  }
-
-  async function handleCancelDmsScript(runId: string) {
-    cancelledDmsRuns.current.add(runId);
-    try {
-      await handleDmsRunResult(await cancelDmsRun(runId));
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      setScriptRunState({ status: "error", message });
     }
   }
 
@@ -3429,11 +3074,7 @@ export function App() {
     hp.reset();
     bindings.adoptFastSlots([]);
     snapshots.reset();
-    setScriptState({ status: "idle" });
-    setScriptRunState({ status: "idle" });
-    setDmsWorldTrusted(false);
-    setDmsTrustDialog({ open: false });
-    setDmsFormDialog({ open: false });
+    resetScripts();
     setDmsOutputSaveDialog({ open: false });
     setTabState({ tabs: [], activePath: null });
     setWorkspaceLayout(defaultWorkspaceLayout());
@@ -4664,7 +4305,7 @@ export function App() {
       <DmsFormDialog
         fileOptions={pages.map((page) => page.path)}
         onChange={handleDmsFormChange}
-        onClose={() => setDmsFormDialog({ open: false })}
+        onClose={closeDmsFormDialog}
         onSubmit={() => void handleDmsFormSubmit()}
         state={dmsFormDialog}
         t={t}
