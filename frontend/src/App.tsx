@@ -33,24 +33,26 @@ import { useLanguage } from "./hooks/useLanguage";
 import { useMap } from "./hooks/useMap";
 import { useTableSnapshots } from "./hooks/useTableSnapshots";
 import { useStableHandler } from "./hooks/useStableHandler";
+import { useCapture } from "./hooks/useCapture";
+import { useDice } from "./hooks/useDice";
+import { usePanelLayout } from "./hooks/usePanelLayout";
+import { usePathPicker } from "./hooks/usePathPicker";
+import { usePrepHealth } from "./hooks/usePrepHealth";
+import { useSearch } from "./hooks/useSearch";
+import { useToolPanel } from "./hooks/useToolPanel";
 import {
-  acknowledgeDmsTrust,
   activateWorkspace,
   blankDisplay,
   clearDisplayPopups,
-  createCapture,
   createWorkspace,
   createWorld,
   createWorldFile,
   deleteWorkspace,
-  fetchAudioLibrary,
-  fetchCaptureToday,
   fetchDisplayState,
   fetchPage,
   fetchPageBacklinks,
   fetchPageLinks,
   fetchPages,
-  fetchPrepHealth,
   fetchWorkspace,
   fetchWorkspaces,
   fetchWorldFile,
@@ -61,13 +63,11 @@ import {
   recordRecent,
   renameWorkspace,
   rotateDisplayFullscreen,
-  rollDice,
   saveFavorites,
   saveRecentFiles,
   saveWorldFile,
   saveWorkspaceLayout,
   saveWorkspaceTabs,
-  searchWorld,
   setDisplayFullscreen,
   showActiveOnDisplay,
   updatePageMetadata,
@@ -75,13 +75,9 @@ import {
   type PageLink,
   type PageSummary,
   type PrepHealthIssue,
-  type PrepHealthReport,
   type SearchResult,
   type RestoreTableSnapshotResponse,
-  type CaptureCategory,
-  type CaptureTodayResponse,
   type DmsRunState,
-  type DiceRollResponse,
   type NamedWorkspaceSummary,
   type WorldEntry,
   type WorldFile,
@@ -92,7 +88,7 @@ import {
   type WorkspaceTab
 } from "./lib/api";
 import { type Translator } from "./lang";
-import { prepHealthIssueToOpenTab, type PrepHealthFilter } from "./lib/prepHealth";
+import { prepHealthIssueToOpenTab } from "./lib/prepHealth";
 import { canonicalShortcutFromEvent, isEditableHotkeyTarget, type ActionBindingAction } from "./lib/actionBindings";
 import {
   isTableSnapshotRestoreAction,
@@ -100,7 +96,6 @@ import {
   validateDispatchAction
 } from "./lib/actionBindingDispatch";
 import { hasLoadedAudio, loadAudioTrack, setAudioBusPlaying, setAudioBusVolume } from "./lib/audio";
-import { clearCaptureDraft, loadCaptureDraft, saveCaptureDraft, type CaptureDraft } from "./lib/capture";
 import { isRectangularCsv, parseCsv, serializeCsv, type CsvData } from "./lib/csv";
 import {
   createEditorDraft,
@@ -185,39 +180,16 @@ import {
   toggleFavorite,
   workspacePersistPayload
 } from "./lib/workspace";
-import { addDiceHistoryEntry, type DiceHistoryEntry } from "./lib/dice";
 import { dmsOutputToWorldFile, isTemporaryDmsPath } from "./lib/scripts";
-import {
-  DEFAULT_TREE_PANEL_WIDTH,
-  loadToolsPanelVisible,
-  loadTreePanelWidth,
-  loadToolsPanelWidth,
-  saveToolsPanelVisible,
-  saveTreePanelWidth,
-  saveToolsPanelWidth
-} from "./lib/panelWidth";
 import { applyAudioSnapshot, buildTableSnapshotState } from "./lib/tableSnapshots";
 import {
-  applyToolAutoOpenRules,
-  createToolPanelState,
   DEFAULT_SCREEN_TOOL_TAB,
   isToolDisabled,
   isToolOpen,
-  loadDisabledTools,
-  openToolSectionByUser,
-  saveDisabledTools,
-  setToolDisabled,
-  toggleToolSection,
-  toggleToolSectionPin,
-  type ScreenToolTabId,
-  type ToolId,
-  type ToolPanelState
+  type ScreenToolTabId
 } from "./lib/toolPanel";
 import { livePrepHealthLabel } from "./lib/liveStatus";
-import {
-  flattenWorldPathPickerEntries,
-  type WorldPathPickerFilter
-} from "./lib/worldPathPicker";
+import { type WorldPathPickerFilter } from "./lib/worldPathPicker";
 import { helpContextForMediaKind } from "./lib/contextHelp";
 import { DocumentChrome } from "./components/documents/DocumentChrome";
 import { type FileLoadState, FileViewer } from "./components/documents/FileViewer";
@@ -225,7 +197,6 @@ import { FolderKanbanView } from "./components/documents/FolderKanbanView";
 import { LinkContextMenu, type LinkContextMenuState } from "./components/documents/LinkContextMenu";
 import { PeekDialog, type PeekState } from "./components/documents/PeekDialog";
 import { isCardPath, isEditableFile, parseCardJson } from "./components/documents/documentFiles";
-import { type DiceStatus } from "./components/tools/DiceTool";
 import { FastSlotBar } from "./components/tools/FastSlotBar";
 import { ToolsPanel } from "./components/tools/ToolsPanel";
 import { FileManagementDialog } from "./components/world/FileManagementDialog";
@@ -239,9 +210,9 @@ import {
 } from "./components/world/WorldLibrary";
 import { WorldTree } from "./components/world/WorldTree";
 import { WorldTreeContextMenu } from "./components/world/WorldTreeContextMenu";
-import { CaptureDialog, type CaptureStatus } from "./components/dialogs/CaptureDialog";
-import { PrepHealthDialog, type PrepHealthStatus } from "./components/dialogs/PrepHealthDialog";
-import { SearchDialog, type SearchLoadState } from "./components/dialogs/SearchDialog";
+import { CaptureDialog } from "./components/dialogs/CaptureDialog";
+import { PrepHealthDialog } from "./components/dialogs/PrepHealthDialog";
+import { SearchDialog } from "./components/dialogs/SearchDialog";
 import { SettingsDialog } from "./components/dialogs/SettingsDialog";
 import { WorkspaceControls } from "./components/workspace/WorkspaceControls";
 import { WorkspaceDialog, type WorkspaceDialogState } from "./components/workspace/WorkspaceDialog";
@@ -251,14 +222,6 @@ type LoadState =
   | { status: "loading" }
   | { status: "ready" }
   | { status: "error"; message: string };
-type WorldPathPickerState =
-  | { open: false }
-  | {
-      open: true;
-      filter: WorldPathPickerFilter;
-      title: string;
-      onSelect: (path: string) => void;
-    };
 // A failed world load used to render a bare "Could not load world." with the cause
 // discarded, which left both users and failing e2e runs with nothing to act on.
 function worldLoadErrorMessage(error: unknown): string {
@@ -415,42 +378,46 @@ export function App() {
   const [pageStates, setPageStates] = useState<Record<string, PageLoadState>>({});
   const [linksStates, setLinksStates] = useState<Record<string, LinksLoadState>>({});
   const [editorDrafts, setEditorDrafts] = useState<Record<string, EditorDraft>>({});
-  const searchInputRef = useRef<HTMLInputElement | null>(null);
-  const searchButtonRef = useRef<HTMLButtonElement | null>(null);
-  const [toolPanelState, setToolPanelState] = useState<ToolPanelState>(() =>
-    createToolPanelState([], [], [], loadDisabledTools())
-  );
-  const [searchDialogOpen, setSearchDialogOpen] = useState(false);
-  const [captureDialogOpen, setCaptureDialogOpen] = useState(false);
-  const [prepHealthDialogOpen, setPrepHealthDialogOpen] = useState(false);
-  const [pathPickerState, setPathPickerState] = useState<WorldPathPickerState>({
-    open: false
-  });
+  const {
+    searchDialogOpen,
+    setSearchDialogOpen,
+    searchQuery,
+    setSearchQuery,
+    searchState,
+    searchInputRef,
+    searchButtonRef,
+    openSearchDialog,
+    closeSearchDialog,
+    invalidateSearch,
+    resetSearch
+  } = useSearch();
+  const {
+    toolPanelState,
+    openTool,
+    handleToolToggle,
+    handleToolPin,
+    handleToolDisabledChange,
+    applyAutoOpen,
+    resetToolPanel
+  } = useToolPanel();
   const [screenToolTab, setScreenToolTab] = useState<ScreenToolTabId>(DEFAULT_SCREEN_TOOL_TAB);
-  const [toolsPanelWidth, setToolsPanelWidth] = useState(() => loadToolsPanelWidth());
-  const [treePanelWidth, setTreePanelWidth] = useState(() => loadTreePanelWidth());
-  const [toolsPanelVisible, setToolsPanelVisible] = useState(() => loadToolsPanelVisible());
+  const {
+    toolsPanelWidth,
+    treePanelWidth,
+    toolsPanelVisible,
+    handleToolsResizePointerDown,
+    handleToolsResizeKeyDown,
+    handleTreeResizePointerDown,
+    handleTreeResizeKeyDown,
+    handleTreeResizeReset,
+    handleToolsPanelVisibleChange,
+    toggleToolsPanel
+  } = usePanelLayout();
   const [treeFilter, setTreeFilter] = useState("");
-  const [searchQuery, setSearchQuery] = useState("");
-  const [searchState, setSearchState] = useState<SearchLoadState>({ status: "idle" });
-  const [searchRevision, setSearchRevision] = useState(0);
-  const [captureToday, setCaptureToday] = useState<CaptureTodayResponse | null>(null);
-  const [captureDraft, setCaptureDraft] = useState<CaptureDraft>({
-    category: "idea",
-    text: ""
+  const { diceHistory, diceStatus, handleDiceRoll, handleDiceClearHistory } = useDice({
+    t,
+    onRoll: () => openTool("dice")
   });
-  const [captureStatus, setCaptureStatus] = useState<CaptureStatus>({
-    status: "idle",
-    message: null
-  });
-  const [prepHealthReport, setPrepHealthReport] = useState<PrepHealthReport | null>(null);
-  const [prepHealthFilter, setPrepHealthFilter] = useState<PrepHealthFilter>("all");
-  const [prepHealthStatus, setPrepHealthStatus] = useState<PrepHealthStatus>({
-    status: "idle",
-    message: null
-  });
-  const [diceHistory, setDiceHistory] = useState<DiceHistoryEntry[]>([]);
-  const [diceStatus, setDiceStatus] = useState<DiceStatus>({ status: "idle", message: null });
   const [linkContextMenu, setLinkContextMenu] = useState<LinkContextMenuState>({ open: false });
   const [peekState, setPeekState] = useState<PeekState>({ open: false });
   const [dmsOutputSaveDialog, setDmsOutputSaveDialog] = useState<DmsOutputSaveDialogState>({
@@ -504,18 +471,30 @@ export function App() {
     open: false
   });
   const [metadataEdits, setMetadataEdits] = useState<Record<string, MetadataEditState>>({});
-  const captureDraftRef = useRef<CaptureDraft>(captureDraft);
-  const captureWorldKeyRef = useRef("default");
-  const searchToolOpen = searchDialogOpen;
-  const captureToolOpen = captureDialogOpen;
-  const pathPickerOpen = pathPickerState.open;
   const captureWorldKey = worldLibrary?.current?.id ?? worldLibrary?.current?.path ?? "default";
+  const {
+    captureDialogOpen,
+    setCaptureDialogOpen,
+    captureDraft,
+    captureStatus,
+    captureToday,
+    persistCurrentCaptureDraft,
+    handleCaptureCategoryChange,
+    handleCaptureTextChange,
+    handleSaveCapture,
+    handleOpenCaptureLog
+  } = useCapture({
+    worldKey: captureWorldKey,
+    authReady: authState.status === "unlocked",
+    onSaved: handleCaptureSaved,
+    onOpenLog: (path) => openWorkspaceTab(captureLogTab(path))
+  });
   const hp = useHpTracker();
   const snapshots = useTableSnapshots({ capture: captureTableState, apply: applyTableSnapshot });
   const bindings = useBindings({
     worldKey: captureWorldKey,
     execute: executeActionBindingAction,
-    onBindingError: () => setToolPanelState((state) => openToolSectionByUser(state, "actions"))
+    onBindingError: () => openTool("actions")
   });
   const audioToolOpen = isToolOpen(toolPanelState, "audio");
   const scriptsToolOpen = isToolOpen(toolPanelState, "scripts");
@@ -542,23 +521,37 @@ export function App() {
     workspaceReady,
     worldId: worldLibrary?.current?.id,
     onRunSucceeded: handleDmsRunSucceeded,
-    onShowScripts: () => setToolPanelState((state) => openToolSectionByUser(state, "scripts"))
+    onShowScripts: () => openTool("scripts")
   });
+  const {
+    prepHealthDialogOpen,
+    setPrepHealthDialogOpen,
+    prepHealthReport,
+    prepHealthFilter,
+    setPrepHealthFilter,
+    prepHealthStatus,
+    handleRunPrepHealth,
+    handleCopyPrepHealthTarget,
+    handleTrustAllDmsScripts
+  } = usePrepHealth({ t, onScriptsTrusted: markDmsTrusted });
   const audio = useAudio({
     worldId: worldLibrary?.current?.id,
     workspaceReady,
     audioToolOpen,
     t
   });
+  const {
+    pathPickerState,
+    pathPickerCandidates,
+    handleOpenWorldPathPicker,
+    closePathPicker,
+    selectPath
+  } = usePathPicker({ worldTree, audio });
   // Memoized, not built inline: a fresh array on every render made the code editor
   // reconfigure itself on every keystroke, walking the whole world tree each time.
   const editorCompletions = useMemo(
     () => buildEditorCompletionItems({ pages, tree: worldTree, audioTracks: audio.audioAutocompleteTracks }),
     [pages, worldTree, audio.audioAutocompleteTracks]
-  );
-  const pathPickerCandidates = flattenWorldPathPickerEntries(
-    worldTree,
-    audio.audioState.status === "ready" ? audio.audioState.tracks : audio.audioAutocompleteTracks
   );
 
   function closeSettingsDialog() {
@@ -609,53 +602,6 @@ export function App() {
   }, [currentWorkspaceId]);
 
   useEffect(() => {
-    captureDraftRef.current = captureDraft;
-  }, [captureDraft]);
-
-  useEffect(() => {
-    captureWorldKeyRef.current = captureWorldKey;
-    const savedDraft = loadCaptureDraft(captureWorldKey);
-    setCaptureDraft(savedDraft ?? { category: "idea", text: "" });
-    setCaptureStatus({ status: "idle", message: null });
-    setCaptureToday(null);
-  }, [captureWorldKey]);
-
-  useEffect(() => {
-    function persistBeforeUnload() {
-      const draft = captureDraftRef.current;
-      if (draft.text.trim()) {
-        saveCaptureDraft(captureWorldKeyRef.current, draft);
-      } else {
-        clearCaptureDraft(captureWorldKeyRef.current);
-      }
-    }
-
-    window.addEventListener("beforeunload", persistBeforeUnload);
-    return () => window.removeEventListener("beforeunload", persistBeforeUnload);
-  }, []);
-
-  useEffect(() => {
-    if (authState.status !== "unlocked" || !captureToolOpen) {
-      return;
-    }
-    let cancelled = false;
-    fetchCaptureToday()
-      .then((today) => {
-        if (!cancelled) {
-          setCaptureToday(today);
-        }
-      })
-      .catch(() => {
-        if (!cancelled) {
-          setCaptureStatus({ status: "error", message: "Could not load capture log." });
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [authState.status, captureToolOpen, captureWorldKey]);
-
-  useEffect(() => {
     workspaceLayoutRef.current = workspaceLayout;
   }, [workspaceLayout]);
 
@@ -680,7 +626,7 @@ export function App() {
       }
       if ((event.ctrlKey || event.metaKey) && event.key.toLowerCase() === "b") {
         event.preventDefault();
-        setToolsPanelVisible((visible) => saveToolsPanelVisible(!visible));
+        toggleToolsPanel();
         return;
       }
       if (actionsDisabled) {
@@ -760,66 +706,6 @@ export function App() {
 
     return () => window.clearTimeout(timeout);
   }, [currentWorkspaceId, tabState.tabs, workspaceLayout, workspaceReady]);
-
-  useEffect(() => {
-    if (!searchToolOpen) {
-      return;
-    }
-
-    const query = searchQuery.trim();
-    if (!query) {
-      setSearchState({ status: "idle" });
-      return;
-    }
-
-    let cancelled = false;
-    setSearchState({ status: "loading" });
-    const timeout = window.setTimeout(() => {
-      searchWorld({ q: query, limit: 20 })
-        .then((results) => {
-          if (!cancelled) {
-            setSearchState({ status: "ready", results });
-          }
-        })
-        .catch((error: unknown) => {
-          if (!cancelled) {
-            const message = error instanceof Error ? error.message : "Unknown error";
-            setSearchState({ status: "error", message });
-          }
-        });
-    }, 220);
-
-    return () => {
-      cancelled = true;
-      window.clearTimeout(timeout);
-    };
-  }, [searchToolOpen, searchQuery, searchRevision]);
-
-  useEffect(() => {
-    if (!pathPickerOpen || !pathPickerState.open || pathPickerState.filter !== "audio") {
-      return;
-    }
-    if (audio.audioState.status === "ready" || audio.audioState.status === "loading") {
-      return;
-    }
-    let cancelled = false;
-    audio.setAudioState({ status: "loading" });
-    fetchAudioLibrary()
-      .then((tracks) => {
-        if (!cancelled) {
-          audio.setAudioState({ status: "ready", tracks });
-        }
-      })
-      .catch((error: unknown) => {
-        if (!cancelled) {
-          const message = error instanceof Error ? error.message : "Unknown error";
-          audio.setAudioState({ status: "error", message });
-        }
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [audio.audioState.status, pathPickerOpen, pathPickerState]);
 
   useEffect(() => {
     if (!screenToolOpen && !actionsToolOpen) {
@@ -904,22 +790,14 @@ export function App() {
   const visiblePanePathKey = visiblePaneTabs.map((tab) => tab.path).join("\u0000");
 
   useEffect(() => {
-    setToolPanelState((state) =>
-      applyToolAutoOpenRules(state, {
-        activePath: activeTab?.path ?? null,
-        audioActive: hasLoadedAudio(audio.audioMixer),
-        displayState: display.displayState,
-        mapState: map.mapState,
-        metadataEditing: activeMetadataEdit.mode === "edit"
-      })
-    );
+    applyAutoOpen({
+      activePath: activeTab?.path ?? null,
+      audioActive: hasLoadedAudio(audio.audioMixer),
+      displayState: display.displayState,
+      mapState: map.mapState,
+      metadataEditing: activeMetadataEdit.mode === "edit"
+    });
   }, [activeTab?.path, activeMetadataEdit.mode, audio.audioMixer, display.displayState, map.mapState]);
-
-  useEffect(() => {
-    if (searchToolOpen) {
-      searchInputRef.current?.focus();
-    }
-  }, [searchToolOpen]);
 
   useEffect(() => {
     function handleEscape(event: KeyboardEvent) {
@@ -1330,35 +1208,6 @@ export function App() {
     }
   }
 
-  function handleDiceClearHistory() {
-    setDiceHistory([]);
-    setDiceStatus({ status: "idle", message: null });
-  }
-
-  function handleDiceRoll(expression: string) {
-    const trimmed = expression.trim();
-    if (!trimmed) {
-      return;
-    }
-    setToolPanelState((state) => openToolSectionByUser(state, "dice"));
-    setDiceStatus({ status: "rolling", message: null });
-    rollDice(trimmed)
-      .then((roll: DiceRollResponse) => {
-        const entry: DiceHistoryEntry = {
-          ...roll,
-          id: `${roll.rolled_at}-${roll.expression}-${Math.random().toString(36).slice(2)}`
-        };
-        setDiceHistory((history) => addDiceHistoryEntry(history, entry));
-        setDiceStatus({ status: "ready", message: null });
-      })
-      .catch((error: unknown) => {
-        setDiceStatus({
-          status: "error",
-          message: error instanceof Error ? error.message : t("dice.error")
-        });
-      });
-  }
-
   function handleLinkContext(link: PageLink, event: MouseEvent<HTMLElement>) {
     setLinkContextMenu({ open: true, link, x: event.clientX, y: event.clientY });
   }
@@ -1618,7 +1467,7 @@ export function App() {
     // the Screen tab is not already showing as a pane in the main workspace area.
     setScreenToolTab(tab);
     if (!visiblePaneTabs.some((paneTab) => isScreenTabPath(paneTab.path))) {
-      setToolPanelState((state) => openToolSectionByUser(state, "screen"));
+      openTool("screen");
     }
   }
 
@@ -1664,7 +1513,7 @@ export function App() {
               effect.volume / 100
             )
           );
-          setToolPanelState((state) => openToolSectionByUser(state, "audio"));
+          openTool("audio");
         }
       }
     }
@@ -1681,23 +1530,6 @@ export function App() {
     setLinksStates({});
     openDmsOutputTabs(run);
     await applyDmsEffects(run);
-  }
-
-  async function handleTrustAllDmsScripts() {
-    if (!window.confirm(t("prep.trustAllScriptsConfirm"))) {
-      return;
-    }
-    setPrepHealthStatus({ status: "loading", message: null });
-    try {
-      await acknowledgeDmsTrust();
-      markDmsTrusted();
-      const report = await fetchPrepHealth();
-      setPrepHealthReport(report);
-      setPrepHealthStatus({ status: "ready", message: t("prep.trustAllScriptsDone") });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : t("prep.trustAllScriptsError");
-      setPrepHealthStatus({ status: "error", message });
-    }
   }
 
   async function captureTableState() {
@@ -1727,7 +1559,7 @@ export function App() {
     const validation = validateDispatchAction(action);
     if ("error" in validation) {
       reportError(validation.error);
-      setToolPanelState((state) => openToolSectionByUser(state, "actions"));
+      openTool("actions");
       return;
     }
     const validatedAction = validation.action;
@@ -1744,7 +1576,7 @@ export function App() {
       const resolved = resolveScreenActionPath(dispatchAction, activeDocumentTab?.path);
       if ("error" in resolved) {
         reportError(resolved.error);
-        setToolPanelState((state) => openToolSectionByUser(state, "actions"));
+        openTool("actions");
         return;
       }
       display.setDisplayState(await setDisplayFullscreen(resolved.path));
@@ -1756,7 +1588,7 @@ export function App() {
       const resolved = resolveScreenActionPath(dispatchAction, activeDocumentTab?.path);
       if ("error" in resolved) {
         reportError(resolved.error);
-        setToolPanelState((state) => openToolSectionByUser(state, "actions"));
+        openTool("actions");
         return;
       }
       display.setDisplayState(await openDisplayPopup(resolved.path, dispatchAction.preset ?? "plain"));
@@ -1771,10 +1603,10 @@ export function App() {
         audio.setAudioMixer((state) =>
           setAudioBusPlaying(loadAudioTrack(state, effectTrack), "effect", true)
         );
-        setToolPanelState((state) => openToolSectionByUser(state, "audio"));
+        openTool("audio");
       } else {
         reportError("Audio track was not found.");
-        setToolPanelState((state) => openToolSectionByUser(state, "actions"));
+        openTool("actions");
       }
       return;
     }
@@ -2360,16 +2192,6 @@ export function App() {
     openWorkspaceTab(tab);
   }
 
-  function openSearchDialog() {
-    setSearchDialogOpen(true);
-    window.setTimeout(() => searchInputRef.current?.focus(), 0);
-  }
-
-  function closeSearchDialog() {
-    setSearchDialogOpen(false);
-    window.setTimeout(() => searchButtonRef.current?.focus(), 0);
-  }
-
   function removeDeletedWorkspaceItems(deletedPaths: string[]) {
     if (deletedPaths.length === 0) {
       return;
@@ -2406,7 +2228,7 @@ export function App() {
       (latest.activeDraft ? isDraftDirty(latest.activeDraft) : false) || metadataDirty;
     const plan = planWorldEventUpdate(syncEvent, latest.activeTab?.path ?? null, activeDirty);
 
-    setSearchRevision((revision) => revision + 1);
+    invalidateSearch();
     removeDeletedWorkspaceItems(syncEvent.deleted_paths);
     await refreshWorldStructure(plan.affectedPaths);
 
@@ -2480,9 +2302,8 @@ export function App() {
   function prepareWorldSwitch() {
     setLoadState({ status: "loading" });
     setWorkspaceReady(false);
-    setToolPanelState(createToolPanelState([], [], [], loadDisabledTools()));
-    setSearchQuery("");
-    setSearchState({ status: "idle" });
+    resetToolPanel();
+    resetSearch();
     audio.reset();
     hp.reset();
     bindings.adoptFastSlots([]);
@@ -2541,7 +2362,7 @@ export function App() {
       map.setMapPresets([]);
       map.resetViewport();
       setTabState({ tabs: workspaceTabs, activePath });
-      setSearchRevision((revision) => revision + 1);
+      invalidateSearch();
     }
     setWorkspaceLayout(normalizeWorkspaceLayout(workspace.layout, workspace.tabs));
     collapseAll();
@@ -2673,31 +2494,6 @@ export function App() {
     }
   }
 
-  function persistCurrentCaptureDraft(draft: CaptureDraft = captureDraft) {
-    if (draft.text.trim()) {
-      saveCaptureDraft(captureWorldKey, draft);
-    } else {
-      clearCaptureDraft(captureWorldKey);
-    }
-  }
-
-  function handleCaptureCategoryChange(category: CaptureCategory) {
-    const nextDraft = { ...captureDraft, category };
-    captureDraftRef.current = nextDraft;
-    setCaptureDraft(nextDraft);
-    setCaptureStatus({ status: "idle", message: null });
-    persistCurrentCaptureDraft(nextDraft);
-  }
-
-  function handleCaptureTextChange(text: string) {
-    const nextDraft = { ...captureDraftRef.current, text };
-    captureDraftRef.current = nextDraft;
-    setCaptureDraft(nextDraft);
-    if (captureStatus.status === "error" || captureStatus.status === "saved") {
-      setCaptureStatus({ status: "idle", message: null });
-    }
-  }
-
   function captureLogTab(path: string, sourcePages: PageSummary[] = pages): WorkspaceTab {
     const page = sourcePages.find((item) => item.path === path);
     return {
@@ -2708,173 +2504,22 @@ export function App() {
     };
   }
 
-  async function handleSaveCapture() {
-    const submittedDraft = captureDraftRef.current;
-    if (!submittedDraft.text.trim()) {
-      setCaptureStatus({ status: "error", message: "Write a note before saving." });
-      return;
+  // A capture landed in today's log: show it in the tree, reload the log if it is open and not
+  // being edited, and remember it as a recent file.
+  async function handleCaptureSaved(path: string) {
+    const nextPages = await refreshWorldStructure([path]);
+    revealPaths([path]);
+    const openLogTab = tabState.tabs.find((tab) => tab.path === path);
+    const logDraft = editorDrafts[path];
+    if (openLogTab && (!logDraft || !isDraftDirty(logDraft))) {
+      await reloadTabFile(openLogTab);
     }
-
-    setCaptureStatus({ status: "saving", message: null });
-    try {
-      const response = await createCapture({
-        category: submittedDraft.category,
-        text: submittedDraft.text
-      });
-      markLocalWrite([response.path]);
-      const nextPages = await refreshWorldStructure([response.path]);
-      revealPaths([response.path]);
-      const logTab = captureLogTab(response.path, nextPages);
-      const openLogTab = tabState.tabs.find((tab) => tab.path === response.path);
-      const logDraft = editorDrafts[response.path];
-      if (openLogTab && (!logDraft || !isDraftDirty(logDraft))) {
-        await reloadTabFile(openLogTab);
-      }
-      persistRecent(logTab);
-      setCaptureToday({ path: response.path, exists: true });
-      const nextDraft = { category: submittedDraft.category, text: "" };
-      captureDraftRef.current = nextDraft;
-      setCaptureDraft(nextDraft);
-      clearCaptureDraft(captureWorldKey);
-      setSearchRevision((revision) => revision + 1);
-      setCaptureStatus({
-        status: "saved",
-        message: `Saved to ${response.heading}.`
-      });
-    } catch (error) {
-      setCaptureStatus({
-        status: "error",
-        message: error instanceof Error ? error.message : "Could not save capture."
-      });
-    }
-  }
-
-  async function handleOpenCaptureLog() {
-    try {
-      const today = captureToday ?? (await fetchCaptureToday());
-      setCaptureToday(today);
-      if (!today.exists) {
-        setCaptureStatus({ status: "error", message: "Save a capture first." });
-        return;
-      }
-      openWorkspaceTab(captureLogTab(today.path));
-    } catch (error) {
-      setCaptureStatus({
-        status: "error",
-        message: error instanceof Error ? error.message : "Could not open capture log."
-      });
-    }
-  }
-
-  async function handleRunPrepHealth() {
-    setPrepHealthStatus({ status: "loading", message: null });
-    try {
-      const report = await fetchPrepHealth();
-      setPrepHealthReport(report);
-      setPrepHealthStatus({
-        status: "ready",
-        message:
-          report.issue_count === 0
-            ? "No broken references found."
-            : `${report.issue_count} issue${report.issue_count === 1 ? "" : "s"} found.`
-      });
-    } catch (error) {
-      setPrepHealthStatus({
-        status: "error",
-        message: error instanceof Error ? error.message : "Could not run prep check."
-      });
-    }
+    persistRecent(captureLogTab(path, nextPages));
+    invalidateSearch();
   }
 
   function handleOpenPrepHealthSource(issue: PrepHealthIssue) {
     openWorkspaceTab(prepHealthIssueToOpenTab(issue));
-  }
-
-  function handleCopyPrepHealthTarget(target: string) {
-    if (!target) {
-      return;
-    }
-    void navigator.clipboard?.writeText(target);
-    setPrepHealthStatus({ status: "ready", message: "Target copied." });
-  }
-
-  function handleToolsResizePointerDown(event: PointerEvent<HTMLDivElement>) {
-    event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = toolsPanelWidth;
-
-    function handlePointerMove(moveEvent: globalThis.PointerEvent) {
-      setToolsPanelWidth(saveToolsPanelWidth(startWidth + startX - moveEvent.clientX));
-    }
-
-    function handlePointerUp() {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    }
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-  }
-
-  function handleToolsResizeKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
-      return;
-    }
-    event.preventDefault();
-    const direction = event.key === "ArrowLeft" ? 1 : -1;
-    setToolsPanelWidth((width) => saveToolsPanelWidth(width + direction * 24));
-  }
-
-  function handleTreeResizePointerDown(event: PointerEvent<HTMLDivElement>) {
-    event.preventDefault();
-    const startX = event.clientX;
-    const startWidth = treePanelWidth;
-
-    function handlePointerMove(moveEvent: globalThis.PointerEvent) {
-      setTreePanelWidth(saveTreePanelWidth(startWidth + moveEvent.clientX - startX));
-    }
-
-    function handlePointerUp() {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    }
-
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp);
-  }
-
-  function handleTreeResizeKeyDown(event: ReactKeyboardEvent<HTMLDivElement>) {
-    if (event.key !== "ArrowLeft" && event.key !== "ArrowRight") {
-      return;
-    }
-    event.preventDefault();
-    const direction = event.key === "ArrowRight" ? 1 : -1;
-    setTreePanelWidth((width) => saveTreePanelWidth(width + direction * 24));
-  }
-
-  function handleTreeResizeReset() {
-    setTreePanelWidth(saveTreePanelWidth(DEFAULT_TREE_PANEL_WIDTH));
-  }
-
-  function handleToolsPanelVisibleChange(visible: boolean) {
-    setToolsPanelVisible(saveToolsPanelVisible(visible));
-  }
-
-  function handleToolToggle(tool: ToolId) {
-    const lockedTools: ToolId[] = activeMetadataEdit.mode === "edit" ? ["metadata"] : [];
-    setToolPanelState((state) => toggleToolSection(state, tool, lockedTools));
-  }
-
-  function handleToolPin(tool: ToolId) {
-    setToolPanelState((state) => toggleToolSectionPin(state, tool));
-  }
-
-  function handleToolDisabledChange(tool: ToolId, disabled: boolean) {
-    setToolPanelState((state) => {
-      const nextState = setToolDisabled(state, tool, disabled);
-      saveDisabledTools(nextState.disabledTools);
-      return nextState;
-    });
   }
 
   useEffect(() => {
@@ -2893,19 +2538,6 @@ export function App() {
   const contentLayoutStyle = {
     "--tools-panel-width": `${toolsPanelWidth}px`
   } as CSSProperties;
-
-  function handleOpenWorldPathPicker(
-    filter: WorldPathPickerFilter,
-    title: string,
-    onSelect: (path: string) => void
-  ) {
-    setPathPickerState({
-      open: true,
-      filter,
-      title,
-      onSelect
-    });
-  }
 
   function requestEditMode(path: string, file: WorldFile) {
     if (!isEditableFile(file)) {
@@ -3063,7 +2695,7 @@ export function App() {
             onChanged={async (paths) => {
               await refreshWorldStructure(paths);
               revealPaths(paths);
-              setSearchRevision((revision) => revision + 1);
+              invalidateSearch();
             }}
             onOpenEntity={(path) => openWorkspaceTab(workspaceTabFromPath(path, pages))}
             tab={tab}
@@ -3499,7 +3131,7 @@ export function App() {
               onStartMetadataEdit={handleStartMetadataEdit}
               onScreenToolTabChange={setScreenToolTab}
               onToolPin={handleToolPin}
-              onToolToggle={handleToolToggle}
+              onToolToggle={(tool) => handleToolToggle(tool, activeMetadataEdit.mode === "edit")}
               openTools={toolPanelState}
               pageState={activePageState}
               pages={pages}
@@ -3596,7 +3228,7 @@ export function App() {
           if (importedPaths.length > 0) {
             revealPaths(importedPaths);
           }
-          setSearchRevision((revision) => revision + 1);
+          invalidateSearch();
         }}
         onLanguageChange={handleLanguageChange}
         onToolDisabledChange={handleToolDisabledChange}
@@ -3614,13 +3246,8 @@ export function App() {
           pathPickerState.open ? pathPickerState.filter : "any"
         )}
         emptyMessage={t("pathPicker.empty")}
-        onClose={() => setPathPickerState({ open: false })}
-        onSelect={(path) => {
-          if (pathPickerState.open) {
-            pathPickerState.onSelect(path);
-          }
-          setPathPickerState({ open: false });
-        }}
+        onClose={closePathPicker}
+        onSelect={selectPath}
         open={pathPickerState.open}
         placeholder={t("pathPicker.placeholder")}
         resultsLabel={t("pathPicker.results")}
