@@ -1,12 +1,17 @@
+import {
+  actionDraftFrom,
+  actionDraftLabelHint,
+  BindingActionFields,
+  buildDraftAction,
+  EMPTY_ACTION_DRAFT,
+  pathPickerFilterForAction,
+  type ActionDraft,
+  type BindingActionKind
+} from "./BindingActionFields";
 import { type KeyboardEvent as ReactKeyboardEvent, useEffect, useState } from "react";
 import { useMapContext } from "../../contexts/MapContext";
 import { type Translator } from "../../lang";
-import {
-  type ActionBinding,
-  type ActionBindingAction,
-  canonicalShortcutFromEvent,
-  shortcutValidationError
-} from "../../lib/actionBindings";
+import { type ActionBinding, canonicalShortcutFromEvent, shortcutValidationError } from "../../lib/actionBindings";
 import {
   type DisplayPopupPreset,
   type FastSlot,
@@ -34,9 +39,6 @@ export type TableSnapshotStatus =
   | { status: "loaded"; message: string }
   | { status: "error"; message: string };
 
-type BindingActionKind =
-  | FastSlotAction["kind"]
-  | "table_snapshot_restore";
 
 export type MidiInputSummary = {
   id: string | null;
@@ -140,23 +142,11 @@ export function ActionsTool({
   const [bindingId, setBindingId] = useState<string | null>(null);
   const [bindingLabel, setBindingLabel] = useState("");
   const [bindingShortcut, setBindingShortcut] = useState("");
-  const [bindingKind, setBindingKind] = useState<BindingActionKind>("open_file");
-  const [bindingPath, setBindingPath] = useState("");
-  const [bindingPopupPreset, setBindingPopupPreset] =
-    useState<DisplayPopupPreset>("plain");
-  const [bindingMapPresetId, setBindingMapPresetId] = useState("");
-  const [bindingMapPresetPresent, setBindingMapPresetPresent] = useState(true);
-  const [bindingSnapshotId, setBindingSnapshotId] = useState("");
+  const [bindingDraft, setBindingDraft] = useState<ActionDraft>(EMPTY_ACTION_DRAFT);
   const [bindingLocalMessage, setBindingLocalMessage] = useState<string | null>(null);
   const [midiBindingId, setMidiBindingId] = useState<string | null>(null);
   const [midiBindingLabel, setMidiBindingLabel] = useState("");
-  const [midiBindingKind, setMidiBindingKind] = useState<BindingActionKind>("open_file");
-  const [midiBindingPath, setMidiBindingPath] = useState("");
-  const [midiBindingPopupPreset, setMidiBindingPopupPreset] =
-    useState<DisplayPopupPreset>("plain");
-  const [midiBindingMapPresetId, setMidiBindingMapPresetId] = useState("");
-  const [midiBindingMapPresetPresent, setMidiBindingMapPresetPresent] = useState(true);
-  const [midiBindingSnapshotId, setMidiBindingSnapshotId] = useState("");
+  const [midiDraft, setMidiDraft] = useState<ActionDraft>(EMPTY_ACTION_DRAFT);
   const [midiBindingMessageValue, setMidiBindingMessageValue] =
     useState<MidiMessage | null>(null);
   const [midiBindingInputId, setMidiBindingInputId] = useState<string | null>(null);
@@ -165,13 +155,13 @@ export function ActionsTool({
   const existing = slots.find((slot) => slot.position === position);
   const selectedMapPreset = mapPresets.find((preset) => preset.id === mapPresetId);
   const selectedSnapshot = snapshots.find((snapshot) => snapshot.id === snapshotSelectedId);
-  const selectedBindingMapPreset = mapPresets.find((preset) => preset.id === bindingMapPresetId);
-  const selectedBindingSnapshot = snapshots.find((snapshot) => snapshot.id === bindingSnapshotId);
+  const selectedBindingMapPreset = mapPresets.find((preset) => preset.id === bindingDraft.mapPresetId);
+  const selectedBindingSnapshot = snapshots.find((snapshot) => snapshot.id === bindingDraft.snapshotId);
   const selectedMidiBindingMapPreset = mapPresets.find(
-    (preset) => preset.id === midiBindingMapPresetId
+    (preset) => preset.id === midiDraft.mapPresetId
   );
   const selectedMidiBindingSnapshot = snapshots.find(
-    (snapshot) => snapshot.id === midiBindingSnapshotId
+    (snapshot) => snapshot.id === midiDraft.snapshotId
   );
   const bindingStatusMessage = bindingLocalMessage || bindingMessage;
   const bindingStatusIsError =
@@ -193,24 +183,14 @@ export function ActionsTool({
     setBindingId(null);
     setBindingLabel("");
     setBindingShortcut("");
-    setBindingKind("open_file");
-    setBindingPath("");
-    setBindingPopupPreset("plain");
-    setBindingMapPresetId("");
-    setBindingMapPresetPresent(true);
-    setBindingSnapshotId("");
+    setBindingDraft(EMPTY_ACTION_DRAFT);
     setBindingLocalMessage(null);
   }
 
   function resetMidiBindingForm() {
     setMidiBindingId(null);
     setMidiBindingLabel("");
-    setMidiBindingKind("open_file");
-    setMidiBindingPath("");
-    setMidiBindingPopupPreset("plain");
-    setMidiBindingMapPresetId("");
-    setMidiBindingMapPresetPresent(true);
-    setMidiBindingSnapshotId("");
+    setMidiDraft(EMPTY_ACTION_DRAFT);
     setMidiBindingMessageValue(null);
     setMidiBindingInputId(null);
     setMidiBindingInputName(null);
@@ -223,17 +203,7 @@ export function ActionsTool({
     setBindingLabel(binding.label);
     setBindingShortcut(binding.shortcut);
     setBindingLocalMessage(null);
-    const action = binding.action;
-    setBindingKind(action.kind as BindingActionKind);
-    setBindingPath("path" in action && typeof action.path === "string" ? action.path : "");
-    setBindingPopupPreset(
-      action.kind === "screen_popup" && action.preset ? action.preset : "plain"
-    );
-    setBindingMapPresetId(action.kind === "map_preset" ? action.preset_id : "");
-    setBindingMapPresetPresent(action.kind === "map_preset" ? action.present : true);
-    setBindingSnapshotId(
-      action.kind === "table_snapshot_restore" ? action.snapshot_id : ""
-    );
+    setBindingDraft(actionDraftFrom(binding.action));
   }
 
   function editMidiBinding(binding: MidiBinding) {
@@ -244,77 +214,7 @@ export function ActionsTool({
     setMidiBindingInputName(binding.input_name);
     setMidiLocalMessage(null);
     onClearMidiLearned();
-    const action = binding.action;
-    setMidiBindingKind(action.kind as BindingActionKind);
-    setMidiBindingPath("path" in action && typeof action.path === "string" ? action.path : "");
-    setMidiBindingPopupPreset(
-      action.kind === "screen_popup" && action.preset ? action.preset : "plain"
-    );
-    setMidiBindingMapPresetId(action.kind === "map_preset" ? action.preset_id : "");
-    setMidiBindingMapPresetPresent(action.kind === "map_preset" ? action.present : true);
-    setMidiBindingSnapshotId(
-      action.kind === "table_snapshot_restore" ? action.snapshot_id : ""
-    );
-  }
-
-  function buildBindingAction(): { action: ActionBindingAction; labelHint?: string } | { error: string } {
-    if (bindingKind === "table_snapshot_restore") {
-      if (!bindingSnapshotId) {
-        return { error: "Choose a table state snapshot." };
-      }
-      return {
-        action: { kind: "table_snapshot_restore", snapshot_id: bindingSnapshotId },
-        labelHint: selectedBindingSnapshot?.name
-      };
-    }
-
-    const result = buildFastSlotAction({
-      kind: bindingKind,
-      path: bindingPath,
-      preset: bindingPopupPreset,
-      presetId: bindingMapPresetId,
-      present: bindingMapPresetPresent
-    });
-    if (!result.action) {
-      return { error: result.error ?? "Could not build binding action." };
-    }
-    return {
-      action: result.action,
-      labelHint:
-        selectedBindingMapPreset?.name ||
-        activeTab?.title ||
-        activeTab?.name
-    };
-  }
-
-  function buildMidiBindingAction(): { action: ActionBindingAction; labelHint?: string } | { error: string } {
-    if (midiBindingKind === "table_snapshot_restore") {
-      if (!midiBindingSnapshotId) {
-        return { error: "Choose a table state snapshot." };
-      }
-      return {
-        action: { kind: "table_snapshot_restore", snapshot_id: midiBindingSnapshotId },
-        labelHint: selectedMidiBindingSnapshot?.name
-      };
-    }
-
-    const result = buildFastSlotAction({
-      kind: midiBindingKind,
-      path: midiBindingPath,
-      preset: midiBindingPopupPreset,
-      presetId: midiBindingMapPresetId,
-      present: midiBindingMapPresetPresent
-    });
-    if (!result.action) {
-      return { error: result.error ?? "Could not build MIDI action." };
-    }
-    return {
-      action: result.action,
-      labelHint:
-        selectedMidiBindingMapPreset?.name ||
-        activeTab?.title ||
-        activeTab?.name
-    };
+    setMidiDraft(actionDraftFrom(binding.action));
   }
 
   useEffect(() => {
@@ -492,101 +392,18 @@ export function ActionsTool({
               value={bindingShortcut}
             />
           </label>
-          <label>
-            {t("actions.bindingType")}
-            <select
-              aria-label="Keyboard binding type"
-              onChange={(event) => setBindingKind(event.target.value as BindingActionKind)}
-              value={bindingKind}
-            >
-              <option value="open_file">{t("actions.openFile")}</option>
-              <option value="screen_fullscreen">{t("actions.screenFullscreen")}</option>
-              <option value="screen_popup">{t("actions.screenPopup")}</option>
-              <option value="audio_track">{t("actions.audioTrack")}</option>
-              <option value="script_run">{t("actions.runScript")}</option>
-              <option value="map_preset">{t("actions.mapPreset")}</option>
-              <option value="table_snapshot_restore">{t("actions.restoreTableState")}</option>
-            </select>
-          </label>
-          {bindingKind === "map_preset" ? (
-            <label>
-              {t("actions.mapPreset")}
-              <select
-                aria-label="Keyboard binding map preset"
-                onChange={(event) => setBindingMapPresetId(event.target.value)}
-                value={bindingMapPresetId}
-              >
-                <option value="">{t("actions.choosePreset")}</option>
-                {mapPresets.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : bindingKind === "table_snapshot_restore" ? (
-            <label>
-              {t("actions.tableState")}
-              <select
-                aria-label="Keyboard binding table state"
-                onChange={(event) => setBindingSnapshotId(event.target.value)}
-                value={bindingSnapshotId}
-              >
-                <option value="">{t("actions.chooseState")}</option>
-                {snapshots.map((snapshot) => (
-                  <option key={snapshot.id} value={snapshot.id}>
-                    {snapshot.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <label>
-              {t("actions.target")}
-              {renderPathInput(
-                bindingPath,
-                setBindingPath,
-                bindingKind,
-                "Keyboard binding target",
-                bindingKind === "screen_fullscreen" || bindingKind === "screen_popup"
-                  ? activeTab?.path ?? t("screen.pathPlaceholder")
-                  : bindingKind === "audio_track"
-                    ? ".music/effects/file.mp3"
-                    : bindingKind === "script_run"
-                      ? "Scripts/hello_world.dms"
-                      : "README.md",
-                "Choose Keyboard Binding Target",
-                "Choose keyboard binding target"
-              )}
-            </label>
-          )}
-          {bindingKind === "screen_popup" && (
-            <label>
-              {t("actions.preset")}
-              <select
-                aria-label="Keyboard binding popup preset"
-                onChange={(event) => setBindingPopupPreset(event.target.value as DisplayPopupPreset)}
-                value={bindingPopupPreset}
-              >
-                <option value="plain">{t("screen.popupPlain")}</option>
-                <option value="note">{t("screen.popupNote")}</option>
-                <option value="letter">{t("screen.popupLetter")}</option>
-                <option value="portrait">{t("screen.popupPortrait")}</option>
-                <option value="clue">{t("screen.popupClue")}</option>
-              </select>
-            </label>
-          )}
-          {bindingKind === "map_preset" && (
-            <label className="compact-inline-control">
-              {t("actions.present")}
-              <input
-                aria-label="Keyboard binding presents map preset"
-                checked={bindingMapPresetPresent}
-                onChange={(event) => setBindingMapPresetPresent(event.target.checked)}
-                type="checkbox"
-              />
-            </label>
-          )}
+          <BindingActionFields
+            activeTab={activeTab}
+            draft={bindingDraft}
+            labelPrefix="Keyboard binding"
+            mapPresets={mapPresets}
+            onChange={setBindingDraft}
+            onPickPath={onPickPath}
+            pickerLabel="Choose keyboard binding target"
+            pickerTitle="Choose Keyboard Binding Target"
+            snapshots={snapshots}
+            t={t}
+          />
         </div>
         {bindingStatusMessage && (
           <p className={`tool-note${bindingStatusIsError ? " tool-error" : ""}`}>
@@ -605,7 +422,7 @@ export function ActionsTool({
                 setBindingLocalMessage(shortcutError);
                 return;
               }
-              const result = buildBindingAction();
+              const result = buildDraftAction(bindingDraft);
               if ("error" in result) {
                 setBindingLocalMessage(result.error);
                 return;
@@ -615,11 +432,7 @@ export function ActionsTool({
                 id,
                 label:
                   bindingLabel.trim() ||
-                  result.labelHint ||
-                  selectedBindingSnapshot?.name ||
-                  selectedBindingMapPreset?.name ||
-                  activeTab?.title ||
-                  activeTab?.name ||
+                  actionDraftLabelHint(bindingDraft, mapPresets, snapshots, activeTab) ||
                   "Binding",
                 shortcut: bindingShortcut,
                 action: result.action
@@ -736,103 +549,18 @@ export function ActionsTool({
               ))}
             </select>
           </label>
-          <label>
-            {t("actions.bindingType")}
-            <select
-              aria-label="MIDI binding type"
-              onChange={(event) => setMidiBindingKind(event.target.value as BindingActionKind)}
-              value={midiBindingKind}
-            >
-              <option value="open_file">{t("actions.openFile")}</option>
-              <option value="screen_fullscreen">{t("actions.screenFullscreen")}</option>
-              <option value="screen_popup">{t("actions.screenPopup")}</option>
-              <option value="audio_track">{t("actions.audioTrack")}</option>
-              <option value="script_run">{t("actions.runScript")}</option>
-              <option value="map_preset">{t("actions.mapPreset")}</option>
-              <option value="table_snapshot_restore">{t("actions.restoreTableState")}</option>
-            </select>
-          </label>
-          {midiBindingKind === "map_preset" ? (
-            <label>
-              {t("actions.mapPreset")}
-              <select
-                aria-label="MIDI binding map preset"
-                onChange={(event) => setMidiBindingMapPresetId(event.target.value)}
-                value={midiBindingMapPresetId}
-              >
-                <option value="">{t("actions.choosePreset")}</option>
-                {mapPresets.map((preset) => (
-                  <option key={preset.id} value={preset.id}>
-                    {preset.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : midiBindingKind === "table_snapshot_restore" ? (
-            <label>
-              {t("actions.tableState")}
-              <select
-                aria-label="MIDI binding table state"
-                onChange={(event) => setMidiBindingSnapshotId(event.target.value)}
-                value={midiBindingSnapshotId}
-              >
-                <option value="">{t("actions.chooseState")}</option>
-                {snapshots.map((snapshot) => (
-                  <option key={snapshot.id} value={snapshot.id}>
-                    {snapshot.name}
-                  </option>
-                ))}
-              </select>
-            </label>
-          ) : (
-            <label>
-              {t("actions.target")}
-              {renderPathInput(
-                midiBindingPath,
-                setMidiBindingPath,
-                midiBindingKind,
-                "MIDI binding target",
-                midiBindingKind === "screen_fullscreen" || midiBindingKind === "screen_popup"
-                  ? activeTab?.path ?? t("screen.pathPlaceholder")
-                  : midiBindingKind === "audio_track"
-                    ? ".music/effects/file.mp3"
-                    : midiBindingKind === "script_run"
-                      ? "Scripts/hello_world.dms"
-                      : "README.md",
-                "Choose MIDI Binding Target",
-                "Choose MIDI binding target"
-              )}
-            </label>
-          )}
-          {midiBindingKind === "screen_popup" && (
-            <label>
-              {t("actions.preset")}
-              <select
-                aria-label="MIDI binding popup preset"
-                onChange={(event) =>
-                  setMidiBindingPopupPreset(event.target.value as DisplayPopupPreset)
-                }
-                value={midiBindingPopupPreset}
-              >
-                <option value="plain">{t("screen.popupPlain")}</option>
-                <option value="note">{t("screen.popupNote")}</option>
-                <option value="letter">{t("screen.popupLetter")}</option>
-                <option value="portrait">{t("screen.popupPortrait")}</option>
-                <option value="clue">{t("screen.popupClue")}</option>
-              </select>
-            </label>
-          )}
-          {midiBindingKind === "map_preset" && (
-            <label className="compact-inline-control">
-              {t("actions.present")}
-              <input
-                aria-label="MIDI binding presents map preset"
-                checked={midiBindingMapPresetPresent}
-                onChange={(event) => setMidiBindingMapPresetPresent(event.target.checked)}
-                type="checkbox"
-              />
-            </label>
-          )}
+          <BindingActionFields
+            activeTab={activeTab}
+            draft={midiDraft}
+            labelPrefix="MIDI binding"
+            mapPresets={mapPresets}
+            onChange={setMidiDraft}
+            onPickPath={onPickPath}
+            pickerLabel="Choose MIDI binding target"
+            pickerTitle="Choose MIDI Binding Target"
+            snapshots={snapshots}
+            t={t}
+          />
         </div>
         {midiStatusMessage && (
           <p className={`tool-note${midiStatusIsError ? " tool-error" : ""}`}>
@@ -842,21 +570,18 @@ export function ActionsTool({
         <div className="inline-actions">
           <button
             onClick={() => {
-              const result = buildMidiBindingAction();
+              const result = buildDraftAction(midiDraft);
+              const midiLabel =
+                midiBindingLabel.trim() ||
+                actionDraftLabelHint(midiDraft, mapPresets, snapshots, activeTab) ||
+                "MIDI binding";
               if ("error" in result) {
                 setMidiLocalMessage(result.error);
                 return;
               }
               const validationError = midiBindingValidationError(
                 {
-                  label:
-                    midiBindingLabel.trim() ||
-                    result.labelHint ||
-                    selectedMidiBindingSnapshot?.name ||
-                    selectedMidiBindingMapPreset?.name ||
-                    activeTab?.title ||
-                    activeTab?.name ||
-                    "MIDI binding",
+                  label: midiLabel,
                   input_id: midiBindingInputId,
                   message: midiBindingMessageValue,
                   action: result.action
@@ -871,14 +596,7 @@ export function ActionsTool({
               const id = midiBindingId ?? `midi-${Date.now().toString(36)}`;
               onSaveMidiBinding({
                 id,
-                label:
-                  midiBindingLabel.trim() ||
-                  result.labelHint ||
-                  selectedMidiBindingSnapshot?.name ||
-                  selectedMidiBindingMapPreset?.name ||
-                  activeTab?.title ||
-                  activeTab?.name ||
-                  "MIDI binding",
+                label: midiLabel,
                 input_id: midiBindingInputId,
                 input_name: midiBindingInputName,
                 message: midiBindingMessageValue as MidiMessage,
@@ -1071,17 +789,4 @@ export function ActionsTool({
       )}
     </section>
   );
-}
-
-function pathPickerFilterForAction(kind: BindingActionKind | FastSlotAction["kind"]): WorldPathPickerFilter {
-  if (kind === "screen_fullscreen" || kind === "screen_popup") {
-    return "displayable";
-  }
-  if (kind === "audio_track") {
-    return "audio";
-  }
-  if (kind === "script_run") {
-    return "script";
-  }
-  return "any";
 }
