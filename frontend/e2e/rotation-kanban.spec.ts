@@ -8,13 +8,13 @@ import {
   removeWorldPath,
   resetWorldDirectory
 } from "./world-fixtures";
+import { toolsPanel, worldTree } from "./world-browser-helpers";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(currentDir, "../..");
 const sampleWorld = resolve(repoRoot, "sample-world");
 const e2eWorldsRoot = resolve(repoRoot, ".virtualscreen", "e2e-worlds");
 const e2eWorld = resolve(e2eWorldsRoot, "E2E World");
-const authHeaders = { "X-VirtualScreen-Token": "dev" };
 
 function resetE2eWorld() {
   mkdirSync(e2eWorldsRoot, { recursive: true });
@@ -73,20 +73,17 @@ function resetE2eWorld() {
 async function resetRuntimeState(request: APIRequestContext) {
   resetE2eWorld();
   await expectOk(request.post("/api/worlds/open", {
-    data: { id: "E2E World" },
-    headers: authHeaders
+    data: { id: "E2E World" }
   }));
-  await expectOk(request.post("/api/index/rebuild", { headers: authHeaders }));
+  await expectOk(request.post("/api/index/rebuild"));
   await expectOk(request.put("/api/workspace/tabs", {
-    data: { tabs: [], activePath: null },
-    headers: authHeaders
+    data: { tabs: [], activePath: null }
   }));
-  await expectOk(request.post("/api/display/blank", { headers: authHeaders }));
-  await expectOk(request.post("/api/map/stop", { headers: authHeaders }));
-  await expectOk(request.delete("/api/map/reveals", { headers: authHeaders }));
+  await expectOk(request.post("/api/display/blank"));
+  await expectOk(request.post("/api/map/stop"));
+  await expectOk(request.delete("/api/map/reveals"));
   await expectOk(request.put("/api/map/fog", {
-    data: { enabled: false },
-    headers: authHeaders
+    data: { enabled: false }
   }));
 }
 
@@ -101,31 +98,10 @@ async function expectOk(responsePromise: Promise<{ ok(): boolean; status(): numb
   }
 }
 
-function worldTree(page: Page) {
-  return page.getByRole("navigation", { name: "World files" });
-}
 
-function toolsPanel(page: Page) {
-  return page.getByRole("complementary", { name: "DM Tools" });
-}
 
 async function gotoWorkspace(page: Page) {
-  await page.context().addCookies([
-    {
-      name: "virtualscreen_access",
-      value: "dev",
-      domain: "127.0.0.1",
-      path: "/"
-    }
-  ]);
   await page.goto("/");
-  const accessCode = page.getByLabel("Access code");
-  if ((await accessCode.count()) > 0 && (await accessCode.isVisible())) {
-    await accessCode.fill("dev");
-    const unlockButton = page.getByRole("button", { name: "Unlock" });
-    await expect(unlockButton).toBeEnabled();
-    await unlockButton.click();
-  }
   await expect(worldTree(page)).toBeVisible();
 }
 
@@ -165,9 +141,7 @@ async function mapTool(page: Page) {
 }
 
 async function pageFields(request: APIRequestContext, path: string) {
-  const response = await request.get(`/api/page?path=${encodeURIComponent(path)}`, {
-    headers: authHeaders
-  });
+  const response = await request.get(`/api/page?path=${encodeURIComponent(path)}`);
   expect(response.ok()).toBeTruthy();
   const page = (await response.json()) as { fields: Record<string, unknown> };
   return page.fields;

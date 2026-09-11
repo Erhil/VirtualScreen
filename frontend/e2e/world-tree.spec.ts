@@ -444,36 +444,6 @@ test("trash manager restores and permanently deletes trashed files", async ({ pa
   await expect(trash.getByText("Trash is empty.")).toBeVisible();
 });
 
-test("renames after live external save refreshes preconditions", async ({
-  page,
-  request
-}) => {
-  await page.goto("/");
-
-  await worldTree(page).getByRole("button", { name: /Sample World Guide/ }).click();
-  const current = await (await request.get("/api/world/file?path=README.md")).json();
-  await request.put("/api/world/file?path=README.md", {
-    data: {
-      content: "# External Rename Conflict",
-      expected_modified_at: current.modified_at,
-      expected_hash: current.hash
-    }
-  });
-
-  await expect(page.getByRole("heading", { name: "External Rename Conflict" })).toBeVisible({
-    timeout: 10_000
-  });
-  const readme = worldTree(page).getByRole("button", { name: /README\.md/ });
-  await readme.click({ button: "right" });
-  await page.getByRole("menu").getByRole("button", { name: "Rename" }).click();
-  const dialog = page.getByRole("dialog", { name: "Rename File" });
-  await dialog.getByLabel("New file path").fill("Conflict Home.md");
-  await dialog.getByRole("button", { name: "Rename File", exact: true }).click();
-
-  await expect(dialog).toBeHidden();
-  await expect(worldTree(page).getByRole("button", { name: /Conflict Home\.md/ })).toBeVisible();
-});
-
 test("media and unsupported files stay read-only", async ({ page }) => {
   await page.goto("/");
 

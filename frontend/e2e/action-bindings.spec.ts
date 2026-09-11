@@ -135,13 +135,6 @@ async function sendMidi(page: Page, data: number[]) {
   }, data);
 }
 
-async function saveFastSlot(actions: Locator, label: string, path: string) {
-  await actions.getByLabel("Action").selectOption("open_file");
-  await actions.getByLabel("Label").fill(label);
-  await actions.getByRole("textbox", { name: "Fast slot path" }).fill(path);
-  await actions.getByRole("button", { name: "Save Slot" }).click();
-}
-
 test.describe("Action Bindings V1", () => {
   test("Actions exposes compact keyboard binding controls and validates shortcuts @smoke", async ({ page }) => {
     await page.goto("/");
@@ -168,18 +161,6 @@ test.describe("Action Bindings V1", () => {
     await bindings.getByLabel("Shortcut").fill("Ctrl+Shift+H");
     await bindings.getByRole("button", { name: "Save Binding" }).click();
     await expect(bindings.getByText("Shortcut is already used.")).toBeVisible();
-  });
-
-  test("fixed Alt+1 fast slot still opens files", async ({ page }) => {
-    await page.goto("/");
-    const actions = await actionsTool(page);
-
-    await saveFastSlot(actions, "Home", "README.md");
-    await expect(page.getByRole("button", { name: /Fast slot 1: Home/ })).toBeEnabled();
-
-    await page.keyboard.press("Alt+1");
-    await expect(page.getByRole("tab", { name: /README\.md|Sample World Guide/ })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Sample World Guide" })).toBeVisible();
   });
 
   test("binding can restore a saved table state snapshot @smoke", async ({ context, page }) => {

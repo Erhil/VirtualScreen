@@ -326,6 +326,12 @@ export function useE2eWorld() {
         }
       }
     }
+    // Not an arbitrary settle time. resetE2eWorld has just rewritten the whole world, and
+    // the backend's watcher reacts to that 500ms after the last write (awatch debounce in
+    // core/watcher.py) with a full rebuild of its own. Waiting it out here means that
+    // rebuild lands before the test starts instead of partway through it, where it reads
+    // - and on Windows holds open - the very files the test is about to change. Removing
+    // this looks like a free 100 seconds per run and is not.
     await new Promise((resolveDelay) => setTimeout(resolveDelay, 750));
     await request.put("/api/workspace/tabs", {
       data: { tabs: [], activePath: null }

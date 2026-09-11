@@ -12,7 +12,6 @@ const e2eWorldsDir = resolve(stateDir, "e2e-worlds");
 const e2eWorldRoot = resolve(e2eWorldsDir, "E2E World");
 const logDir = resolve(stateDir, "e2e-logs");
 const pidFile = resolve(stateDir, "e2e-pids.json");
-const stopMarker = resolve(stateDir, "e2e-stop");
 const pythonExecutable = existsSync(resolve(repoRoot, ".venv", "Scripts", "python.exe"))
   ? resolve(repoRoot, ".venv", "Scripts", "python.exe")
   : "python";
@@ -38,7 +37,6 @@ const frontendCommand =
 mkdirSync(stateDir, { recursive: true });
 mkdirSync(e2eWorldRoot, { recursive: true });
 mkdirSync(logDir, { recursive: true });
-rmSync(stopMarker, { force: true });
 // The backend now remembers which world was open, in a state file beside the
 // library. Left behind, it would carry the last run's world into the next one
 // before any spec has reset it.

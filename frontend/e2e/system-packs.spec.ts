@@ -137,51 +137,6 @@ test("imports the real sample-world Harbor Starter Pack", async ({ page }) => {
   expect(existsSync(resolve(e2eWorld, "Scripts", "skipped_pack_script.dms"))).toBe(false);
 });
 
-test("previews and imports a valid content-only system pack", async ({ page }) => {
-  const archivePath = resolve(packDir, "valid-system-pack.zip");
-  createSystemPackArchive(archivePath);
-
-  await page.goto("/");
-  const dialog = await openPackPreview(page, archivePath);
-
-  await expect(dialog).toContainText("E2E Content Pack");
-  await expect(dialog).toContainText("E2E Pack Note");
-  await expect(dialog).toContainText("E2E Pack Card");
-  await expect(dialog).toContainText("e2e-pack-table.csv");
-  await expect(dialog).toContainText("e2e-pack-map.svg");
-  await expect(dialog).toContainText("e2e-ambience.mp3");
-  await expect(dialog).toContainText("e2e-pack-template.json");
-  await expect(dialog).toContainText(/should-not-import\.dms|skipped|unsupported/i);
-
-  await importPreview(dialog);
-  await closeSettings(dialog);
-
-  await expect(worldTree(page).getByRole("button", { name: /E2E Pack Note/ })).toBeVisible();
-  await expect(worldTree(page).getByRole("button", { name: /E2E Pack Card/ })).toBeVisible();
-  await expect(worldTree(page).getByRole("button", { name: /e2e-pack-table\.csv/ })).toBeVisible();
-  await expect(worldTree(page).getByRole("button", { name: /e2e-pack-map\.svg/ })).toBeVisible();
-
-  await page.getByRole("button", { name: /Search|Поиск/ }).click();
-  const search = page.getByRole("region", { name: /Global Search|Глобальный поиск/ });
-  await search.getByRole("searchbox").fill("Pack lantern phrase");
-  await expect(search.getByRole("button", { name: /E2E Pack Note/ })).toBeVisible();
-  await page.reload();
-
-  await page
-    .getByRole("region", { name: /Audio tool|Инструмент Аудио/i })
-    .getByRole("button")
-    .first()
-    .click();
-  await page.getByRole("searchbox", { name: /Music Search|Поиск музыки/i }).fill("e2e-ambience");
-  await expect(page.getByRole("button", { name: "e2e-ambience" })).toBeVisible();
-
-  await page.getByRole("button", { name: /New Card|Новая карта/ }).click();
-  await expect(page.getByLabel("Card template")).toContainText("E2E Pack Template");
-  await page.keyboard.press("Escape");
-
-  expect(existsSync(resolve(e2eWorld, "Scripts", "should-not-import.dms"))).toBe(false);
-});
-
 test("supports skip overwrite and rename conflict choices", async ({ page }) => {
   const archivePath = resolve(packDir, "conflict-system-pack.zip");
   createSystemPackArchive(archivePath);

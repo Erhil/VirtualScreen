@@ -102,10 +102,12 @@ test("Dice tool rolls expressions, common dice, and invalid input @smoke", async
   }
   await expect(diceTool.locator(".dice-history li")).toHaveCount(9);
 
-  for (let index = 0; index < 46; index += 1) {
+  // Enough rolls to overflow the list's max-height, not to reach the 50-entry cap - that
+  // cap is pinned in lib/dice.test.ts, and reaching it here cost 46 backend round trips.
+  for (let index = 0; index < 10; index += 1) {
     await diceTool.getByRole("button", { name: "d2", exact: true }).click();
   }
-  await expect(diceTool.locator(".dice-history li")).toHaveCount(50);
+  await expect(diceTool.locator(".dice-history li")).toHaveCount(19);
   await expect
     .poll(async () =>
       diceTool.locator(".dice-history").evaluate((element) => ({
@@ -118,7 +120,7 @@ test("Dice tool rolls expressions, common dice, and invalid input @smoke", async
   await diceTool.getByLabel("Expression").fill("bad");
   await diceTool.getByRole("button", { name: "Roll" }).click();
   await expect(diceTool.getByRole("alert")).toBeVisible();
-  await expect(diceTool.locator(".dice-history li")).toHaveCount(50);
+  await expect(diceTool.locator(".dice-history li")).toHaveCount(19);
 
   await diceTool.getByRole("button", { name: "Clear" }).click();
   await expect(diceTool.locator(".dice-history li")).toHaveCount(0);

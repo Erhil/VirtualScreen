@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { existsSync, mkdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { existsSync, readFileSync, rmSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
@@ -24,8 +24,6 @@ function killProcessTree(pid) {
 }
 
 export default async function globalTeardown() {
-  mkdirSync(stateDir, { recursive: true });
-  writeFileSync(resolve(stateDir, "e2e-stop"), `${new Date().toISOString()}\n`, "utf-8");
   if (!existsSync(pidFile)) {
     return;
   }

@@ -49,6 +49,11 @@ test("DMS scripts run from editor and scripts tool @smoke", async ({ page }) => 
   await enterEditMode(page);
   await fillCodeEditor(page, "DMS editor", "render_md('# Draft')\n");
   await expect(page.getByText("Save before running.")).toBeVisible();
+  await expect(
+    page
+      .getByRole("region", { name: "Document status" })
+      .getByRole("button", { name: "Run Active Script", exact: true })
+  ).toBeDisabled();
 
   await openToolSection(page, "Scripts");
   const scripts = toolsPanel(page).getByRole("region", { name: "DMS Scripts" });

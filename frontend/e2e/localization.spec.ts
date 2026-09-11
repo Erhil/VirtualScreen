@@ -224,11 +224,3 @@ test("world tree add buttons are visually quiet but still reachable", async ({ p
   await addButton.click();
   await expect(page.locator(".tree-add-menu")).toBeVisible();
 });
-
-test("Player screen does not expose DM Settings controls", async ({ page }) => {
-  await page.goto("/screen");
-
-  await expect(page.getByRole("main", { name: "Player Screen" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Settings" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Настр." })).toHaveCount(0);
-});

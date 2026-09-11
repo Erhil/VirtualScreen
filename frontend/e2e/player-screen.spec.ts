@@ -270,18 +270,13 @@ test("player screen fills the viewport for markdown and CSV fullscreen content",
   await expectViewportFilling(screen, ".screen-fullscreen .screen-table-wrap");
 });
 
-test("public screen routes only expose displayed content and embeds", async ({
+test("player screen shows a displayed page together with its embedded image", async ({
   context,
-  page,
-  request
+  page
 }) => {
-  expect((await request.get(screenPathUrl("/api/screen/world/file", "README.md"))).status()).toBe(
-    403
-  );
-  expect(
-    (await request.get(screenPathUrl("/api/screen/world/media", "Media/animated-map.gif"))).status()
-  ).toBe(403);
-
+  // The access rules themselves - nothing before it is displayed, only displayed content
+  // and its embeds after - are pinned route by route in backend/tests/test_display_routes.py.
+  // What only a browser can show is that the page and its image actually arrive together.
   const screen = await context.newPage();
   await screen.goto("/screen");
   await page.goto("/");
@@ -291,24 +286,6 @@ test("public screen routes only expose displayed content and embeds", async ({
 
   await expect(screen.getByRole("heading", { name: "Sample World Guide" })).toBeVisible();
   await expect(screen.getByRole("img", { name: "Sample Map" })).toBeVisible();
-
-  expect((await request.get(screenPathUrl("/api/screen/world/file", "README.md"))).status()).toBe(
-    200
-  );
-  expect(
-    (await request.get(screenPathUrl("/api/screen/page/links", "README.md"))).status()
-  ).toBe(200);
-  expect(
-    (await request.get(screenPathUrl("/api/screen/world/media", "Media/sample-map.svg"))).status()
-  ).toBe(200);
-  expect(
-    (
-      await request.get(screenPathUrl("/api/screen/world/file", "NPCs/Captain Ilyra.md"))
-    ).status()
-  ).toBe(403);
-  expect(
-    (await request.get(screenPathUrl("/api/screen/world/media", "Media/animated-map.gif"))).status()
-  ).toBe(403);
 });
 
 test("blank player screen uses optional world background image", async ({ context, page, request }) => {
@@ -359,12 +336,4 @@ test("blank player screen skips missing optional background without console erro
   expect(
     consoleErrors.filter((message) => message.includes("/api/screen/display/background"))
   ).toEqual([]);
-});
-
-test("player screen has no DM-only controls", async ({ page }) => {
-  await page.goto("/screen");
-
-  await expect(page.getByRole("button", { name: "Search" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
-  await expect(page.getByRole("button", { name: "Trash" })).toHaveCount(0);
 });

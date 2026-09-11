@@ -35,9 +35,6 @@ const seedFiles = [
   ".virtualscreen/card-templates/reference-table-v2.json"
 ];
 
-function pause(milliseconds: number) {
-  Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, milliseconds);
-}
 
 function normalizeFixturePath(path: string): string {
   return path.replace(/\\/g, "/");
@@ -103,29 +100,20 @@ export function copySampleWorldSeed(sampleWorld: string, targetWorld: string) {
 }
 
 export function resetWorldDirectory(worldPath: string) {
+  // removeWorldPath already waits out a held file, so this needs no retry loop of its
+  // own - an outer one only multiplied that wait by 25.
   mkdirSync(worldPath, { recursive: true });
-  for (let attempt = 0; attempt < 25; attempt += 1) {
-    try {
-      for (const entry of readdirSync(worldPath)) {
-        if (entry === ".virtualscreen") {
-          const statePath = resolve(worldPath, entry);
-          for (const stateEntry of readdirSync(statePath)) {
-            if (stateEntry.startsWith("virtualscreen.sqlite3")) {
-              continue;
-            }
-            removeWorldPath(resolve(statePath, stateEntry));
-          }
-          continue;
+  for (const entry of readdirSync(worldPath)) {
+    if (entry === ".virtualscreen") {
+      const statePath = resolve(worldPath, entry);
+      for (const stateEntry of readdirSync(statePath)) {
+        if (!stateEntry.startsWith("virtualscreen.sqlite3")) {
+          removeWorldPath(resolve(statePath, stateEntry));
         }
-        removeWorldPath(resolve(worldPath, entry));
       }
-      break;
-    } catch (error) {
-      if (attempt === 24) {
-        throw error;
-      }
-      pause(200);
+      continue;
     }
+    removeWorldPath(resolve(worldPath, entry));
   }
 }
 

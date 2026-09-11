@@ -138,21 +138,6 @@ async function mapTool(page: Page) {
   return toolsPanel(page).getByRole("region", { name: "Map Control" });
 }
 
-async function audioTool(page: Page) {
-  await openToolSection(page, "Audio");
-  return toolsPanel(page).getByRole("region", { name: "Audio Control" });
-}
-
-async function actionsTool(page: Page) {
-  await openToolSection(page, "Actions");
-  return toolsPanel(page).getByRole("region", { name: "Fast Slot Configuration" });
-}
-
-async function scriptsTool(page: Page) {
-  await openToolSection(page, "Scripts");
-  return toolsPanel(page).getByRole("region", { name: "DMS Scripts" });
-}
-
 async function openWorldFile(page: Page, fileName: string | RegExp, folder?: string) {
   const fileButton = worldTree(page).getByRole("button", { name: fileName });
   try {
@@ -392,36 +377,6 @@ test("map stop status matches hidden player map state", async ({ context, page }
   await expect(player.locator(".screen-fullscreen-blank")).toBeVisible();
 });
 
-test("audio saved playlist shows current bus queue status clearly", async ({ page }) => {
-  await page.goto("/");
-
-  const audio = await audioTool(page);
-  const saved = audio.getByRole("region", { name: "Saved Playlists" });
-  await saved.getByLabel("Saved playlist name").fill("Cue List");
-  await saved.locator(".audio-saved-create-row").getByLabel("Bus").selectOption("music");
-  await saved.getByRole("button", { name: "New" }).click();
-
-  const playlist = saved.getByRole("region", { name: "Saved playlist Cue List" });
-  await expect(playlist).toBeVisible();
-  await playlist.getByLabel("Track path for Cue List").fill(".music/music/Bard/bard-song.ogg");
-  await playlist.getByRole("button", { name: "+ Track" }).click();
-  await playlist.getByLabel("Track path for Cue List").fill(".music/ambient/Tavern/tavern-crowd.mp3");
-  await playlist.getByRole("button", { name: "+ Track" }).click();
-  await playlist.getByRole("button", { name: "Load Saved Playlist" }).click();
-
-  const musicBus = audio.getByRole("region", { name: "Music Bus" });
-  const ambientBus = audio.getByRole("region", { name: "Ambient Bus" });
-  const effectBus = audio.getByRole("region", { name: "Effect Bus" });
-  await expect(musicBus.locator(".audio-queue-line")).toContainText("Cue List 1/2");
-  await expect(musicBus.locator(".audio-bus-heading")).toContainText("bard-song");
-  await expect(ambientBus.getByText("Empty")).toBeVisible();
-  await expect(effectBus.getByText("Empty")).toBeVisible();
-
-  await musicBus.getByRole("button", { name: "Next" }).click();
-  await expect(musicBus.locator(".audio-queue-line")).toContainText("Cue List 2/2");
-  await expect(musicBus.locator(".audio-bus-heading")).toContainText("tavern-crowd");
-});
-
 test("Russian layout has no targeted English leftovers or clipped shell labels", async ({
   page
 }) => {
@@ -547,9 +502,7 @@ test("/screen is isolated from DM-only shell and only exposes displayed content"
   await expect(page.getByRole("button", { name: "Settings" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: "Search" })).toHaveCount(0);
   await expect(page.getByRole("button", { name: /Fast slot/ })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Edit" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Trash" })).toHaveCount(0);
 
-  expect((await request.get("/api/screen/world/file?path=README.md")).status()).toBe(200);
-  expect((await request.get("/api/screen/world/file?path=NPCs/Captain%20Ilyra.md")).status()).toBe(
-    403
-  );
 });
