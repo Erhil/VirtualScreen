@@ -11,6 +11,7 @@ import {
   type EditorAutocompleteMode,
   type EditorCompletion
 } from "./lib/editorAutocomplete";
+import { useStableHandler } from "./hooks/useStableHandler";
 import { shouldStopEditorHotkeyPropagation } from "./lib/editor";
 
 export type CodeEditorLanguage = "markdown" | "python" | "text";
@@ -24,6 +25,8 @@ type CodeEditorProps = {
 };
 
 export type CodeEditorCompletion = EditorCompletion;
+
+const NO_COMPLETIONS: CodeEditorCompletion[] = [];
 
 const compactEditorTheme = EditorView.theme({
   "&": {
@@ -76,8 +79,11 @@ export function CodeEditor({
   language,
   value,
   onChange,
-  completions = []
+  completions = NO_COMPLETIONS
 }: CodeEditorProps) {
+  // react-codemirror reconfigures the whole editor whenever the onChange it receives or
+  // the extensions change identity; with the caller's fresh closure that was every keystroke.
+  const stableOnChange = useStableHandler(onChange);
   const completionExtension = useMemo(() => {
     const completionMode = completionModeForLanguage(language);
     if (completions.length === 0 || !completionMode) {
@@ -148,7 +154,7 @@ export function CodeEditor({
         basicSetup={false}
         extensions={extensions}
         height="100%"
-        onChange={onChange}
+        onChange={stableOnChange}
         value={value}
       />
     </div>

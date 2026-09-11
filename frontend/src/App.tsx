@@ -159,7 +159,6 @@ import {
   type TranslationCatalog,
   type DisplayState,
   type DisplayPopupPreset,
-  type AudioTrack,
   type AppConfig,
   type AuthStatus,
   type CaptureCategory,
@@ -815,14 +814,6 @@ function parseCardJson(
 
 function normalizeDialogPath(path: string): string {
   return path.trim().replace(/\\/g, "/");
-}
-
-function buildEditorCompletions(
-  pages: PageSummary[],
-  tree: WorldEntry | null,
-  audioTracks: AudioTrack[]
-): CodeEditorCompletion[] {
-  return buildEditorCompletionItems({ pages, tree, audioTracks });
 }
 
 function managedTypeForFile(file: WorldFile): ManagedFileType | null {
@@ -6516,6 +6507,12 @@ export function App() {
     audioToolOpen,
     t
   });
+  // Memoized, not built inline: a fresh array on every render made the code editor
+  // reconfigure itself on every keystroke, walking the whole world tree each time.
+  const editorCompletions = useMemo(
+    () => buildEditorCompletionItems({ pages, tree: worldTree, audioTracks: audio.audioAutocompleteTracks }),
+    [pages, worldTree, audio.audioAutocompleteTracks]
+  );
   const pathPickerCandidates = flattenWorldPathPickerEntries(
     worldTree,
     audio.audioState.status === "ready" ? audio.audioState.tracks : audio.audioAutocompleteTracks
@@ -10383,7 +10380,7 @@ export function App() {
               />
             )}
             <FileViewer
-              completions={buildEditorCompletions(pages, worldTree, audio.audioAutocompleteTracks)}
+              completions={editorCompletions}
               draft={viewerDraft}
               links={paneLinksState.status === "ready" ? paneLinksState.outgoing : []}
               loadState={paneFileState}
@@ -10973,7 +10970,7 @@ export function App() {
         t={t}
       />
       <PeekDialog
-        completions={buildEditorCompletions(pages, worldTree, audio.audioAutocompleteTracks)}
+        completions={editorCompletions}
         onClose={() => setPeekState({ open: false })}
         onContextLink={handleLinkContext}
         onDiceRoll={diceDisabled ? undefined : handleDiceRoll}
