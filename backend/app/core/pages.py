@@ -9,13 +9,14 @@ from typing import Any
 import frontmatter
 
 from app.core.cards import CARD_EXTENSIONS, parse_card
-from app.core.paths import is_link_or_reparse_point, normalize_relative_path
+from app.core.paths import WorldPathError, is_link_or_reparse_point, normalize_relative_path
 
 MARKDOWN_EXTENSIONS = {".md", ".markdown"}
 TEXT_BODY_EXTENSIONS = {".csv", ".cs", ".dms", ".md", ".markdown", ".svg", ".txt"}
 SIDECAR_METADATA_DIR = ".virtualscreen/metadata"
 MAX_INDEX_TEXT_BYTES = 1_000_000
 MAX_SIDECAR_METADATA_BYTES = 64_000
+INDEX_IGNORED_NAMES = {".music", ".virtualscreen", ".git", "__pycache__"}
 
 
 @dataclass(frozen=True)
@@ -92,19 +93,6 @@ def _read_index_text(path: Path, stat_size: int) -> tuple[bytes | None, str]:
     return body.encode("utf-8"), body
 
 
-def _has_link_or_reparse_part(root: Path, path: Path) -> bool:
-    try:
-        relative_parts = path.relative_to(root).parts
-    except ValueError:
-        return True
-    current = root
-    for part in relative_parts:
-        current = current / part
-        if is_link_or_reparse_point(current):
-            return True
-    return False
-
-
 def render_sidecar_metadata(
     *,
     title: str,
@@ -147,13 +135,27 @@ def render_markdown_with_metadata(
     return frontmatter.dumps(post)
 
 
-def parse_page(root: Path, path: Path) -> PageData:
+def parse_page(root: Path, path: Path, previous: PageData | None = None) -> PageData:
+    """Read one world file into a PageData.
+
+    `previous` is the page as the index last saw it. When the file's size and mtime still
+    match it, its content hash is reused instead of re-reading the file: hashing is the one
+    cost here that grows with bytes, and a world holds videos of hundreds of megabytes.
+    """
     stat = path.stat()
+    modified_at = datetime.fromtimestamp(stat.st_mtime, tz=UTC)
     extension = path.suffix.lower().lstrip(".") or None
     relative_path = normalize_relative_path(path.relative_to(root).as_posix())
     metadata: dict[str, Any] = {}
     body = ""
-    content_hash = _sha256_file(path)
+    if (
+        previous is not None
+        and previous.size == stat.st_size
+        and previous.modified_at == modified_at
+    ):
+        content_hash = previous.hash
+    else:
+        content_hash = _sha256_file(path)
 
     if path.suffix.lower() in MARKDOWN_EXTENSIONS:
         content_bytes, raw_content = _read_index_text(path, stat.st_size)
@@ -184,7 +186,7 @@ def parse_page(root: Path, path: Path) -> PageData:
         tags=_string_list(metadata.get("tags")),
         aliases=_string_list(metadata.get("aliases")),
         size=stat.st_size,
-        modified_at=datetime.fromtimestamp(stat.st_mtime, tz=UTC),
+        modified_at=modified_at,
         hash=content_hash,
         metadata=metadata,
         fields=fields,
@@ -192,37 +194,43 @@ def parse_page(root: Path, path: Path) -> PageData:
     )
 
 
-def _walk_world(root: Path) -> list[Path]:
-    # A world folder is live: directories can vanish between being listed and being
-    # visited (external edits, folder sync, a world being replaced). os.walk skips
-    # what it can no longer read, whereas one FileNotFoundError kills a
-    # pathlib.rglob generator and with it the whole rebuild.
-    paths: list[Path] = []
-    for directory, subdirectories, files in os.walk(root):
-        base = Path(directory)
-        paths.extend(base / name for name in subdirectories)
-        paths.extend(base / name for name in files)
-    return paths
+def indexable_files(root: Path) -> dict[str, Path]:
+    """Every indexable file in the world, keyed by its normalized relative path.
 
-
-def scan_pages(root: Path) -> list[PageData]:
-    if not root.exists():
-        return []
-
-    pages: list[PageData] = []
-    ignored_names = {".music", ".virtualscreen", ".git", "__pycache__"}
-    def sort_key(item: Path) -> str:
-        return item.relative_to(root).as_posix().lower()
-
-    for path in sorted(_walk_world(root), key=sort_key):
-        if any(part in ignored_names for part in path.relative_to(root).parts):
+    One scandir pass that never descends into an ignored folder or a link/reparse point,
+    so nothing below one is ever visited. A world folder is live: a directory can vanish
+    between being listed and being read (external edits, folder sync, a world being
+    replaced), and an unreadable one is skipped rather than failing the whole scan.
+    """
+    files: dict[str, Path] = {}
+    pending = [root]
+    while pending:
+        directory = pending.pop()
+        try:
+            entries = list(os.scandir(directory))
+        except OSError:
             continue
-        if _has_link_or_reparse_part(root, path):
-            continue
-        if path.is_file():
-            try:
-                pages.append(parse_page(root, path))
-            except (FileNotFoundError, OSError, PermissionError):
+        for entry in entries:
+            path = Path(entry.path)
+            if entry.name in INDEX_IGNORED_NAMES or is_link_or_reparse_point(path):
                 continue
+            try:
+                if entry.is_dir(follow_symlinks=False):
+                    pending.append(path)
+                elif entry.is_file(follow_symlinks=False):
+                    files[normalize_relative_path(path.relative_to(root).as_posix())] = path
+            except (OSError, ValueError, WorldPathError):
+                continue
+    return files
 
+
+def scan_pages(root: Path, previous: dict[str, PageData] | None = None) -> list[PageData]:
+    previous = previous or {}
+    pages: list[PageData] = []
+    files = indexable_files(root)
+    for relative_path in sorted(files, key=str.lower):
+        try:
+            pages.append(parse_page(root, files[relative_path], previous.get(relative_path)))
+        except OSError:
+            continue
     return pages

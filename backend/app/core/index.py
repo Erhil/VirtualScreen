@@ -5,7 +5,7 @@ from pathlib import Path
 
 from app.core.database import initialize_database
 from app.core.links import PageLink, build_link_lookups, parse_links, resolve_links
-from app.core.pages import PageData, parse_page, scan_pages
+from app.core.pages import INDEX_IGNORED_NAMES, PageData, indexable_files, parse_page, scan_pages
 from app.core.paths import (
     WorldPathError,
     is_link_or_reparse_point,
@@ -20,7 +20,7 @@ TEXT_EXTENSIONS = {"txt"}
 SCRIPT_EXTENSIONS = {"dms"}
 MARKDOWN_EXTENSIONS = {"md", "markdown"}
 CARD_EXTENSIONS = {"cs"}
-INDEX_IGNORED_NAMES = {".music", ".virtualscreen", ".git", "__pycache__"}
+LINK_SOURCE_EXTENSIONS = {*MARKDOWN_EXTENSIONS, *CARD_EXTENSIONS, "csv", "txt"}
 
 
 @dataclass(frozen=True)
@@ -189,18 +189,33 @@ def _pages_from_conn(conn) -> list[PageData]:
     return [_page_from_row(row) for row in rows]
 
 
-def _rebuild_links_from_pages(conn, root: Path, pages: list[PageData]) -> int:
-    conn.execute("delete from links")
-    link_count = 0
+def _rebuild_links(
+    conn, root: Path, pages: list[PageData], sources: list[PageData] | None = None
+) -> int:
+    """Re-resolve the outgoing links of `sources` (default: every page) against `pages`."""
+    if sources is None:
+        conn.execute("delete from links")
     lookups = build_link_lookups(pages)
-    for page in pages:
-        if page.extension not in {*MARKDOWN_EXTENSIONS, *CARD_EXTENSIONS, "csv", "txt"}:
+    for page in pages if sources is None else sources:
+        conn.execute("delete from links where source_path = ?", (page.path,))
+        if page.extension not in LINK_SOURCE_EXTENSIONS:
             continue
-        links = resolve_links(root, page.path, parse_links(page.path, page.body), pages, lookups)
-        for link in links:
+        raw_links = parse_links(page.path, page.body)
+        for link in resolve_links(root, page.path, raw_links, pages, lookups):
             _insert_link(conn, link)
-        link_count += len(links)
-    return link_count
+    return int(conn.execute("select count(*) from links").fetchone()[0])
+
+
+def _link_identity(page: PageData | None) -> tuple[str, list[str]] | None:
+    # What other pages' links resolve against, besides the path: see links._resolve_page.
+    if page is None:
+        return None
+    return page.title.lower(), sorted(alias.lower() for alias in page.aliases)
+
+
+def _indexed_page(conn, path: str) -> PageData | None:
+    row = conn.execute("select * from pages where path = ?", (path,)).fetchone()
+    return _page_from_row(row) if row else None
 
 
 def _write_rebuilt_at(conn, rebuilt_at: datetime) -> None:
@@ -287,29 +302,11 @@ def _has_link_or_reparse_part(root: Path, path: Path) -> bool:
     return False
 
 
-def _indexable_disk_paths(root: Path) -> set[str]:
-    if not root.exists():
-        return set()
-    paths: set[str] = set()
-    for path in root.rglob("*"):
-        try:
-            relative_path = normalize_relative_path(path.relative_to(root).as_posix())
-        except WorldPathError:
-            continue
-        if any(part in INDEX_IGNORED_NAMES for part in Path(relative_path).parts):
-            continue
-        if _has_link_or_reparse_part(root, path):
-            continue
-        if path.is_file():
-            paths.add(relative_path)
-    return paths
-
-
 def rebuild_index(root: Path) -> RebuildResult:
     root = root.expanduser().resolve()
     conn = initialize_database(root)
     rebuilt_at = datetime.now(tz=UTC)
-    pages = scan_pages(root)
+    pages = scan_pages(root, {page.path: page for page in _pages_from_conn(conn)})
 
     with conn:
         conn.execute("delete from links")
@@ -319,7 +316,7 @@ def rebuild_index(root: Path) -> RebuildResult:
         for page in pages:
             _insert_page(conn, page)
 
-        link_count = _rebuild_links_from_pages(conn, root, pages)
+        link_count = _rebuild_links(conn, root, pages)
         _write_rebuilt_at(conn, rebuilt_at)
 
     conn.close()
@@ -341,8 +338,8 @@ def ensure_index(root: Path) -> None:
 
 def ensure_page_indexed(root: Path, file_path: Path) -> PageData:
     root = root.expanduser().resolve()
-    current_page = parse_page(root, file_path)
-    indexed_page = get_indexed_page(root, current_page.path)
+    indexed_page = get_indexed_page(root, file_path.relative_to(root).as_posix())
+    current_page = parse_page(root, file_path, indexed_page)
     if (
         indexed_page is None
         or indexed_page.hash != current_page.hash
@@ -382,19 +379,33 @@ def refresh_index(
     rebuilt_at = datetime.now(tz=UTC)
     normalized_changed_paths = _normalized_existing_changed_paths(root, changed_paths or [])
     normalized_deleted_paths = _normalized_deleted_paths(deleted_paths or [])
+    if not normalized_changed_paths and not normalized_deleted_paths:
+        link_count = int(conn.execute("select count(*) from links").fetchone()[0])
+        conn.close()
+        return RebuildResult(pages_indexed=0, links_indexed=link_count, rebuilt_at=rebuilt_at)
 
     with conn:
         for path in normalized_deleted_paths:
             _delete_page(conn, path)
+        # Other pages' links only need re-resolving when a link target appeared, vanished
+        # or was renamed; an edit to a page's body changes nothing but its own links.
+        targets_changed = bool(normalized_deleted_paths)
+        refreshed: list[PageData] = []
         for path in normalized_changed_paths:
+            previous = _indexed_page(conn, path)
             try:
-                file_path = resolve_under_root(root, path)
-                _replace_page(conn, parse_page(root, file_path))
-            except (FileNotFoundError, OSError, PermissionError, ValueError, WorldPathError):
+                page = parse_page(root, resolve_under_root(root, path), previous)
+            except (OSError, ValueError, WorldPathError):
                 _delete_page(conn, path)
+                targets_changed = True
+                continue
+            _replace_page(conn, page)
+            refreshed.append(page)
+            if _link_identity(previous) != _link_identity(page):
+                targets_changed = True
 
         pages = _pages_from_conn(conn)
-        link_count = _rebuild_links_from_pages(conn, root, pages)
+        link_count = _rebuild_links(conn, root, pages, None if targets_changed else refreshed)
         _write_rebuilt_at(conn, rebuilt_at)
 
     conn.close()
@@ -420,28 +431,24 @@ def refresh_index_for_disk_changes(root: Path) -> RebuildResult:
     if not _index_has_rebuilt_marker(conn):
         conn.close()
         return rebuild_index(root)
-    indexed_pages = {page.path: page for page in _pages_from_conn(conn)}
+    indexed = {
+        row["path"]: (row["size"], _modified_at(row["modified_at"]))
+        for row in conn.execute("select path, size, modified_at from pages")
+    }
     conn.close()
 
-    disk_paths = _indexable_disk_paths(root)
+    disk_files = indexable_files(root)
     changed_paths: list[str] = []
-    for path in sorted(disk_paths, key=str.lower):
+    for path in sorted(disk_files, key=str.lower):
         try:
-            # A file deleted between the listing above and this line resolves to
-            # wherever the filesystem parked it - on NTFS that is a pending-delete
-            # folder outside the world - which reads as an escape. It is simply
-            # gone, and one gone file must not fail the whole refresh.
-            stat = resolve_under_root(root, path).stat()
-        except (OSError, WorldPathError):
+            # A file deleted since the listing is simply gone; one gone file must not
+            # fail the whole refresh.
+            stat = disk_files[path].stat()
+        except OSError:
             continue
-        indexed_page = indexed_pages.get(path)
-        if (
-            indexed_page is None
-            or indexed_page.size != stat.st_size
-            or indexed_page.modified_at != datetime.fromtimestamp(stat.st_mtime, tz=UTC)
-        ):
+        if indexed.get(path) != (stat.st_size, datetime.fromtimestamp(stat.st_mtime, tz=UTC)):
             changed_paths.append(path)
-    deleted_paths = sorted(set(indexed_pages) - disk_paths, key=str.lower)
+    deleted_paths = sorted(set(indexed) - set(disk_files), key=str.lower)
     return refresh_index(root, changed_paths=changed_paths, deleted_paths=deleted_paths)
 
 

@@ -9,7 +9,7 @@ from watchfiles import Change, awatch
 
 from app.core.events import world_event_hub, world_event_payload
 from app.core.hub import EventHub
-from app.core.index import rebuild_index
+from app.core.index import refresh_index_for_disk_changes
 from app.core.paths import normalize_relative_path
 
 IGNORED_DIRECTORIES = {".virtualscreen", ".git", "__pycache__"}
@@ -111,7 +111,9 @@ async def watch_world(root: Path, hub: EventHub = world_event_hub) -> None:
         if not summary.paths and not summary.deleted_paths:
             continue
 
-        result = await asyncio.to_thread(rebuild_index, root)
+        # Diff the disk against the index rather than trusting the event paths: a
+        # deleted or renamed folder arrives as one event for the folder, not its files.
+        result = await asyncio.to_thread(refresh_index_for_disk_changes, root)
         event = world_event_payload(
             paths=summary.paths,
             deleted_paths=summary.deleted_paths,

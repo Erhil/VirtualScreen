@@ -14,7 +14,7 @@ from app.core.index import (
     list_indexed_links,
     list_indexed_pages,
     media_kind_for_extension,
-    rebuild_index,
+    refresh_index_for_disk_changes,
 )
 from app.core.map import map_image_path
 from app.core.paths import WorldPathError, normalize_relative_path, resolve_under_root
@@ -164,7 +164,7 @@ def _dms_reference_message(command: str, raw_path: str, error: Exception) -> str
 
 
 def build_prep_health_report(root: Path) -> PrepHealthReport:
-    rebuild_index(root)
+    refresh_index_for_disk_changes(root)
     pages = {page.path: page for page in list_indexed_pages(root)}
     issues: list[PrepHealthIssue] = []
 
