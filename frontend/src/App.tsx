@@ -1,4 +1,5 @@
 import {
+  memo,
   useEffect,
   useMemo,
   useRef,
@@ -45,6 +46,7 @@ import { WorldPathPicker } from "./WorldPathPicker";
 import { useAudio } from "./hooks/useAudio";
 import { useDisplay } from "./hooks/useDisplay";
 import { useMap } from "./hooks/useMap";
+import { useStableHandler } from "./hooks/useStableHandler";
 import {
   addCardField,
   addCardSection,
@@ -1022,11 +1024,15 @@ function MarkdownViewer({
   onOpenLink: (link: PageLink) => void;
   onPeekLink?: (link: PageLink) => void;
 }) {
+  // App re-renders on unrelated state (a dice roll, a tool toggle); re-rendering a long
+  // page's markdown and sanitizing it each time is the cost worth skipping.
+  const source = content ?? file.content;
+  const html = useMemo(() => renderRichMarkdown(source, links, file.path), [source, links, file.path]);
   return (
     <RichHtml
       className="markdown-viewer"
       helpContext="document-markdown"
-      html={renderRichMarkdown(content ?? file.content, links, file.path)}
+      html={html}
       links={links}
       onContextLink={onContextLink}
       onDiceRoll={onDiceRoll}
@@ -2549,7 +2555,7 @@ function FolderKanbanView({
   );
 }
 
-function WorldTree({
+const WorldTree = memo(function WorldTree({
   dragPath,
   dropPath,
   entry,
@@ -2724,7 +2730,7 @@ function WorldTree({
       )}
     </li>
   );
-}
+});
 
 function WorldTreeContextMenu({
   state,
@@ -7056,7 +7062,7 @@ export function App() {
       .map(([path]) => path)
   );
   const hasDirtyDrafts = dirtyPaths.size > 0;
-  const favoritePaths = new Set(favorites.map((favorite) => favorite.path));
+  const favoritePaths = useMemo(() => new Set(favorites.map((favorite) => favorite.path)), [favorites]);
   const idleFileState: FileLoadState = { status: "idle" };
   const idlePageState: PageLoadState = { status: "idle" };
   const idleLinksState: LinksLoadState = { status: "idle" };
@@ -10406,6 +10412,20 @@ export function App() {
     );
   }
 
+  // The file tree is memoized and only re-renders when the world or its own UI state
+  // changes - not on every keystroke, dice roll or map pan elsewhere in App.
+  const treeHandlers = {
+    onAdd: useStableHandler(handleFolderAdd),
+    onContextEntry: useStableHandler(handleWorldTreeContextEntry),
+    onDragEnd: useStableHandler(handleWorldTreeDragEnd),
+    onDragStart: useStableHandler(handleWorldTreeDragStart),
+    onDropEntry: useStableHandler((entry: WorldEntry, event: DragEvent<HTMLElement>) => {
+      void handleWorldTreeDrop(entry, event);
+    }),
+    onOpen: useStableHandler(handleOpenEntry),
+    onToggle: useStableHandler(handleToggleFolder)
+  };
+
   if (authState.status === "checking") {
     return <UnlockScreen error={null} loading onUnlock={() => {}} t={t} />;
   }
@@ -10515,15 +10535,15 @@ export function App() {
                 favoritePaths={favoritePaths}
                 filter={treeFilter}
                 menuPath={folderMenuPath}
-                onAdd={handleFolderAdd}
-                onContextEntry={handleWorldTreeContextEntry}
-                onDragEnd={handleWorldTreeDragEnd}
-                onDragStart={handleWorldTreeDragStart}
+                onAdd={treeHandlers.onAdd}
+                onContextEntry={treeHandlers.onContextEntry}
+                onDragEnd={treeHandlers.onDragEnd}
+                onDragStart={treeHandlers.onDragStart}
                 onDragTarget={setWorldTreeDropPath}
-                onDropEntry={(entry, event) => void handleWorldTreeDrop(entry, event)}
+                onDropEntry={treeHandlers.onDropEntry}
                 onMenuToggle={setFolderMenuPath}
-                onOpen={handleOpenEntry}
-                onToggle={handleToggleFolder}
+                onOpen={treeHandlers.onOpen}
+                onToggle={treeHandlers.onToggle}
                 t={t}
               />
             </ul>
