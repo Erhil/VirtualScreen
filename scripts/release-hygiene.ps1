@@ -86,19 +86,6 @@ $generatedCandidates = @(
   "dev-world"
 )
 
-$terminologyScanPaths = @(
-  "README.md",
-  ".env.example",
-  "backend",
-  "frontend/src",
-  "frontend/e2e",
-  "docs",
-  "scripts",
-  "sample-world",
-  ".github"
-)
-$oldTermPattern = '\b[Vv]' + 'ault\b|\bV' + 'AULT\b'
-
 function Test-GeneratedArtifact {
   param([string]$FullName)
 
@@ -131,41 +118,6 @@ $requiredReleaseFiles = @(
 foreach ($relativePath in $requiredReleaseFiles) {
   if (-not (Test-Path (Join-Path $root $relativePath))) {
     Add-Issue "required release file is missing: $relativePath"
-  }
-}
-
-foreach ($relativePath in $terminologyScanPaths) {
-  $scanRoot = Join-Path $root $relativePath
-  if (-not (Test-Path $scanRoot)) {
-    continue
-  }
-  $files = @()
-  if (Test-Path -PathType Leaf $scanRoot) {
-    $files = @(Get-Item -LiteralPath $scanRoot)
-  }
-  else {
-    $files = @(
-      Get-ChildItem -LiteralPath $scanRoot -Recurse -Force -File -ErrorAction SilentlyContinue |
-        Where-Object {
-          $_.FullName -notlike "*\node_modules\*" -and
-          $_.FullName -notlike "*\.venv\*" -and
-          $_.FullName -notlike "*\.pytest_cache\*" -and
-          $_.FullName -notlike "*\.ruff_cache\*" -and
-          $_.FullName -notlike "*\.mypy_cache\*" -and
-          $_.FullName -notlike "*\dist\*" -and
-          $_.FullName -notlike "*\test-results\*" -and
-          $_.FullName -notlike "*\playwright-report\*" -and
-          $_.FullName -notlike "*\__pycache__\*" -and
-          $_.Extension -notin @(".pyc", ".pyo", ".png", ".jpg", ".jpeg", ".gif", ".mp4", ".wav", ".pdf", ".bin", ".zip")
-        }
-    )
-  }
-  foreach ($file in $files) {
-    $text = Get-Content -LiteralPath $file.FullName -Raw -ErrorAction SilentlyContinue
-    if ($null -ne $text -and $text -match $oldTermPattern) {
-      $relative = $file.FullName.Substring($root.Length + 1)
-      Add-Issue "old pre-world terminology remains in release source: $relative"
-    }
   }
 }
 

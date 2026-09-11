@@ -16,9 +16,6 @@ class Settings(BaseSettings):
 
     world_root: Path = Field(default=Path("sample-world"))
     worlds_root: Path = Field(default_factory=default_worlds_root)
-    host: str = "127.0.0.1"
-    port: int = 8000
-    lan_mode: bool = False
     access_token: str | None = None
     watch_world: bool = False
     language: str = "en"

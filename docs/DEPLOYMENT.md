@@ -177,14 +177,16 @@ The active world is a **server-global** setting: opening a world switches it for
 player screen. Two people cannot use one instance with different worlds — one would yank the other's display
 mid-session.
 
-If you want to host a friend's world, run a **second instance** instead. No code changes are needed; the app
-is configured entirely by environment variables:
+If you want to host a friend's world, run a **second instance** instead. No code changes are needed: point it
+at a separate `.env` (for `VIRTUALSCREEN_WORLDS_ROOT` and `VIRTUALSCREEN_ACCESS_TOKEN`) and start it with its
+own port —`start-appliance.ps1 -Port 8001` for a second appliance, or a second `dev.ps1` checkout for
+development.
 
 | | yours | theirs |
 |---|---|---|
 | `VIRTUALSCREEN_WORLDS_ROOT` | your worlds folder | their worlds folder |
 | `VIRTUALSCREEN_ACCESS_TOKEN` | your code | their code |
-| `VIRTUALSCREEN_PORT` | 8000 | 8001 |
+| port | 8000 | 8001 |
 
 Each instance gets its own database, its own screen, and its own token. Their Syncthing share is a separate
 folder and never touches yours.

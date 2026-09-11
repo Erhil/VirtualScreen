@@ -25,8 +25,7 @@ VirtualScreen works without an `.env` file. If you need to customize local setti
 Useful settings:
 
 - `VIRTUALSCREEN_WORLD_ROOT`: initial world folder, default `sample-world`.
-- `VIRTUALSCREEN_HOST` and `VIRTUALSCREEN_PORT`: backend bind address and port.
-- `VIRTUALSCREEN_LAN_MODE`: enables LAN-facing behavior when set to `true`.
+- `VIRTUALSCREEN_HOST`: backend bind address, read by `scripts/dev.ps1`.
 - `VIRTUALSCREEN_ACCESS_TOKEN`: fixed unlock code. If omitted, `scripts/dev.ps1` generates one.
 - `VIRTUALSCREEN_LANGUAGE`: startup UI language, default `en`. The DM workspace can also switch language from Settings.
 - `VIRTUALSCREEN_LANGUAGE_DIR`: localization table folder, default `lang`.

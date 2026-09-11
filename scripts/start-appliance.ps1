@@ -67,8 +67,6 @@ if (-not (Test-Path (Join-Path $distDir "index.html"))) {
 $env:PYTHONPATH = $backendDir
 $env:VIRTUALSCREEN_STATIC_DIR = $distDir
 $env:VIRTUALSCREEN_WATCH_WORLD = "true"
-$env:VIRTUALSCREEN_HOST = $BindHost
-$env:VIRTUALSCREEN_PORT = $Port
 $accessToken = Get-EnvFileValue "VIRTUALSCREEN_ACCESS_TOKEN"
 $isLoopbackHost = ($BindHost -eq "127.0.0.1") -or ($BindHost -eq "localhost") -or ($BindHost -eq "::1")
 if ([string]::IsNullOrWhiteSpace($accessToken) -and -not $isLoopbackHost) {
