@@ -6,8 +6,7 @@ import {
   type CSSProperties,
   type DragEvent,
   type KeyboardEvent as ReactKeyboardEvent,
-  type MouseEvent,
-  type PointerEvent
+  type MouseEvent
 } from "react";
 import { ContextHelpDialog } from "./components/ContextHelpDialog";
 import { PluginToolsHost } from "./components/PluginToolsHost";
@@ -40,34 +39,25 @@ import { usePathPicker } from "./hooks/usePathPicker";
 import { usePrepHealth } from "./hooks/usePrepHealth";
 import { useSearch } from "./hooks/useSearch";
 import { useToolPanel } from "./hooks/useToolPanel";
+import { useWorkspace } from "./hooks/useWorkspace";
 import {
-  activateWorkspace,
   blankDisplay,
   clearDisplayPopups,
-  createWorkspace,
   createWorld,
   createWorldFile,
-  deleteWorkspace,
   fetchDisplayState,
   fetchPage,
   fetchPageBacklinks,
   fetchPageLinks,
   fetchPages,
   fetchWorkspace,
-  fetchWorkspaces,
   fetchWorldFile,
   fetchWorldTree,
   fetchWorlds,
   openWorld,
   openDisplayPopup,
-  recordRecent,
-  renameWorkspace,
   rotateDisplayFullscreen,
-  saveFavorites,
-  saveRecentFiles,
   saveWorldFile,
-  saveWorkspaceLayout,
-  saveWorkspaceTabs,
   setDisplayFullscreen,
   showActiveOnDisplay,
   updatePageMetadata,
@@ -78,13 +68,10 @@ import {
   type SearchResult,
   type RestoreTableSnapshotResponse,
   type DmsRunState,
-  type NamedWorkspaceSummary,
   type WorldEntry,
   type WorldFile,
   type WorldLibraryState,
-  type WorkspaceLayout,
   type WorkspacePaneId,
-  type WorkspaceState,
   type WorkspaceTab
 } from "./lib/api";
 import { type Translator } from "./lang";
@@ -119,14 +106,9 @@ import { buildEditorCompletionItems } from "./lib/editorAutocomplete";
 import {
   managementErrorMessage,
   normalizeDialogPath,
-  affectedDescendantPaths,
   hasDirtyDescendantPath,
   isDescendantPath,
   remapMovedWorldPath,
-  remapMovedWorkspacePaths,
-  removeDescendantWorkspacePaths,
-  removeWorkspacePath,
-  replaceWorkspacePath,
   validateManagedFilePath,
   workspaceTabFromWorldFile,
   type ManagedFileType
@@ -152,34 +134,18 @@ import {
   type MetadataFormState
 } from "./lib/metadataEditor";
 import {
-  activateTab,
-  closeTab,
   dirtyTabCloseMessage,
   isScreenTabPath,
   isVirtualTabPath,
   mediaKindForEntry,
-  openTab,
   openTabToWorkspaceTab,
   SCREEN_TAB_PATH,
   shouldConfirmDirtyTabClose,
-  shouldPersistTab,
   workspaceTabFromPath,
   workspaceTabToOpenTab,
-  type OpenTab,
-  type TabState
+  type OpenTab
 } from "./lib/tabs";
-import {
-  chooseSecondaryPaneActiveTab,
-  clampWorkspaceSplitRatio,
-  defaultWorkspaceLayout,
-  normalizeWorkspaceLayout,
-  openFileInActivePane,
-  recordRecentItem,
-  retargetLayoutAfterTabClose,
-  searchResultToTab,
-  toggleFavorite,
-  workspacePersistPayload
-} from "./lib/workspace";
+import { searchResultToTab } from "./lib/workspace";
 import { dmsOutputToWorldFile, isTemporaryDmsPath } from "./lib/scripts";
 import { applyAudioSnapshot, buildTableSnapshotState } from "./lib/tableSnapshots";
 import {
@@ -215,7 +181,7 @@ import { PrepHealthDialog } from "./components/dialogs/PrepHealthDialog";
 import { SearchDialog } from "./components/dialogs/SearchDialog";
 import { SettingsDialog } from "./components/dialogs/SettingsDialog";
 import { WorkspaceControls } from "./components/workspace/WorkspaceControls";
-import { WorkspaceDialog, type WorkspaceDialogState } from "./components/workspace/WorkspaceDialog";
+import { WorkspaceDialog } from "./components/workspace/WorkspaceDialog";
 
 type LoadState =
   | { status: "idle" }
@@ -279,73 +245,6 @@ function localizedWorldPathPickerFilterLabel(t: Translator, filter: WorldPathPic
   return t("pathPicker.kindPaths", { kind: filter });
 }
 
-function mergeLoadedWorkspaceTabs(
-  currentState: TabState,
-  workspaceTabs: OpenTab[],
-  workspaceActivePath: string | null
-): TabState {
-  if (currentState.tabs.length === 0 && currentState.activePath === null) {
-    return { tabs: workspaceTabs, activePath: workspaceActivePath };
-  }
-
-  const tabsByPath = new Map(workspaceTabs.map((tab) => [tab.path, tab]));
-  for (const tab of currentState.tabs) {
-    tabsByPath.set(tab.path, tab);
-  }
-  const tabs = Array.from(tabsByPath.values());
-  const activePath =
-    currentState.activePath && tabs.some((tab) => tab.path === currentState.activePath)
-      ? currentState.activePath
-      : workspaceActivePath && tabs.some((tab) => tab.path === workspaceActivePath)
-        ? workspaceActivePath
-        : tabs[0]?.path ?? null;
-  return { tabs, activePath };
-}
-
-function workspaceStateToTabState(workspace: WorkspaceState): TabState {
-  const tabs = workspace.tabs.map(workspaceTabToOpenTab);
-  const activePath =
-    workspace.activePath && tabs.some((tab) => tab.path === workspace.activePath)
-      ? workspace.activePath
-      : tabs[0]?.path ?? null;
-  return { tabs, activePath };
-}
-
-function activePathForPane(layout: WorkspaceLayout, paneId: WorkspacePaneId): string | null {
-  return layout.panes.find((pane) => pane.id === paneId)?.activePath ?? null;
-}
-
-function layoutWithMode(
-  layout: WorkspaceLayout,
-  mode: WorkspaceLayout["mode"],
-  tabs: OpenTab[]
-): WorkspaceLayout {
-  if (mode === "single") {
-    return {
-      ...layout,
-      mode: "single",
-      activePaneId: "main",
-      panes: layout.panes.map((pane) =>
-        pane.id === "main" ? pane : { ...pane, activePath: null }
-      )
-    };
-  }
-
-  const mainPath = activePathForPane(layout, "main") ?? tabs[0]?.path ?? null;
-  const secondaryPath =
-    activePathForPane(layout, "secondary") ??
-    chooseSecondaryPaneActiveTab(tabs.map(openTabToWorkspaceTab), mainPath);
-
-  return {
-    ...layout,
-    mode: "vertical_split",
-    panes: [
-      { id: "main", activePath: mainPath },
-      { id: "secondary", activePath: secondaryPath }
-    ]
-  };
-}
-
 export function App() {
   const { uiLanguage, t, availableLanguageOptions, handleLanguageChange } = useLanguage();
   const [settingsDialogOpen, setSettingsDialogOpen] = useState(false);
@@ -356,23 +255,57 @@ export function App() {
   const [worldTree, setWorldTree] = useState<WorldEntry | null>(null);
   const [pages, setPages] = useState<PageSummary[]>([]);
   const [workspaceReady, setWorkspaceReady] = useState(false);
-  const workspaceReadyRef = useRef(false);
-  const [workspaces, setWorkspaces] = useState<NamedWorkspaceSummary[]>([]);
-  const [currentWorkspaceId, setCurrentWorkspaceId] = useState("default");
-  const currentWorkspaceIdRef = useRef("default");
-  const [currentWorkspaceName, setCurrentWorkspaceName] = useState("Default");
-  const [workspaceLayout, setWorkspaceLayout] = useState<WorkspaceLayout>(() =>
-    defaultWorkspaceLayout()
-  );
-  const workspaceLayoutRef = useRef<WorkspaceLayout>(defaultWorkspaceLayout());
-  const [workspaceDialog, setWorkspaceDialog] = useState<WorkspaceDialogState>({
-    kind: "closed"
+  const {
+    tabState,
+    normalizedWorkspaceLayout,
+    activeTab,
+    activeDocumentTab,
+    mainPaneTab,
+    secondaryPaneTab,
+    visiblePaneTabs,
+    workspaces,
+    currentWorkspaceId,
+    currentWorkspaceName,
+    workspaceDialog,
+    favorites,
+    recentFiles,
+    favoritePaths,
+    persistRecent,
+    openWorkspaceTab,
+    handleActivateTab,
+    handleActivatePane,
+    closeWorkspaceTab,
+    openInOtherPane,
+    openVirtualTab,
+    openScreenTab,
+    replaceVirtualTab,
+    toggleFavoriteTab,
+    refreshWorkspaceSummaries,
+    applyWorkspaceState,
+    flushCurrentWorkspaceState,
+    handleActivateWorkspace,
+    handleSubmitWorkspaceDialog,
+    handleDeleteCurrentWorkspace,
+    handleWorkspaceModeChange,
+    handlePaneResizePointerDown,
+    remapWorkspacePath,
+    forgetWorkspacePath,
+    retitleFromPages,
+    retitleTab,
+    resetWorkspace,
+    adoptWorkspace,
+    replaceWorkspaceCollections,
+    removeDeletedWorkspaceItems,
+    openCreateWorkspaceDialog,
+    openRenameWorkspaceDialog,
+    closeWorkspaceDialog,
+    handleWorkspaceDialogNameChange
+  } = useWorkspace({
+    ready: workspaceReady,
+    t,
+    onTabShown: (path) => clearFailedDerivedFileState(path),
+    onWorkspaceChanged: () => hp.refresh()
   });
-  const [favorites, setFavorites] = useState<WorkspaceTab[]>([]);
-  const [recentFiles, setRecentFiles] = useState<WorkspaceTab[]>([]);
-  const [tabState, setTabState] = useState<TabState>({ tabs: [], activePath: null });
-  const tabStateRef = useRef<TabState>({ tabs: [], activePath: null });
-  const activeDocumentTabRef = useRef<OpenTab | null>(null);
   const [pdfTargets, setPdfTargets] = useState<Record<string, string | null>>({});
   const [fileStates, setFileStates] = useState<Record<string, FileLoadState>>({});
   const [pageStates, setPageStates] = useState<Record<string, PageLoadState>>({});
@@ -594,22 +527,6 @@ export function App() {
   }, [authState.status]);
 
   useEffect(() => {
-    workspaceReadyRef.current = workspaceReady;
-  }, [workspaceReady]);
-
-  useEffect(() => {
-    currentWorkspaceIdRef.current = currentWorkspaceId;
-  }, [currentWorkspaceId]);
-
-  useEffect(() => {
-    workspaceLayoutRef.current = workspaceLayout;
-  }, [workspaceLayout]);
-
-  useEffect(() => {
-    tabStateRef.current = tabState;
-  }, [tabState]);
-
-  useEffect(() => {
     function handleKeyDown(event: KeyboardEvent) {
       if ((event.ctrlKey || event.metaKey) && (event.key.toLowerCase() === "s" || event.code === "KeyS")) {
         event.preventDefault();
@@ -664,50 +581,6 @@ export function App() {
   }, [bindings.actionBindings, actionsDisabled, bindings.fastSlots, tabState.activePath]);
 
   useEffect(() => {
-    if (!workspaceReady) {
-      return;
-    }
-
-    const scheduledWorkspaceId = currentWorkspaceId;
-    const timeout = window.setTimeout(() => {
-      if (currentWorkspaceIdRef.current !== scheduledWorkspaceId) {
-        return;
-      }
-      const payload = workspacePersistPayload(
-        tabState.tabs.map(openTabToWorkspaceTab),
-        tabState.activePath,
-        workspaceLayoutRef.current,
-        shouldPersistTab
-      );
-      void saveWorkspaceTabs(payload.tabs, payload.activePath).catch(() => {});
-    }, 150);
-
-    return () => window.clearTimeout(timeout);
-  }, [currentWorkspaceId, tabState, workspaceReady]);
-
-  useEffect(() => {
-    if (!workspaceReady) {
-      return;
-    }
-
-    const { layout } = workspacePersistPayload(
-      tabState.tabs.map(openTabToWorkspaceTab),
-      tabState.activePath,
-      workspaceLayout,
-      shouldPersistTab
-    );
-    const scheduledWorkspaceId = currentWorkspaceId;
-    const timeout = window.setTimeout(() => {
-      if (currentWorkspaceIdRef.current !== scheduledWorkspaceId) {
-        return;
-      }
-      void saveWorkspaceLayout(layout).catch(() => {});
-    }, 180);
-
-    return () => window.clearTimeout(timeout);
-  }, [currentWorkspaceId, tabState.tabs, workspaceLayout, workspaceReady]);
-
-  useEffect(() => {
     if (!screenToolOpen && !actionsToolOpen) {
       return;
     }
@@ -719,23 +592,9 @@ export function App() {
       .catch(() => {});
   }, [actionsToolOpen, screenToolOpen, worldLibrary?.current?.id]);
 
-  const normalizedWorkspaceLayout = normalizeWorkspaceLayout(
-    workspaceLayout,
-    tabState.tabs.map(openTabToWorkspaceTab)
-  );
-  const activeTab = tabState.tabs.find((tab) => tab.path === tabState.activePath) ?? null;
   const { contextHelpTopic, openContextHelp, closeContextHelp } = useContextHelp(
     activeTab?.mediaKind ?? null
   );
-  // "Active tab" and "active document" diverge for synthetic tabs (the Screen tab, DMS
-  // temporary output): those can be focused in the workspace, but screen actions that mean
-  // "the document I'm looking at" should keep targeting the last real document instead of
-  // sending a synthetic path like screen://main back to the player screen.
-  if (activeTab && !isVirtualTabPath(activeTab.path)) {
-    activeDocumentTabRef.current = activeTab;
-  }
-  const activeDocumentTab =
-    activeTab && !isVirtualTabPath(activeTab.path) ? activeTab : activeDocumentTabRef.current;
   const display = useDisplay({
     activeTab: activeDocumentTab,
     authReady: authState.status === "unlocked"
@@ -746,30 +605,12 @@ export function App() {
     t,
     refreshDisplayState: display.refreshDisplayState
   });
-  const mainPaneTab =
-    tabState.tabs.find(
-      (tab) => tab.path === activePathForPane(normalizedWorkspaceLayout, "main")
-    ) ?? activeTab;
-  const secondaryPaneTab =
-    tabState.tabs.find(
-      (tab) => tab.path === activePathForPane(normalizedWorkspaceLayout, "secondary")
-    ) ?? null;
-  const visiblePaneTabs =
-    normalizedWorkspaceLayout.mode === "vertical_split" && secondaryPaneTab
-      ? [mainPaneTab, secondaryPaneTab].filter(
-          (tab, index, tabs): tab is OpenTab =>
-            Boolean(tab) && tabs.findIndex((item) => item?.path === tab?.path) === index
-        )
-      : mainPaneTab
-        ? [mainPaneTab]
-        : [];
   const dirtyPaths = new Set(
     Object.entries(editorDrafts)
       .filter(([, draft]) => isDraftDirty(draft))
       .map(([path]) => path)
   );
   const hasDirtyDrafts = dirtyPaths.size > 0;
-  const favoritePaths = useMemo(() => new Set(favorites.map((favorite) => favorite.path)), [favorites]);
   const idleFileState: FileLoadState = { status: "idle" };
   const idlePageState: PageLoadState = { status: "idle" };
   const idleLinksState: LinksLoadState = { status: "idle" };
@@ -1038,39 +879,6 @@ export function App() {
     }
   }, [visiblePanePathKey, linksStates]);
 
-  function persistRecent(tab: WorkspaceTab) {
-    setRecentFiles((items) => recordRecentItem(items, tab));
-    void recordRecent(tab)
-      .then((workspace) => setRecentFiles(workspace.recentFiles))
-      .catch(() => {});
-  }
-
-  function openWorkspaceTab(tab: WorkspaceTab) {
-    clearFailedDerivedFileState(tab.path);
-    setTabState((state) => {
-      const nextState = openTab(state, workspaceTabToOpenTab(tab));
-      setWorkspaceLayout((layout) =>
-        openFileInActivePane(
-          normalizeWorkspaceLayout(layout, nextState.tabs.map(openTabToWorkspaceTab)),
-          tab.path
-        )
-      );
-      return nextState;
-    });
-    persistRecent(tab);
-  }
-
-  function handleActivateTab(path: string) {
-    clearFailedDerivedFileState(path);
-    setWorkspaceLayout((layout) =>
-      openFileInActivePane(
-        normalizeWorkspaceLayout(layout, tabState.tabs.map(openTabToWorkspaceTab)),
-        path
-      )
-    );
-    setTabState((state) => activateTab(state, path));
-  }
-
   function confirmDiscardDirtyTab(path: string): boolean {
     if (!shouldConfirmDirtyTabClose(path, dirtyPaths)) {
       return true;
@@ -1099,30 +907,7 @@ export function App() {
       delete nextDrafts[path];
       return nextDrafts;
     });
-    setTabState((state) => {
-      const nextState = closeTab(state, path);
-      setWorkspaceLayout((layout) =>
-        retargetLayoutAfterTabClose(
-          normalizeWorkspaceLayout(layout, state.tabs.map(openTabToWorkspaceTab)),
-          nextState.tabs.map(openTabToWorkspaceTab),
-          path
-        )
-      );
-      return nextState;
-    });
-  }
-
-  function handleActivatePane(paneId: WorkspacePaneId, path: string | null) {
-    // Returning the same object when nothing changes matters here: this runs on the
-    // click that ends every text drag inside a pane, and a state update whose value only
-    // differs by identity still re-renders the whole tree - and each such re-render also
-    // queued two pointless workspace saves.
-    setWorkspaceLayout((layout) =>
-      layout.activePaneId === paneId ? layout : { ...layout, activePaneId: paneId }
-    );
-    if (path) {
-      setTabState((state) => activateTab(state, path));
-    }
+    closeWorkspaceTab(path);
   }
 
   function openResolvedLink(link: PageLink) {
@@ -1140,20 +925,10 @@ export function App() {
     if (!tab) {
       return;
     }
-    const targetPane: WorkspacePaneId =
-      normalizedWorkspaceLayout.activePaneId === "main" ? "secondary" : "main";
     if (tab.mediaKind === "pdf") {
       setPdfTargets((targets) => ({ ...targets, [tab.path]: link.heading ?? null }));
     }
-    setWorkspaceLayout((layout) => ({
-      ...layout,
-      mode: "vertical_split",
-      activePaneId: targetPane,
-      panes: layout.panes.map((pane) =>
-        pane.id === targetPane ? { ...pane, activePath: tab.path } : pane
-      )
-    }));
-    openWorkspaceTab(openTabToWorkspaceTab(tab));
+    openInOtherPane(openTabToWorkspaceTab(tab));
   }
 
   function openPeekTab(tab: OpenTab) {
@@ -1255,21 +1030,6 @@ export function App() {
     openWorkspaceTab(searchResultToTab(result));
   }
 
-  function handleOpenSearchResultOtherPane(result: SearchResult) {
-    const tab = searchResultToTab(result);
-    const targetPane: WorkspacePaneId =
-      normalizedWorkspaceLayout.activePaneId === "main" ? "secondary" : "main";
-    setWorkspaceLayout((layout) => ({
-      ...layout,
-      mode: "vertical_split",
-      activePaneId: targetPane,
-      panes: layout.panes.map((pane) =>
-        pane.id === targetPane ? { ...pane, activePath: tab.path } : pane
-      )
-    }));
-    openWorkspaceTab(tab);
-  }
-
   function handlePeekSearchResult(result: SearchResult) {
     openPeekTab(workspaceTabToOpenTab(searchResultToTab(result)));
   }
@@ -1282,135 +1042,6 @@ export function App() {
     void openDisplayPopup(result.path).then(display.setDisplayState).catch(() => {});
   }
 
-  async function refreshWorkspaceSummaries() {
-    const summaries = await fetchWorkspaces();
-    setWorkspaces(summaries);
-    return summaries;
-  }
-
-  function applyWorkspaceState(workspace: WorkspaceState) {
-    const nextTabState = workspaceStateToTabState(workspace);
-    setCurrentWorkspaceId(workspace.workspaceId);
-    setCurrentWorkspaceName(workspace.workspaceName);
-    setFavorites(workspace.favorites);
-    setRecentFiles(workspace.recentFiles);
-    setTabState(nextTabState);
-    setWorkspaceLayout(normalizeWorkspaceLayout(workspace.layout, workspace.tabs));
-  }
-
-  async function flushCurrentWorkspaceState() {
-    if (!workspaceReadyRef.current) {
-      return;
-    }
-    const latestTabState = tabStateRef.current;
-    const latestWorkspaceLayout = workspaceLayoutRef.current;
-    const payload = workspacePersistPayload(
-      latestTabState.tabs.map(openTabToWorkspaceTab),
-      latestTabState.activePath,
-      latestWorkspaceLayout,
-      shouldPersistTab
-    );
-    await Promise.all([
-      saveWorkspaceTabs(payload.tabs, payload.activePath),
-      saveWorkspaceLayout(payload.layout)
-    ]).catch(() => {});
-  }
-
-  async function handleActivateWorkspace(workspaceId: string) {
-    if (!workspaceId) {
-      return;
-    }
-    await flushCurrentWorkspaceState();
-    const workspace = await activateWorkspace(workspaceId);
-    applyWorkspaceState(workspace);
-    await hp.refresh();
-    await refreshWorkspaceSummaries();
-  }
-
-  async function handleSubmitWorkspaceDialog() {
-    if (workspaceDialog.kind === "closed") {
-      return;
-    }
-    const name = workspaceDialog.name.trim();
-    if (!name) {
-      setWorkspaceDialog({ ...workspaceDialog, name, error: "Workspace name is required." });
-      return;
-    }
-    if (name.length > 60) {
-      setWorkspaceDialog({ ...workspaceDialog, name, error: "Use 60 characters or fewer." });
-      return;
-    }
-
-    setWorkspaceDialog({ ...workspaceDialog, name, status: "submitting", error: null });
-    try {
-      if (workspaceDialog.kind === "create") {
-        const workspace = await createWorkspace(name);
-        applyWorkspaceState(workspace);
-        await hp.refresh();
-      } else {
-        await flushCurrentWorkspaceState();
-        const renamed = await renameWorkspace(workspaceDialog.workspace.id, name);
-        if (renamed.id === currentWorkspaceId) {
-          setCurrentWorkspaceName(renamed.name);
-        }
-      }
-      await refreshWorkspaceSummaries();
-      setWorkspaceDialog({ kind: "closed" });
-    } catch (error: unknown) {
-      const message = error instanceof Error ? error.message : "Unknown error";
-      setWorkspaceDialog({ ...workspaceDialog, name, status: "idle", error: message });
-    }
-  }
-
-  async function handleDeleteCurrentWorkspace() {
-    if (currentWorkspaceId === "default") {
-      return;
-    }
-    const targetId = currentWorkspaceId;
-    const fallback = workspaces.find((workspace) => workspace.id === "default") ??
-      workspaces.find((workspace) => workspace.id !== targetId);
-    if (!fallback) {
-      return;
-    }
-    try {
-      const fallbackWorkspace = await activateWorkspace(fallback.id);
-      applyWorkspaceState(fallbackWorkspace);
-      await hp.refresh();
-      const summaries = await deleteWorkspace(targetId);
-      setWorkspaces(summaries);
-    } catch {
-      // Keep the selector stable; backend explains delete failures in focused API tests.
-    }
-  }
-
-  function handleWorkspaceModeChange(mode: WorkspaceLayout["mode"]) {
-    const nextLayout = layoutWithMode(
-      normalizeWorkspaceLayout(workspaceLayout, tabState.tabs.map(openTabToWorkspaceTab)),
-      mode,
-      tabState.tabs
-    );
-    setWorkspaceLayout(nextLayout);
-  }
-
-  function handlePaneResizePointerDown(event: PointerEvent<HTMLDivElement>) {
-    event.preventDefault();
-    const container = event.currentTarget.parentElement;
-    if (!container) {
-      return;
-    }
-    const rect = container.getBoundingClientRect();
-    const handlePointerMove = (moveEvent: globalThis.PointerEvent) => {
-      const ratio = clampWorkspaceSplitRatio((moveEvent.clientX - rect.left) / rect.width);
-      setWorkspaceLayout((layout) => ({ ...layout, splitRatio: ratio }));
-    };
-    const handlePointerUp = () => {
-      window.removeEventListener("pointermove", handlePointerMove);
-      window.removeEventListener("pointerup", handlePointerUp);
-    };
-    window.addEventListener("pointermove", handlePointerMove);
-    window.addEventListener("pointerup", handlePointerUp, { once: true });
-  }
-
   function openDmsOutputTabs(run: DmsRunState) {
     for (const output of run.outputs) {
       const file = dmsOutputToWorldFile(output);
@@ -1418,45 +1049,8 @@ export function App() {
         ...states,
         [file.path]: { status: "ready", file }
       }));
-      setTabState((state) =>
-        {
-          const nextState = openTab(state, {
-          path: file.path,
-          name: file.name,
-          title: file.name,
-          mediaKind: file.media_kind
-          });
-          setWorkspaceLayout((layout) =>
-            openFileInActivePane(
-              normalizeWorkspaceLayout(layout, nextState.tabs.map(openTabToWorkspaceTab)),
-              file.path
-            )
-          );
-          return nextState;
-        }
-      );
+      openVirtualTab({ path: file.path, name: file.name, title: file.name, mediaKind: file.media_kind });
     }
-  }
-
-  function openScreenTab() {
-    // Modelled on openDmsOutputTabs: this opens a synthetic tab without calling
-    // persistRecent, which would 400 trying to record a recent file for a path that does
-    // not exist on disk.
-    setTabState((state) => {
-      const nextState = openTab(state, {
-        path: SCREEN_TAB_PATH,
-        name: t("tools.screen"),
-        title: t("tools.screen"),
-        mediaKind: "unsupported"
-      });
-      setWorkspaceLayout((layout) =>
-        openFileInActivePane(
-          normalizeWorkspaceLayout(layout, nextState.tabs.map(openTabToWorkspaceTab)),
-          SCREEN_TAB_PATH
-        )
-      );
-      return nextState;
-    });
   }
 
   function revealScreenTool(tab: ScreenToolTabId) {
@@ -1674,18 +1268,7 @@ export function App() {
         nextStates[createdFile.path] = { status: "ready", file: createdFile };
         return nextStates;
       });
-      setTabState((state) =>
-        openTab(
-          {
-            tabs: state.tabs.filter((tab) => tab.path !== dmsOutputSaveDialog.file.path),
-            activePath:
-              state.activePath === dmsOutputSaveDialog.file.path
-                ? null
-                : state.activePath
-          },
-          workspaceTabToOpenTab(tab)
-        )
-      );
+      replaceVirtualTab(dmsOutputSaveDialog.file.path, tab);
       setDmsOutputSaveDialog({ open: false });
     } catch (error: unknown) {
       unmarkLocalWrite([path]);
@@ -1702,11 +1285,7 @@ export function App() {
       return;
     }
 
-    const nextFavorites = toggleFavorite(favorites, tabForEntry(entry));
-    setFavorites(nextFavorites);
-    void saveFavorites(nextFavorites)
-      .then((workspace) => setFavorites(workspace.favorites))
-      .catch(() => {});
+    toggleFavoriteTab(tabForEntry(entry));
   }
 
   function handleStartMetadataEdit() {
@@ -1842,23 +1421,7 @@ export function App() {
         }
         return { ...drafts, [activeTab.path]: createEditorDraft(response.file) };
       });
-      const titledTabs = tabState.tabs.map((tab) =>
-        tab.path === activeTab.path ? { ...tab, title: response.page.title } : tab
-      );
-      const persistedTitledTabs = titledTabs.filter(shouldPersistTab);
-      const persistedActivePath = persistedTitledTabs.some((tab) => tab.path === tabState.activePath)
-        ? tabState.activePath
-        : persistedTitledTabs[0]?.path ?? null;
-      setTabState((state) => ({
-        ...state,
-        tabs: state.tabs.map((tab) =>
-          tab.path === activeTab.path ? { ...tab, title: response.page.title } : tab
-        )
-      }));
-      void saveWorkspaceTabs(
-        persistedTitledTabs.map(openTabToWorkspaceTab),
-        persistedActivePath
-      ).catch(() => {});
+      retitleTab(activeTab.path, response.page.title);
       replaceWorkspaceCollections(activeTab.path, replacement);
       setMetadataEdits((states) => {
         const nextStates = { ...states };
@@ -1908,35 +1471,7 @@ export function App() {
     setPageStates((states) => remapLoadedFileRecords(states, oldPath, newPath));
     setLinksStates((states) => remapLoadedFileRecords(states, oldPath, newPath));
     setEditorDrafts((drafts) => remapLoadedFileRecords(drafts, oldPath, newPath));
-    setTabState((state) => {
-      const tabs = remapMovedWorkspacePaths(state.tabs.map(openTabToWorkspaceTab), oldPath, newPath)
-        .map(workspaceTabToOpenTab);
-      return {
-        tabs,
-        activePath: state.activePath
-          ? remapMovedWorldPath(state.activePath, oldPath, newPath)
-          : state.activePath
-      };
-    });
-    setWorkspaceLayout((layout) => ({
-      ...layout,
-      panes: layout.panes.map((pane) => ({
-        ...pane,
-        activePath: pane.activePath
-          ? remapMovedWorldPath(pane.activePath, oldPath, newPath)
-          : pane.activePath
-      }))
-    }));
-    const nextFavorites = remapMovedWorkspacePaths(favorites, oldPath, newPath);
-    const nextRecentFiles = remapMovedWorkspacePaths(recentFiles, oldPath, newPath);
-    setFavorites(nextFavorites);
-    setRecentFiles(nextRecentFiles);
-    void saveFavorites(nextFavorites)
-      .then((workspace) => setFavorites(workspace.favorites))
-      .catch(() => {});
-    void saveRecentFiles(nextRecentFiles)
-      .then((workspace) => setRecentFiles(workspace.recentFiles))
-      .catch(() => {});
+    remapWorkspacePath(oldPath, newPath);
   }
 
   function applyTrashedPathToWorkspaceState(path: string) {
@@ -1944,35 +1479,7 @@ export function App() {
     setPageStates((states) => removeLoadedFileRecords(states, path));
     setLinksStates((states) => removeLoadedFileRecords(states, path));
     setEditorDrafts((drafts) => removeLoadedFileRecords(drafts, path));
-    setTabState((state) => {
-      const removedPaths = affectedDescendantPaths(
-        state.tabs.map((tab) => tab.path),
-        path
-      );
-      let nextState = state;
-      removedPaths.forEach((removedPath) => {
-        nextState = closeTab(nextState, removedPath);
-      });
-      return nextState;
-    });
-    setWorkspaceLayout((layout) => ({
-      ...layout,
-      panes: layout.panes.map((pane) => ({
-        ...pane,
-        activePath:
-          pane.activePath && isDescendantPath(pane.activePath, path) ? null : pane.activePath
-      }))
-    }));
-    const nextFavorites = removeDescendantWorkspacePaths(favorites, path);
-    const nextRecentFiles = removeDescendantWorkspacePaths(recentFiles, path);
-    setFavorites(nextFavorites);
-    setRecentFiles(nextRecentFiles);
-    void saveFavorites(nextFavorites)
-      .then((workspace) => setFavorites(workspace.favorites))
-      .catch(() => {});
-    void saveRecentFiles(nextRecentFiles)
-      .then((workspace) => setRecentFiles(workspace.recentFiles))
-      .catch(() => {});
+    forgetWorkspacePath(path);
   }
 
   function handleDraftModeChange(mode: EditorMode) {
@@ -2044,56 +1551,13 @@ export function App() {
 
   async function refreshWorldStructure(pathsToClear: string[] = []) {
     const [nextWorldTree, nextPages] = await Promise.all([fetchWorldTree(), fetchPages()]);
-    const pageTitles = new Map(nextPages.map((page) => [page.path, page.title]));
     setWorldTree(nextWorldTree);
     setPages(nextPages);
-    setTabState((state) => ({
-      ...state,
-      tabs: state.tabs.map((tab) =>
-        pageTitles.has(tab.path) ? { ...tab, title: pageTitles.get(tab.path) ?? tab.title } : tab
-      )
-    }));
-    setFavorites((items) =>
-      items.map((tab) =>
-        pageTitles.has(tab.path) ? { ...tab, title: pageTitles.get(tab.path) ?? tab.title } : tab
-      )
-    );
-    setRecentFiles((items) =>
-      items.map((tab) =>
-        pageTitles.has(tab.path) ? { ...tab, title: pageTitles.get(tab.path) ?? tab.title } : tab
-      )
-    );
+    retitleFromPages(nextPages);
     if (pathsToClear.length > 0) {
       clearDerivedFileStates(pathsToClear);
     }
     return nextPages;
-  }
-
-  async function refreshWorldAfterSave(path: string) {
-    const nextPages = await refreshWorldStructure([path]);
-
-    const page = nextPages.find((pageItem) => pageItem.path === path);
-    if (page) {
-      setTabState((state) => ({
-        ...state,
-        tabs: state.tabs.map((tab) =>
-          tab.path === path ? { ...tab, title: page.title } : tab
-        )
-      }));
-    }
-  }
-
-  function replaceWorkspaceCollections(oldPath: string, replacement: WorkspaceTab) {
-    const nextFavorites = replaceWorkspacePath(favorites, oldPath, replacement);
-    const nextRecentFiles = replaceWorkspacePath(recentFiles, oldPath, replacement);
-    setFavorites(nextFavorites);
-    setRecentFiles(nextRecentFiles);
-    void saveFavorites(nextFavorites)
-      .then((workspace) => setFavorites(workspace.favorites))
-      .catch(() => {});
-    void saveRecentFiles(nextRecentFiles)
-      .then((workspace) => setRecentFiles(workspace.recentFiles))
-      .catch(() => {});
   }
 
   // A file created from the file dialog opens right away, with a clean draft to edit.
@@ -2135,7 +1599,7 @@ export function App() {
         ...drafts,
         [activeTab.path]: markDraftSaved(activeDraft, savedFile)
       }));
-      await refreshWorldAfterSave(activeTab.path);
+      await refreshWorldStructure([activeTab.path]);
     } catch (error: unknown) {
       unmarkLocalWrite([activeTab.path]);
       const message = error instanceof Error ? error.message : "Unknown error";
@@ -2190,27 +1654,6 @@ export function App() {
 
   function handleOpenRecent(tab: WorkspaceTab) {
     openWorkspaceTab(tab);
-  }
-
-  function removeDeletedWorkspaceItems(deletedPaths: string[]) {
-    if (deletedPaths.length === 0) {
-      return;
-    }
-
-    setFavorites((items) => {
-      const nextItems = deletedPaths.reduce(removeWorkspacePath, items);
-      void saveFavorites(nextItems)
-        .then((workspace) => setFavorites(workspace.favorites))
-        .catch(() => {});
-      return nextItems;
-    });
-    setRecentFiles((items) => {
-      const nextItems = deletedPaths.reduce(removeWorkspacePath, items);
-      void saveRecentFiles(nextItems)
-        .then((workspace) => setRecentFiles(workspace.recentFiles))
-        .catch(() => {});
-      return nextItems;
-    });
   }
 
   async function handleWorldEvent(event: WorldEvent) {
@@ -2310,19 +1753,12 @@ export function App() {
     snapshots.reset();
     resetScripts();
     setDmsOutputSaveDialog({ open: false });
-    setTabState({ tabs: [], activePath: null });
-    setWorkspaceLayout(defaultWorkspaceLayout());
-    setWorkspaces([]);
-    setCurrentWorkspaceId("default");
-    setCurrentWorkspaceName("Default");
-    setWorkspaceDialog({ kind: "closed" });
+    resetWorkspace();
     setFileStates({});
     setPageStates({});
     setLinksStates({});
     setEditorDrafts({});
     setMetadataEdits({});
-    setFavorites([]);
-    setRecentFiles([]);
     display.reset();
     map.reset();
     setFolderMenuPath(null);
@@ -2338,33 +1774,20 @@ export function App() {
     loadedAt?: { hp: number; fastSlots: number }
   ) {
     const { workspace } = content;
-    const workspaceTabs = workspace.tabs.map(workspaceTabToOpenTab);
-    const activePath =
-      workspace.activePath && workspaceTabs.some((tab) => tab.path === workspace.activePath)
-        ? workspace.activePath
-        : workspaceTabs[0]?.path ?? null;
     setWorldLibrary(nextWorldLibrary);
     setWorldTree(content.tree);
     setPages(content.pages);
-    setWorkspaces(content.workspaces);
-    setCurrentWorkspaceId(workspace.workspaceId);
-    setCurrentWorkspaceName(workspace.workspaceName);
+    adoptWorkspace(content.workspaces, workspace, Boolean(loadedAt));
     hp.adopt(content.hp.rows, loadedAt?.hp);
-    setFavorites(workspace.favorites);
-    setRecentFiles(workspace.recentFiles);
     display.setDisplayState(content.display);
     map.adoptMapState(content.map);
     snapshots.adopt(content.tableSnapshots);
     bindings.adoptFastSlots(content.fastSlots, loadedAt?.fastSlots);
-    if (loadedAt) {
-      setTabState((currentState) => mergeLoadedWorkspaceTabs(currentState, workspaceTabs, activePath));
-    } else {
+    if (!loadedAt) {
       map.setMapPresets([]);
       map.resetViewport();
-      setTabState({ tabs: workspaceTabs, activePath });
       invalidateSearch();
     }
-    setWorkspaceLayout(normalizeWorkspaceLayout(workspace.layout, workspace.tabs));
     collapseAll();
     setWorkspaceReady(true);
     setLoadState({ status: "ready" });
@@ -2959,26 +2382,9 @@ export function App() {
             searchButtonRef={searchButtonRef}
             onModeChange={handleWorkspaceModeChange}
             onToggleTools={() => handleToolsPanelVisibleChange(!toolsPanelVisible)}
-            onNew={() =>
-              setWorkspaceDialog({ kind: "create", name: "", status: "idle", error: null })
-            }
+            onNew={openCreateWorkspaceDialog}
             onPrepCheck={() => setPrepHealthDialogOpen(true)}
-            onRename={() => {
-              const workspace =
-                workspaces.find((item) => item.id === currentWorkspaceId) ?? {
-                  id: currentWorkspaceId,
-                  name: currentWorkspaceName,
-                  is_active: true,
-                  updated_at: ""
-                };
-              setWorkspaceDialog({
-                kind: "rename",
-                workspace,
-                name: workspace.name,
-                status: "idle",
-                error: null
-              });
-            }}
+            onRename={openRenameWorkspaceDialog}
             prepStatus={livePrepHealthLabel(prepHealthReport, t).replace(/^.*?:\s*/, "")}
             summaries={workspaces}
             toolsVisible={toolsPanelVisible}
@@ -3164,7 +2570,7 @@ export function App() {
         inputRef={searchInputRef}
         onClose={closeSearchDialog}
         onOpenOtherPane={(result) => {
-          handleOpenSearchResultOtherPane(result);
+          openInOtherPane(searchResultToTab(result));
           setSearchDialogOpen(false);
         }}
         onOpenResult={(result) => {
@@ -3289,12 +2695,8 @@ export function App() {
         t={t}
       />
       <WorkspaceDialog
-        onClose={() => setWorkspaceDialog({ kind: "closed" })}
-        onNameChange={(name) =>
-          setWorkspaceDialog((state) =>
-            state.kind === "closed" ? state : { ...state, name, error: null }
-          )
-        }
+        onClose={closeWorkspaceDialog}
+        onNameChange={handleWorkspaceDialogNameChange}
         onSubmit={() => void handleSubmitWorkspaceDialog()}
         state={workspaceDialog}
       />
