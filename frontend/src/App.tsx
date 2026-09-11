@@ -65,8 +65,6 @@ import {
   fetchDisplayState,
   fetchDmsTrust,
   fetchDmsRun,
-  fetchFastSlots,
-  fetchHpTracker,
   fetchLanguageCatalog,
   fetchPage,
   fetchPageBacklinks,
@@ -74,7 +72,6 @@ import {
   fetchPages,
   fetchPrepHealth,
   fetchScripts,
-  fetchTableSnapshots,
   fetchTrash,
   fetchWorkspace,
   fetchWorkspaces,
@@ -189,6 +186,7 @@ import {
 } from "./lib/fileManagement";
 import { linkToOpenTab } from "./lib/links";
 import { subscribeToEvents } from "./lib/eventSocket";
+import { fetchWorldContent, type WorldContent } from "./lib/worldContent";
 import {
   buildEventsUrl,
   planWorldEventUpdate,
@@ -739,57 +737,14 @@ export function App() {
       const hpRevisionAtStart = hp.editVersion();
       setLoadState({ status: "loading" });
       try {
-        const [
-          nextWorldLibrary,
-          nextWorldTree,
-          nextPages,
-          workspace,
-          hpState,
-          nextWorkspaces,
-          nextDisplayState,
-          nextFastSlots,
-          nextMapState,
-          nextTableSnapshots
-        ] = await Promise.all([
-          fetchWorlds(),
-          fetchWorldTree(),
-          fetchPages(),
-          fetchWorkspace(),
-          fetchHpTracker(),
-          fetchWorkspaces(),
-          fetchDisplayState(),
-          fetchFastSlots(),
-          fetchMapState(),
-          fetchTableSnapshots()
-        ]);
+        const [nextWorldLibrary, content] = await Promise.all([fetchWorlds(), fetchWorldContent()]);
         if (!mounted) {
           return;
         }
-        const workspaceTabs = workspace.tabs.map(workspaceTabToOpenTab);
-        const activePath =
-          workspace.activePath && workspaceTabs.some((tab) => tab.path === workspace.activePath)
-            ? workspace.activePath
-            : workspaceTabs[0]?.path ?? null;
-        setWorldLibrary(nextWorldLibrary);
-        setWorldTree(nextWorldTree);
-        setPages(nextPages);
-        setWorkspaces(nextWorkspaces);
-        setCurrentWorkspaceId(workspace.workspaceId);
-        setCurrentWorkspaceName(workspace.workspaceName);
-        hp.adopt(hpState.rows, hpRevisionAtStart);
-        setFavorites(workspace.favorites);
-        setRecentFiles(workspace.recentFiles);
-        display.setDisplayState(nextDisplayState);
-        map.adoptMapState(nextMapState);
-        snapshots.adopt(nextTableSnapshots);
-        setWorkspaceLayout(normalizeWorkspaceLayout(workspace.layout, workspace.tabs));
-        bindings.adoptFastSlots(nextFastSlots, fastSlotsRevisionAtStart);
-        setTabState((currentState) =>
-          mergeLoadedWorkspaceTabs(currentState, workspaceTabs, activePath)
-        );
-        setExpandedPaths(new Set([""]));
-        setWorkspaceReady(true);
-        setLoadState({ status: "ready" });
+        applyWorldContent(nextWorldLibrary, content, {
+          hp: hpRevisionAtStart,
+          fastSlots: fastSlotsRevisionAtStart
+        });
       } catch (error) {
         console.error("Loading the world failed", error);
         if (mounted) {
@@ -3499,55 +3454,49 @@ export function App() {
     setWorldOpenDialog(false);
   }
 
-  async function finishWorldSwitch(nextWorldLibrary: WorldLibraryState) {
-    const [
-      nextWorldTree,
-      nextPages,
-      workspace,
-      hpState,
-      nextWorkspaces,
-      nextDisplayState,
-      nextFastSlots,
-      nextMapState,
-      nextTableSnapshots
-    ] =
-      await Promise.all([
-        fetchWorldTree(),
-        fetchPages(),
-        fetchWorkspace(),
-        fetchHpTracker(),
-        fetchWorkspaces(),
-        fetchDisplayState(),
-        fetchFastSlots(),
-        fetchMapState(),
-        fetchTableSnapshots()
-      ]);
+  // Put a freshly fetched world into every domain. On the first load (`loadedAt` given) HP rows
+  // and fast slots edited while the fetch was in flight win, and restored tabs merge with any
+  // already open; a world switch replaces everything.
+  function applyWorldContent(
+    nextWorldLibrary: WorldLibraryState,
+    content: WorldContent,
+    loadedAt?: { hp: number; fastSlots: number }
+  ) {
+    const { workspace } = content;
     const workspaceTabs = workspace.tabs.map(workspaceTabToOpenTab);
     const activePath =
       workspace.activePath && workspaceTabs.some((tab) => tab.path === workspace.activePath)
         ? workspace.activePath
         : workspaceTabs[0]?.path ?? null;
     setWorldLibrary(nextWorldLibrary);
-    setWorldTree(nextWorldTree);
-    setPages(nextPages);
-    setWorkspaces(nextWorkspaces);
+    setWorldTree(content.tree);
+    setPages(content.pages);
+    setWorkspaces(content.workspaces);
     setCurrentWorkspaceId(workspace.workspaceId);
     setCurrentWorkspaceName(workspace.workspaceName);
-    hp.adopt(hpState.rows);
+    hp.adopt(content.hp.rows, loadedAt?.hp);
     setFavorites(workspace.favorites);
     setRecentFiles(workspace.recentFiles);
-    display.setDisplayState(nextDisplayState);
-    map.adoptMapState(nextMapState);
-    snapshots.adopt(nextTableSnapshots);
-    map.setMapPresets([]);
-    map.resetViewport();
-    bindings.adoptFastSlots(nextFastSlots);
-    setTabState({ tabs: workspaceTabs, activePath });
+    display.setDisplayState(content.display);
+    map.adoptMapState(content.map);
+    snapshots.adopt(content.tableSnapshots);
+    bindings.adoptFastSlots(content.fastSlots, loadedAt?.fastSlots);
+    if (loadedAt) {
+      setTabState((currentState) => mergeLoadedWorkspaceTabs(currentState, workspaceTabs, activePath));
+    } else {
+      map.setMapPresets([]);
+      map.resetViewport();
+      setTabState({ tabs: workspaceTabs, activePath });
+      setSearchRevision((revision) => revision + 1);
+    }
     setWorkspaceLayout(normalizeWorkspaceLayout(workspace.layout, workspace.tabs));
     setExpandedPaths(new Set([""]));
     setWorkspaceReady(true);
-    setSearchRevision((revision) => revision + 1);
     setLoadState({ status: "ready" });
+  }
+
+  async function finishWorldSwitch(nextWorldLibrary: WorldLibraryState) {
+    applyWorldContent(nextWorldLibrary, await fetchWorldContent());
   }
 
   async function handleOpenWorld(worldId: string) {
