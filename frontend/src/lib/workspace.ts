@@ -1,4 +1,4 @@
-import type { SearchResult, WorkspaceLayout, WorkspaceState, WorkspaceTab } from "./api";
+import type { SearchResult, WorkspaceLayout, WorkspaceTab } from "./api";
 
 export type SearchResultGroup = {
   label: string;
@@ -171,17 +171,6 @@ export function retargetLayoutAfterTabClose(
           : normalizePaneActivePath(secondaryActivePath, paths)
       }
     ]
-  };
-}
-
-export function switchWorkspaceSession(
-  current: WorkspaceState,
-  incoming: WorkspaceState
-): WorkspaceState {
-  return {
-    ...incoming,
-    favorites: current.favorites,
-    recentFiles: current.recentFiles
   };
 }
 

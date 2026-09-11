@@ -9,7 +9,6 @@ import {
   buildScreenMapMediaUrl,
   deleteMapPreset,
   clampMapViewport,
-  clientPointToImagePoint,
   createPinPayload,
   fitMapImageToStage,
   fetchMapState,
@@ -22,8 +21,6 @@ import {
   mapFogClassName,
   mapFogMaskOperations,
   mapFogRevealRects,
-  nextMapState,
-  normalizedMapGridLines,
   normalizeMapPolygon,
   normalizeMapRect,
   planViewportSync,
@@ -37,7 +34,6 @@ import {
   setMapSource,
   setMapViewport,
   stopMap,
-  type MapGrid,
   type MapState
 } from "./map";
 
@@ -281,7 +277,7 @@ describe("map helpers", () => {
     expect(shouldAdoptMapState(loadedState, { ...olderBlankState, updated_at: "not-a-date" })).toBe(true);
   });
 
-  it("creates pin payloads and image points from client coordinates", () => {
+  it("creates pin payloads from raw coordinates", () => {
     expect(createPinPayload({ x: 1.2, y: -0.2 }, "  North Gate  ")).toEqual({
       x: 1,
       y: 0,
@@ -294,53 +290,6 @@ describe("map helpers", () => {
       label: "Secret",
       visibility: "dm"
     });
-    expect(
-      clientPointToImagePoint(150, 260, {
-        left: 100,
-        top: 200,
-        width: 200,
-        height: 300
-      })
-    ).toEqual({ x: 0.25, y: 0.2 });
-  });
-
-  it("returns normalized internal grid lines", () => {
-    const grid: MapGrid = {
-      enabled: true,
-      columns: 4,
-      rows: 2,
-      visible_to_players: true
-    };
-
-    expect(normalizedMapGridLines(grid)).toEqual([
-      {
-        orientation: "vertical",
-        index: 1,
-        start: { x: 0.25, y: 0 },
-        end: { x: 0.25, y: 1 }
-      },
-      {
-        orientation: "vertical",
-        index: 2,
-        start: { x: 0.5, y: 0 },
-        end: { x: 0.5, y: 1 }
-      },
-      {
-        orientation: "vertical",
-        index: 3,
-        start: { x: 0.75, y: 0 },
-        end: { x: 0.75, y: 1 }
-      },
-      {
-        orientation: "horizontal",
-        index: 1,
-        start: { x: 0, y: 0.5 },
-        end: { x: 1, y: 0.5 }
-      }
-    ]);
-    expect(
-      normalizedMapGridLines({ ...grid, enabled: false, columns: 99, rows: 99 })
-    ).toEqual([]);
   });
 
   it("creates binary fog mask reveal rectangles without inverting the mask", () => {
@@ -477,11 +426,5 @@ describe("map helpers", () => {
     expect(isImageMapCandidate("image")).toBe(true);
     expect(isImageMapCandidate("video")).toBe(false);
     expect(isImageMapCandidate("pdf")).toBe(false);
-  });
-
-  it("replaces map state from websocket events", () => {
-    const next = { ...blankState, image_path: "Media/City Map.svg", presenting: true };
-
-    expect(nextMapState(blankState, next)).toEqual(next);
   });
 });

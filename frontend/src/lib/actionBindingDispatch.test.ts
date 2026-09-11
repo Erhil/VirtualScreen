@@ -1,7 +1,6 @@
 import { describe, expect, it } from "vitest";
 
 import {
-  isEditableHotkeyEvent,
   isTableSnapshotRestoreAction,
   normalizeDispatchAction,
   resolveScreenActionPath,
@@ -63,12 +62,5 @@ describe("action binding dispatch helpers", () => {
       })
     ).toBe(true);
     expect(isTableSnapshotRestoreAction({ kind: "open_file", path: "README.md" })).toBe(false);
-  });
-
-  it("ignores editable hotkey events", () => {
-    expect(isEditableHotkeyEvent({ targetTagName: "textarea" })).toBe(true);
-    expect(isEditableHotkeyEvent({ targetClassName: "cm-content" })).toBe(true);
-    expect(isEditableHotkeyEvent({ targetIsContentEditable: true })).toBe(true);
-    expect(isEditableHotkeyEvent({ targetTagName: "button" })).toBe(false);
   });
 });

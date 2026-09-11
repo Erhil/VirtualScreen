@@ -12,7 +12,6 @@ import {
   recordRecentItem,
   retargetLayoutAfterTabClose,
   searchResultToTab,
-  switchWorkspaceSession,
   workspacePersistPayload,
   toggleFavorite
 } from "./workspace";
@@ -181,32 +180,6 @@ describe("workspace helpers", () => {
     });
   });
 
-  it("switches workspace session data while preserving world collections", () => {
-    const current = {
-      workspaceId: "default",
-      workspaceName: "Default",
-      tabs: [home],
-      activePath: "README.md",
-      layout: defaultWorkspaceLayout("README.md"),
-      favorites: [captain],
-      recentFiles: [home]
-    };
-    const incoming = {
-      workspaceId: "session-2",
-      workspaceName: "Session 2",
-      tabs: [captain],
-      activePath: "NPCs/Captain Ilyra.md",
-      layout: defaultWorkspaceLayout("NPCs/Captain Ilyra.md"),
-      favorites: [],
-      recentFiles: []
-    };
-
-    expect(switchWorkspaceSession(current, incoming)).toEqual({
-      ...incoming,
-      favorites: [captain],
-      recentFiles: [home]
-    });
-  });
 });
 
 describe("workspacePersistPayload", () => {

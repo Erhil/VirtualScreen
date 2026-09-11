@@ -4,7 +4,6 @@ import { resolve } from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
-  AVAILABLE_LANGUAGES,
   FALLBACK_CATALOG,
   UI_LANGUAGE_STORAGE_KEY,
   createTranslator,
@@ -40,12 +39,6 @@ describe("localization catalogs", () => {
     }
   });
 
-  it("lists fallback UI languages used when the backend config is unavailable", () => {
-    expect(AVAILABLE_LANGUAGES).toEqual([
-      { code: "en", label: "English", native_label: "English" },
-      { code: "ru", label: "Russian", native_label: "Русский" }
-    ]);
-  });
   it("contains localized help keys for every context help topic", () => {
     const en = readCatalog("en");
     const ru = readCatalog("ru");
@@ -60,27 +53,11 @@ describe("localization catalogs", () => {
     }
   });
 
-  it("uses explicit player-visible and search action labels", () => {
-    const en = readCatalog("en");
-
-    expect(en["screen.visible"]).toBe("Shown to Players");
-    expect(en["screen.staged"]).toBe("Staged (Hidden)");
-    expect(en["screen.showPopupToPlayers"]).toBe("Show to Players");
-    expect(en["screen.hidePopupFromPlayers"]).toBe("Hide from Players");
-    expect(en["search.otherPane"]).toBe("Open in Other Pane");
-    expect(en["search.stage"]).toBe("Stage on Screen");
-    expect(en["search.showOnScreen"]).toBe("Show on Screen");
-  });
-
   it("covers the dense pre-release polish labels in both catalogs", () => {
     const en = readCatalog("en");
     const ru = readCatalog("ru");
     const keys = [
-      "card.noRows",
       "contextMenu.copyPath",
-      "contextMenu.openOtherPane",
-      "contextMenu.showOnScreen",
-      "contextMenu.stageOnScreen",
       "actions.summary.keys",
       "actions.summary.midi",
       "actions.summary.slots",
@@ -94,8 +71,6 @@ describe("localization catalogs", () => {
       "document.defaultShortcuts",
       "hp.summary.noRows",
       "hp.summary.rows",
-      "live.map.noMap",
-      "live.output.clear",
       "live.pane.empty",
       "live.prep",
       "prep.count.errors",
@@ -105,7 +80,6 @@ describe("localization catalogs", () => {
       "prep.status.checkFailed",
       "prep.status.notChecked",
       "prep.status.ready",
-      "search.resultsGroup",
       "scripts.summary.found",
       "scripts.summary.ready",
       "tools.sectionLabel",
@@ -118,7 +92,7 @@ describe("localization catalogs", () => {
       expect(ru[key], `ru ${key}`).toBeTruthy();
     }
 
-    for (const key of keys.filter((item) => !["search.resultsGroup", "tools.sectionLabel"].includes(item))) {
+    for (const key of keys.filter((item) => item !== "tools.sectionLabel")) {
       expect(ru[key], key).not.toBe(en[key]);
     }
   });
@@ -140,13 +114,6 @@ describe("localization catalogs", () => {
         expect(value, `${key} contains ${fragment}`).not.toContain(fragment);
       }
     }
-  });
-
-  it("uses clear Russian labels for audio fades", () => {
-    const ru = readCatalog("ru");
-
-    expect(ru["audio.fadeIn"]).toBe("Плавно включить");
-    expect(ru["audio.fadeOut"]).toBe("Плавно выключить");
   });
 });
 

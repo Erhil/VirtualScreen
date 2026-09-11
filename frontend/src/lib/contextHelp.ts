@@ -96,10 +96,6 @@ export function helpContextForActionsTab(tab: ActionsToolTabId): HelpContextId {
   return "actions-slots";
 }
 
-export function helpContextForScreenTab(tab: ScreenToolTabId): HelpContextId {
-  return tab === "map" ? "screen-map" : "screen-display";
-}
-
 export function resolveContextHelpTopic(input: ContextHelpInput): ContextHelpTopic | null {
   if (input.isPlayerScreen) {
     return null;

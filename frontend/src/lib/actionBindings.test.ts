@@ -4,7 +4,6 @@ import { dispatchableHotkeyPosition } from "./fastSlots";
 import {
   bindingStorageKey,
   canonicalShortcutFromEvent,
-  clearActionBindings,
   duplicateShortcut,
   isEditableHotkeyTarget,
   isReservedShortcut,
@@ -102,9 +101,6 @@ describe("action binding helpers", () => {
     saveActionBindings("sample-world", [binding], storage);
     expect(loadActionBindings("sample-world", storage)).toEqual([binding]);
     expect(loadActionBindings("other-world", storage)).toEqual([]);
-
-    clearActionBindings("sample-world", storage);
-    expect(loadActionBindings("sample-world", storage)).toEqual([]);
   });
 
   it("sorts bindings by label then shortcut", () => {

@@ -3,7 +3,6 @@ import { describe, expect, it } from "vitest";
 import {
   affectedWorldPaths,
   buildEventsUrl,
-  nextSyncStatus,
   planWorldEventUpdate,
   type WorldEvent
 } from "./liveSync";
@@ -57,11 +56,5 @@ describe("live sync helpers", () => {
 
     expect(plan.activeDeleted).toBe(true);
     expect(plan.refetchActive).toBe(false);
-  });
-
-  it("keeps sync status transitions deterministic", () => {
-    expect(nextSyncStatus("reconnecting", "connected")).toBe("live");
-    expect(nextSyncStatus("live", "disconnected")).toBe("reconnecting");
-    expect(nextSyncStatus("reconnecting", "stopped")).toBe("offline");
   });
 });

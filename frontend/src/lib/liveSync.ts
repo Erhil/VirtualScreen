@@ -50,19 +50,6 @@ export function planWorldEventUpdate(
   };
 }
 
-export function nextSyncStatus(
-  _current: SyncStatus,
-  action: "connected" | "disconnected" | "stopped"
-): SyncStatus {
-  if (action === "connected") {
-    return "live";
-  }
-  if (action === "stopped") {
-    return "offline";
-  }
-  return "reconnecting";
-}
-
 export type WorldEventClientOptions = {
   onEvent: (event: WorldEvent) => void;
   onStatus: (status: SyncStatus) => void;

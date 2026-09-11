@@ -8,50 +8,8 @@ export type TableSnapshotRestoreAction = Extract<
 type DispatchError = { error: string };
 type ResolvedPath = { path: string };
 
-export type HotkeyEventLike = {
-  target?: EventTarget | null;
-  targetTagName?: string | null;
-  targetClassName?: string | null;
-  targetIsContentEditable?: boolean;
-};
-
 function trimmed(value: string | null | undefined): string {
   return typeof value === "string" ? value.trim() : "";
-}
-
-function targetTagName(event: HotkeyEventLike): string {
-  if (event.targetTagName) {
-    return event.targetTagName.toLowerCase();
-  }
-  const target = event.target as HTMLElement | null | undefined;
-  return target?.tagName?.toLowerCase() ?? "";
-}
-
-function targetClassName(event: HotkeyEventLike): string {
-  if (typeof event.targetClassName === "string") {
-    return event.targetClassName;
-  }
-  const target = event.target as HTMLElement | null | undefined;
-  return typeof target?.className === "string" ? target.className : "";
-}
-
-export function isEditableHotkeyEvent(event: HotkeyEventLike): boolean {
-  const tagName = targetTagName(event);
-  if (["input", "textarea", "select"].includes(tagName)) {
-    return true;
-  }
-  if (event.targetIsContentEditable) {
-    return true;
-  }
-  const target = event.target as HTMLElement | null | undefined;
-  if (target?.isContentEditable) {
-    return true;
-  }
-  const className = targetClassName(event);
-  if (/\bcm-(content|editor)\b/.test(className)) {
-    return true;
-  }
-  return Boolean(target?.closest?.(".cm-content, .cm-editor, [contenteditable='true']"));
 }
 
 export function isTableSnapshotRestoreAction(

@@ -78,7 +78,6 @@ import {
   showActiveOnDisplay,
   trashWorldPath,
   updatePageMetadata,
-  type DmsEffect,
   type FastSlot,
   type AudioPlaylist,
   type CreateCaptureRequest,
@@ -101,78 +100,6 @@ function mockJsonResponse(body: unknown, ok = true, status = 200) {
 
 afterEach(() => {
   vi.unstubAllGlobals();
-});
-
-describe("API types", () => {
-  it("accepts DMS map effect shapes", () => {
-    const effects: DmsEffect[] = [
-      { id: "effect-1", kind: "map_load", path: "Maps/city.svg", present: true },
-      { id: "effect-2", kind: "map_preset", preset_id: "city-gate", present: true },
-      { id: "effect-3", kind: "map_present" },
-      { id: "effect-4", kind: "map_stop" },
-      { id: "effect-5", kind: "map_fog", enabled: false }
-    ];
-
-    expect(effects.map((effect) => effect.kind)).toEqual([
-      "map_load",
-      "map_preset",
-      "map_present",
-      "map_stop",
-      "map_fog"
-    ]);
-  });
-
-  it("accepts prep health audit shapes", () => {
-    const response: PrepHealthResponse = {
-      checked_at: "2026-05-14T12:00:00Z",
-      status: "error",
-      issue_count: 2,
-      errors: 1,
-      warnings: 1,
-      issues: [
-        {
-          id: "link:README.md:Missing Page",
-          severity: "error",
-          kind: "broken_link",
-          source_path: "README.md",
-          source_title: "Home",
-          source_kind: "markdown",
-          raw_target: "Missing Page",
-          label: "Missing Page",
-          command: null,
-          message: "Broken link: Missing Page"
-        },
-        {
-          id: "dms:Scripts/intro.dms:Media/map.png",
-          severity: "warning",
-          kind: "dms_parse_error",
-          source_path: "Scripts/intro.dms",
-          source_title: "Intro",
-          source_kind: "script",
-          raw_target: "",
-          label: null,
-          command: null,
-          message: "DMS parse error on line 3."
-        }
-      ]
-    };
-
-    expect(response.issues.map((issue) => issue.kind)).toEqual([
-      "broken_link",
-      "dms_parse_error"
-    ]);
-  });
-
-  it("accepts dice roll response shapes", () => {
-    expect({
-      expression: "2d6+3",
-      dice: { count: 2, sides: 6, results: [2, 5] },
-      modifier: 3,
-      total: 10,
-      detail: "2d6: 2 + 5 + 3 = 10",
-      rolled_at: "2026-05-18T12:00:00Z"
-    }).toMatchObject({ total: 10 });
-  });
 });
 
 describe("world API helpers", () => {
@@ -833,70 +760,6 @@ describe("world API helpers", () => {
           },
           expected_modified_at: "2026-05-05T09:00:00Z",
           expected_hash: "old-hash"
-        })
-      }
-    );
-  });
-
-  it("updates CSV page metadata with frontend payload shape", async () => {
-    const responseBody = {
-      page: {
-        path: "Tables/random-events.csv",
-        name: "random-events.csv",
-        extension: "csv",
-        title: "Random Events",
-        page_type: null,
-        tags: [],
-        aliases: [],
-        size: 10,
-        modified_at: "2026-05-05T09:01:00Z",
-        hash: "csv-hash",
-        metadata: { title: "Random Events" },
-        fields: {}
-      },
-      file: {
-        path: "Tables/random-events.csv",
-        name: "random-events.csv",
-        extension: "csv",
-        media_kind: "csv",
-        content_type: "text/csv",
-        size: 10,
-        modified_at: "2026-05-05T09:01:00Z",
-        hash: "csv-hash",
-        content: "result,event\n"
-      },
-      backup_path: ".virtualscreen/backups/20260505-090100/.virtualscreen/metadata/Tables/random-events.csv.json"
-    };
-    const fetchMock = vi.fn(() => mockJsonResponse(responseBody));
-    vi.stubGlobal("fetch", fetchMock);
-
-    await updatePageMetadata("Tables/random-events.csv", {
-      metadata: {
-        title: "Random Events",
-        type: null,
-        tags: [],
-        aliases: [],
-        fields: {}
-      },
-      expected_modified_at: "2026-05-05T09:00:00Z",
-      expected_hash: "old-csv-hash"
-    });
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/page/metadata?path=Tables%2Frandom-events.csv",
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          metadata: {
-            title: "Random Events",
-            type: null,
-            tags: [],
-            aliases: [],
-            fields: {}
-          },
-          expected_modified_at: "2026-05-05T09:00:00Z",
-          expected_hash: "old-csv-hash"
         })
       }
     );

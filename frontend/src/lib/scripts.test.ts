@@ -2,9 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   buildDmsFormDefaults,
-  buildDmsOutputSavePayload,
   DMS_COMMAND_REFERENCE,
-  defaultDmsOutputSavePath,
   dmsOutputToWorldFile,
   isScriptRunAvailable,
   normalizeDmsFormSchema
@@ -63,23 +61,6 @@ describe("DMS script helpers", () => {
     expect(isScriptRunAvailable({ mediaKind: "script", dirty: false, saving: false, running: true })).toEqual({
       available: false,
       reason: "Script is already running."
-    });
-  });
-
-  it("builds Save As payloads for temporary outputs", () => {
-    const output = {
-      id: "output-1",
-      media_kind: "markdown" as const,
-      virtual_path: "dms://run/output-1.md",
-      name: "output-1.md",
-      content: "# Saved"
-    };
-
-    expect(defaultDmsOutputSavePath(output)).toBe("DMS Outputs/output-1.md");
-    expect(buildDmsOutputSavePayload(output, "Notes/output.md")).toEqual({
-      path: "Notes/output.md",
-      file_type: "markdown",
-      content: "# Saved"
     });
   });
 

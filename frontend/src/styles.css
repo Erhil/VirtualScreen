@@ -921,8 +921,7 @@ select {
   font-size: 13px;
 }
 
-.document-state span,
-.document-shortcuts {
+.document-state span {
   color: #63594d;
   font-size: 12px;
 }
@@ -978,17 +977,6 @@ select {
 .editor-status-external {
   color: #9b3f2f;
   font-weight: 700;
-}
-
-.markdown-editor {
-  background: #fffaf0;
-  border: 1px solid #c9c1b1;
-  border-radius: 6px;
-  color: #241f1b;
-  min-height: 58vh;
-  padding: 14px;
-  resize: vertical;
-  width: 100%;
 }
 
 .code-editor {

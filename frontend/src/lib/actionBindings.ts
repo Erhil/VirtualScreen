@@ -213,10 +213,3 @@ export function saveActionBindings(
   storage.setItem(bindingStorageKey(worldKey), JSON.stringify(sorted));
   return sorted;
 }
-
-export function clearActionBindings(
-  worldKey: string,
-  storage: Storage = window.localStorage
-): void {
-  storage.removeItem(bindingStorageKey(worldKey));
-}

@@ -6,7 +6,6 @@ import {
   audioFadeProgress,
   audioQueueLabel,
   audioSummary,
-  cancelAudioFade,
   addAudioPlaylistTrack,
   createAudioPlaylist,
   createPlaylistExpansionState,
@@ -21,7 +20,6 @@ import {
   moveAudioPlaylistTrack,
   removeAudioPlaylistTrack,
   renameAudioPlaylist,
-  reorderAudioPlaylistTracks,
   resolveAudioPlaylist,
   resolveAudioPlaylists,
   setSavedAudioPlaylistBus,
@@ -300,10 +298,6 @@ describe("audio mixer helpers", () => {
     expect(audioFadeProgress(state.ambient, 350)).toEqual({ progress: 0.5, factor: 0.5 });
     expect(audioFadeProgress(state.ambient, 700)).toEqual({ progress: 1, factor: 0 });
 
-    state = cancelAudioFade(state, "ambient");
-    expect(state.ambient.fadeStatus).toBe("idle");
-    expect(audioFadeProgress(state.ambient, 350)).toEqual({ progress: 1, factor: 1 });
-
     state = finishAudioFade(startAudioFade(state, "ambient", "fading_out", 500, 100), "ambient");
     expect(state.ambient.fadeStatus).toBe("idle");
     expect(state.ambient.fadeDurationMs).toBe(0);
@@ -399,7 +393,7 @@ describe("persistent audio playlist helpers", () => {
     expect(playlists[1]).toMatchObject({ bus: "ambient", loop: false });
   });
 
-  it("adds, removes, and reorders track paths while preserving playlist order", () => {
+  it("adds and removes track paths while preserving playlist order", () => {
     let playlists = createAudioPlaylist([], "Battle Mix", "music", "2026-05-18T12:00:00Z");
 
     playlists = addAudioPlaylistTrack(
@@ -419,12 +413,6 @@ describe("persistent audio playlist helpers", () => {
       "battle-mix",
       ".music/music/boss.ogg",
       "2026-05-18T12:03:00Z"
-    );
-    playlists = reorderAudioPlaylistTracks(
-      playlists,
-      "battle-mix",
-      [".music/ambient/rain.mp3", ".music/music/boss.ogg"],
-      "2026-05-18T12:04:00Z"
     );
     playlists = removeAudioPlaylistTrack(
       playlists,

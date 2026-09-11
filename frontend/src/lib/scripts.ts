@@ -1,4 +1,4 @@
-import type { CreateWorldFileRequest, DmsOutput, WorldFile, WorldMediaKind } from "./api";
+import type { DmsOutput, WorldFile, WorldMediaKind } from "./api";
 import type { Translator } from "../lang";
 
 export type DmsFormInputType = "text" | "number" | "boolean" | "select" | "file";
@@ -163,10 +163,6 @@ export const DMS_COMMAND_REFERENCE: DmsCommandReferenceEntry[] = [
 ];
 
 const DMS_FORM_TYPES = new Set(["text", "number", "boolean", "select", "file"]);
-const DMS_EXTENSIONS: Record<DmsOutput["media_kind"], string> = {
-  markdown: "md",
-  csv: "csv"
-};
 
 export function normalizeDmsFormSchema(schema: Record<string, unknown>): DmsFormField[] {
   return Object.entries(schema).flatMap(([name, value]) => {
@@ -251,22 +247,6 @@ export function dmsOutputToWorldFile(output: DmsOutput): WorldFile {
 
 export function isTemporaryDmsPath(path: string): boolean {
   return path.startsWith("dms://");
-}
-
-export function buildDmsOutputSavePayload(
-  output: DmsOutput,
-  path: string
-): CreateWorldFileRequest {
-  return {
-    path,
-    file_type: output.media_kind,
-    content: output.content
-  };
-}
-
-export function defaultDmsOutputSavePath(output: DmsOutput): string {
-  const extension = DMS_EXTENSIONS[output.media_kind];
-  return `DMS Outputs/${output.id}.${extension}`;
 }
 
 export function isScriptRunAvailable({

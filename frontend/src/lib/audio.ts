@@ -248,23 +248,6 @@ export function removeAudioPlaylistTrack(
   }));
 }
 
-export function reorderAudioPlaylistTracks(
-  playlists: AudioPlaylist[],
-  playlistId: string,
-  trackPaths: string[],
-  now?: string
-): AudioPlaylist[] {
-  const updatedAt = audioPlaylistTimestamp(now);
-  return updateAudioPlaylist(playlists, playlistId, (playlist) => {
-    const existingPaths = new Set(playlist.track_paths);
-    return {
-      ...playlist,
-      track_paths: trackPaths.filter((trackPath) => existingPaths.has(trackPath)),
-      updated_at: updatedAt
-    };
-  });
-}
-
 export function moveAudioPlaylistTrack(
   playlists: AudioPlaylist[],
   playlistId: string,
@@ -545,10 +528,6 @@ export function finishAudioFade(state: AudioMixerState, bus: AudioBus): AudioMix
       playing: busState.fadeStatus === "fading_out" ? false : busState.playing
     }
   };
-}
-
-export function cancelAudioFade(state: AudioMixerState, bus: AudioBus): AudioMixerState {
-  return finishAudioFade(state, bus);
 }
 
 export function audioFadeProgress(

@@ -5,7 +5,6 @@ import {
   contextHelpKeys,
   helpContextForActionsTab,
   helpContextForMediaKind,
-  helpContextForScreenTab,
   isHelpContextId,
   resolveContextHelpTopic
 } from "./contextHelp";
@@ -46,8 +45,6 @@ describe("context help helpers", () => {
     expect(helpContextForActionsTab("state")).toBe("actions-state");
     expect(helpContextForActionsTab("keys")).toBe("actions-keys");
     expect(helpContextForActionsTab("midi")).toBe("actions-midi");
-    expect(helpContextForScreenTab("display")).toBe("screen-display");
-    expect(helpContextForScreenTab("map")).toBe("screen-map");
   });
 
   it("handles empty workspace, unsupported files, and player screen", () => {

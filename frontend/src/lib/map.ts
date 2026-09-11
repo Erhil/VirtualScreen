@@ -77,13 +77,6 @@ export type MapGrid = {
   visible_to_players: boolean;
 };
 
-export type MapGridLine = {
-  orientation: "vertical" | "horizontal";
-  index: number;
-  start: MapPoint;
-  end: MapPoint;
-};
-
 export type MapState = {
   image_path: string | null;
   title: string | null;
@@ -110,13 +103,6 @@ export type MapSize = {
   height: number;
 };
 
-export type RectLike = {
-  left: number;
-  top: number;
-  width: number;
-  height: number;
-};
-
 export type MapPinPayload = Omit<MapPin, "id" | "visibility"> & {
   visibility?: MapPinVisibility;
 };
@@ -130,19 +116,6 @@ export type MapActionStatus =
   | { status: "idle"; message: string | null }
   | { status: "ready"; message: string }
   | { status: "error"; message: string };
-
-export const blankMapState: MapState = {
-  image_path: null,
-  title: null,
-  viewport: { center_x: 0.5, center_y: 0.5, zoom: 1 },
-  rotation: 0,
-  grid: { enabled: false, columns: 10, rows: 10, visible_to_players: true },
-  fog_enabled: false,
-  reveals: [],
-  pins: [],
-  presenting: false,
-  updated_at: ""
-};
 
 function mapStateTime(state: MapState): number | null {
   const parsed = Date.parse(state.updated_at);
@@ -209,8 +182,6 @@ export function clampMapViewport(viewport: MapViewport): MapViewport {
   };
 }
 
-export const clampViewport = clampMapViewport;
-
 export function clampMapGrid(grid: MapGrid): MapGrid {
   return {
     enabled: Boolean(grid.enabled),
@@ -218,36 +189,6 @@ export function clampMapGrid(grid: MapGrid): MapGrid {
     rows: clampGridSize(grid.rows),
     visible_to_players: Boolean(grid.visible_to_players)
   };
-}
-
-export function normalizedMapGridLines(grid: MapGrid): MapGridLine[] {
-  const normalized = clampMapGrid(grid);
-  if (!normalized.enabled) {
-    return [];
-  }
-
-  const lines: MapGridLine[] = [];
-  for (let column = 1; column < normalized.columns; column += 1) {
-    const x = roundCoordinate(column / normalized.columns);
-    lines.push({
-      orientation: "vertical",
-      index: column,
-      start: { x, y: 0 },
-      end: { x, y: 1 }
-    });
-  }
-
-  for (let row = 1; row < normalized.rows; row += 1) {
-    const y = roundCoordinate(row / normalized.rows);
-    lines.push({
-      orientation: "horizontal",
-      index: row,
-      start: { x: 0, y },
-      end: { x: 1, y }
-    });
-  }
-
-  return lines;
 }
 
 export function normalizeMapPoint(point: MapPoint): MapPoint {
@@ -278,8 +219,6 @@ export function normalizeMapRect(start: MapPoint, end: MapPoint): MapRectRevealP
     height: Number(Math.abs(first.y - second.y).toFixed(4))
   };
 }
-
-export const normalizeRevealRect = normalizeMapRect;
 
 export function isUsableMapImageSize(size: MapSize): boolean {
   return Number.isFinite(size.width) && Number.isFinite(size.height) && size.width > 0 && size.height > 0;
@@ -557,27 +496,8 @@ export function createPinPayload(
   };
 }
 
-export function clientPointToImagePoint(
-  clientX: number,
-  clientY: number,
-  rect: RectLike
-): MapPoint {
-  if (rect.width <= 0 || rect.height <= 0) {
-    return { x: 0, y: 0 };
-  }
-
-  return normalizeMapPoint({
-    x: (clientX - rect.left) / rect.width,
-    y: (clientY - rect.top) / rect.height
-  });
-}
-
 export function isImageMapCandidate(mediaKind: WorldMediaKind): boolean {
   return mediaKind === "image";
-}
-
-export function nextMapState(_current: MapState, event: MapState): MapState {
-  return event;
 }
 
 export type MapEventClientOptions = {

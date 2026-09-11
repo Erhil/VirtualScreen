@@ -7,7 +7,6 @@ import {
   displayPopupPreset,
   hasResidualPopupsAfterBlank,
   isDisplayPopupVisible,
-  nextDisplayState,
   screenPrimaryMode,
   screenPrimaryTitle,
   visibleScreenPopupCount,
@@ -32,20 +31,6 @@ describe("display helpers", () => {
     expect(buildScreenDisplayEventsUrl({ protocol: "http:", host: "localhost:5173" })).toBe(
       "ws://localhost:5173/ws/screen/display"
     );
-  });
-
-  it("replaces display state from websocket events", () => {
-    const next = {
-      ...state,
-      fullscreen: {
-        path: "Media/map.mp4",
-        title: "Map",
-        name: "map.mp4",
-        media_kind: "video" as const
-      }
-    };
-
-    expect(nextDisplayState(state, next)).toEqual(next);
   });
 
   it("defaults popup presets to plain", () => {

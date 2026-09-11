@@ -398,8 +398,6 @@ import { renderRichInline, renderRichMarkdown } from "./lib/richText";
 import {
   COMMON_DICE_EXPRESSIONS,
   addDiceHistoryEntry,
-  clearDiceHistory,
-  formatDiceRollDetail,
   type DiceHistoryEntry
 } from "./lib/dice";
 import {
@@ -5598,7 +5596,7 @@ function DiceTool({
       {latest && (
         <div className="dice-result" aria-label={t("dice.result")}>
           <strong>{latest.total}</strong>
-          <span>{formatDiceRollDetail(latest)}</span>
+          <span>{latest.detail}</span>
         </div>
       )}
       <div className="dice-history-header">
@@ -7576,7 +7574,7 @@ export function App() {
   }
 
   function handleDiceClearHistory() {
-    setDiceHistory((history) => clearDiceHistory(history));
+    setDiceHistory([]);
     setDiceStatus({ status: "idle", message: null });
   }
 

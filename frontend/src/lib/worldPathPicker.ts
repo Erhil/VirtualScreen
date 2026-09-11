@@ -38,13 +38,6 @@ export type WorldPathPickerCandidate = {
   aliases: string[];
 };
 
-export type WorldPathPickerResult = WorldPathPickerCandidate;
-
-export type WorldPathPickerFilterDefinition = {
-  label: string;
-  include: (entry: WorldPathPickerEntry) => boolean;
-};
-
 const IMAGE_EXTENSIONS = new Set(["gif", "jpeg", "jpg", "png", "svg", "webp"]);
 const AUDIO_EXTENSIONS = new Set(["aac", "flac", "m4a", "mp3", "oga", "ogg", "opus", "wav", "webm"]);
 const VIDEO_EXTENSIONS = new Set(["m4v", "mov", "mp4", "webm"]);
@@ -66,21 +59,6 @@ const DISPLAYABLE_PICKER_KIND_ORDER: WorldPathPickerKind[] = [
   "csv",
   "text"
 ];
-
-export const worldPathPickerFilters = {
-  any: { label: "All paths", include: () => true },
-  displayable: {
-    label: "Displayable",
-    include: (entry) => DISPLAYABLE_PICKER_KINDS.has(pickerKindForEntry(entry))
-  },
-  image: { label: "Images", include: (entry) => pickerKindForEntry(entry) === "image" },
-  audio: { label: "Audio", include: (entry) => pickerKindForEntry(entry) === "audio" },
-  csv: { label: "CSV", include: (entry) => pickerKindForEntry(entry) === "csv" },
-  script: { label: "Scripts", include: (entry) => pickerKindForEntry(entry) === "script" },
-  card: { label: "Cards", include: (entry) => pickerKindForEntry(entry) === "card" },
-  markdown: { label: "Markdown", include: (entry) => pickerKindForEntry(entry) === "markdown" },
-  folder: { label: "Folders", include: (entry) => pickerKindForEntry(entry) === "folder" }
-} satisfies Record<WorldPathPickerFilter, WorldPathPickerFilterDefinition>;
 
 function extensionForPath(path: string): string {
   const index = path.lastIndexOf(".");
@@ -359,33 +337,3 @@ export function selectedWorldPathPickerCandidate(
   return candidates[activeIndex];
 }
 
-export function filterWorldPathPickerEntries(
-  entries: WorldPathPickerEntry[],
-  query: string,
-  filter?: WorldPathPickerFilter | WorldPathPickerFilterDefinition
-): WorldPathPickerResult[] {
-  const root: WorldPathPickerEntry = {
-    name: "World",
-    path: "",
-    kind: "directory",
-    extension: null,
-    children: entries
-  };
-  const candidates = flattenWorldPathPickerEntries(root);
-  const filtered =
-    typeof filter === "object"
-      ? candidates.filter((candidate) => filter.include(candidate.entry))
-      : filterWorldPathPickerCandidates(candidates, filter ?? "any");
-  return searchWorldPathPickerCandidates(filtered, query, typeof filter === "string" ? filter : "any");
-}
-
-export const moveWorldPathPickerSelection = moveWorldPathPickerActiveIndex;
-
-export function selectedWorldPathPickerResult<
-  T extends { path: string }
->(results: T[], activeIndex: number | null): T | null {
-  if (activeIndex === null || activeIndex < 0 || activeIndex >= results.length) {
-    return null;
-  }
-  return results[activeIndex];
-}

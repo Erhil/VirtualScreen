@@ -17,22 +17,10 @@ export const COMMON_DICE_EXPRESSIONS = [
 
 export const DICE_HISTORY_LIMIT = 50;
 
-export function diceRollSucceeded(roll: DiceRollResponse | null | undefined): roll is DiceRollResponse {
-  return Boolean(roll);
-}
-
 export function addDiceHistoryEntry(
   history: DiceHistoryEntry[],
   entry: DiceHistoryEntry,
   limit = DICE_HISTORY_LIMIT
 ): DiceHistoryEntry[] {
   return [entry, ...history].slice(0, limit);
-}
-
-export function clearDiceHistory(_history: DiceHistoryEntry[]): DiceHistoryEntry[] {
-  return [];
-}
-
-export function formatDiceRollDetail(roll: DiceRollResponse): string {
-  return roll.detail;
 }

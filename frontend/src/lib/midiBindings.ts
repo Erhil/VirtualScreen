@@ -169,13 +169,6 @@ export function saveMidiBindings(
   return sorted;
 }
 
-export function clearMidiBindings(
-  worldKey: string,
-  storage: Storage = window.localStorage
-): void {
-  storage.removeItem(bindingStorageKey(worldKey));
-}
-
 export function isMidiSupported(navigatorLike: MidiNavigatorLike | null | undefined): boolean {
   return typeof navigatorLike?.requestMIDIAccess === "function";
 }

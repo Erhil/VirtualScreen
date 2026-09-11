@@ -2,8 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import type {
   AudioTrack,
-  TableSnapshotDetail,
-  TableSnapshotState,
   TableSnapshotSummary,
   WorkspaceState
 } from "./api";
@@ -19,7 +17,6 @@ import {
   buildTableSnapshotState,
   captureAudioSnapshot,
   deleteTableSnapshotFromList,
-  loadTableSnapshotState,
   saveTableSnapshotInList,
   sortTableSnapshots
 } from "./tableSnapshots";
@@ -67,36 +64,6 @@ function workspaceState(): WorkspaceState {
     layout: defaultWorkspaceLayout("README.md"),
     favorites: [],
     recentFiles: []
-  };
-}
-
-function stateData(): TableSnapshotState {
-  return {
-    display: {
-      fullscreen: null,
-      popups: [],
-      updated_at: "2026-05-13T12:00:00Z"
-    },
-    map: mapState(),
-    workspace: {
-      workspace_id: "default",
-      workspace_name: "Default",
-      tabs: workspaceState().tabs,
-      activePath: "README.md",
-      layout: defaultWorkspaceLayout("README.md")
-    },
-    audio: {
-      ambient: { track: null, playing: false, loop: true, volume: 0.7 },
-      music: { track: null, playing: false, loop: true, volume: 0.7 },
-      effect: { track: null, playing: false, loop: false, volume: 0.85 }
-    }
-  };
-}
-
-function snapshot(id: string, name: string, state: TableSnapshotState): TableSnapshotDetail {
-  return {
-    ...summary(id, name, "2026-05-13T12:00:00Z"),
-    state
   };
 }
 
@@ -173,11 +140,7 @@ describe("table snapshot helpers", () => {
     expect(list[0].name).toBe("Updated");
   });
 
-  it("returns loaded state data and removes deleted snapshots from lists", () => {
-    const data = stateData();
-    const loaded = snapshot("session", "Session", data);
-
-    expect(loadTableSnapshotState(loaded)).toBe(data);
+  it("removes deleted snapshots from lists", () => {
     expect(
       deleteTableSnapshotFromList(
         [

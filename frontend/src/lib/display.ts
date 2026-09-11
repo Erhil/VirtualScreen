@@ -23,10 +23,6 @@ export function buildScreenDisplayEventsUrl(location: LocationLike = window.loca
   return `${protocol}//${location.host}/ws/screen/display`;
 }
 
-export function nextDisplayState(_current: DisplayState, event: DisplayState): DisplayState {
-  return event;
-}
-
 const popupPresets = new Set<DisplayPopupPreset>([
   "plain",
   "note",

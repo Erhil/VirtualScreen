@@ -2,7 +2,6 @@ import { describe, expect, it } from "vitest";
 
 import {
   bindingStorageKey,
-  clearMidiBindings,
   duplicateMidiBinding,
   formatMidiMessageLabel,
   isMidiSupported,
@@ -130,9 +129,6 @@ describe("MIDI binding helpers", () => {
       ])
     );
     expect(loadMidiBindings("sample-world", storage)).toEqual([binding]);
-
-    clearMidiBindings("sample-world", storage);
-    expect(loadMidiBindings("sample-world", storage)).toEqual([]);
   });
 
   it("sorts bindings by label and then message label", () => {

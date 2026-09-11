@@ -1,7 +1,6 @@
 import type {
   DisplayState,
   TableSnapshotAudioState,
-  TableSnapshotDetail,
   TableSnapshotState,
   TableSnapshotSummary,
   WorkspaceState
@@ -100,10 +99,6 @@ export function saveTableSnapshotInList<T extends TableSnapshotSummary>(
     savedSnapshot,
     ...snapshots.filter((snapshot) => snapshot.id !== savedSnapshot.id)
   ]);
-}
-
-export function loadTableSnapshotState(snapshot: TableSnapshotDetail): TableSnapshotState {
-  return snapshot.state;
 }
 
 export function deleteTableSnapshotFromList<T extends TableSnapshotSummary>(
