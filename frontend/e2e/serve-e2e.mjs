@@ -148,9 +148,10 @@ writeFileSync(
 await waitForUrl(`http://${frontendHost}:${backendPort}/api/health`, "backend");
 await waitForUrl(`http://${frontendHost}:${frontendPort}`, "frontend");
 
+// Stay alive until Playwright stops this process. Playwright reads this process exiting as
+// the servers failing to start, and exiting on a timer raced its readiness check: after a
+// busy build it lost twice ("webServer exited early") with both servers up. Holding the
+// child handles keeps this process running; teardown still stops the servers by pid file.
 for (const { child } of children) {
   child.removeAllListeners("exit");
-  child.unref();
 }
-
-setTimeout(() => process.exit(0), 2_000);
