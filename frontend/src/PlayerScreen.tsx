@@ -16,12 +16,12 @@ import { evaluateCardField, parseCard, type StructuredCard } from "./lib/cards";
 import { parseCsv } from "./lib/csv";
 import {
   buildScreenDisplayEventsUrl,
-  createDisplayEventClient,
   displayPopupClassName
 } from "./lib/display";
+import { subscribeToEvents } from "./lib/eventSocket";
 import {
+  buildScreenMapEventsUrl,
   buildScreenMapMediaUrl,
-  createMapEventClient,
   fetchScreenMapState,
   isMapPresenting,
   type MapState
@@ -266,19 +266,14 @@ export function PlayerScreen() {
     fetchScreenDisplayState()
       .then(setDisplayState)
       .catch(() => {});
-    return createDisplayEventClient({
-      onEvent: setDisplayState,
-      url: buildScreenDisplayEventsUrl()
-    });
+    return subscribeToEvents(buildScreenDisplayEventsUrl(), setDisplayState);
   }, []);
 
   useEffect(() => {
     fetchScreenMapState()
       .then(setMapState)
       .catch(() => {});
-    return createMapEventClient({
-      onEvent: setMapState
-    });
+    return subscribeToEvents(buildScreenMapEventsUrl(), setMapState);
   }, []);
 
   const fullscreen = displayState?.fullscreen ?? null;

@@ -6,7 +6,6 @@ import {
   buildMapEventsUrl,
   clearMapReveals,
   createPinPayload,
-  createMapEventClient,
   deleteMapPreset,
   deleteMapReveal,
   deleteMapPin,
@@ -32,6 +31,7 @@ import {
   type MapState,
   type MapViewport
 } from "../lib/map";
+import { subscribeToEvents } from "../lib/eventSocket";
 import type { OpenTab } from "../lib/tabs";
 import type { Translator } from "../lang";
 
@@ -318,10 +318,7 @@ export function useMap({ activeTab, authReady, t, refreshDisplayState }: UseMapO
     fetchMapState()
       .then(adoptMapState)
       .catch(() => {});
-    return createMapEventClient({
-      onEvent: adoptMapState,
-      url: buildMapEventsUrl()
-    });
+    return subscribeToEvents(buildMapEventsUrl(), adoptMapState);
   }, [authReady]);
 
   const visibleMapState =

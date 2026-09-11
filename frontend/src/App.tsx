@@ -313,8 +313,9 @@ import {
   type ManagedFileType
 } from "./lib/fileManagement";
 import { linkToOpenTab } from "./lib/links";
+import { subscribeToEvents } from "./lib/eventSocket";
 import {
-  createWorldEventClient,
+  buildEventsUrl,
   planWorldEventUpdate,
   type WorldEvent
 } from "./lib/liveSync";
@@ -10158,11 +10159,8 @@ export function App() {
     if (authState.status !== "unlocked") {
       return;
     }
-    return createWorldEventClient({
-      onEvent: (event) => {
-        void handleWorldEvent(event);
-      },
-      onStatus: () => {}
+    return subscribeToEvents<WorldEvent>(buildEventsUrl(), (event) => {
+      void handleWorldEvent(event);
     });
   }, [authState.status]);
 

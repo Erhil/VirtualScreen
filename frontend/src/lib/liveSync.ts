@@ -7,8 +7,6 @@ export type WorldEvent = {
   rebuilt_at: string;
 };
 
-export type SyncStatus = "live" | "reconnecting" | "offline";
-
 export type LocationLike = {
   protocol: string;
   host: string;
@@ -50,65 +48,3 @@ export function planWorldEventUpdate(
   };
 }
 
-export type WorldEventClientOptions = {
-  onEvent: (event: WorldEvent) => void;
-  onStatus: (status: SyncStatus) => void;
-  reconnectMs?: number;
-  url?: string;
-};
-
-export function createWorldEventClient({
-  onEvent,
-  onStatus,
-  reconnectMs = 1000,
-  url = buildEventsUrl()
-}: WorldEventClientOptions): () => void {
-  let socket: WebSocket | null = null;
-  let reconnectTimer: number | null = null;
-  let stopped = false;
-
-  function clearReconnect() {
-    if (reconnectTimer !== null) {
-      window.clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    }
-  }
-
-  function connect() {
-    if (stopped) {
-      return;
-    }
-
-    onStatus("reconnecting");
-    socket = new WebSocket(url);
-    socket.addEventListener("open", () => onStatus("live"));
-    socket.addEventListener("message", (message) => {
-      try {
-        onEvent(JSON.parse(message.data) as WorldEvent);
-      } catch {
-        // Ignore malformed local sync events; the next valid event will recover state.
-      }
-    });
-    socket.addEventListener("close", () => {
-      if (stopped) {
-        onStatus("offline");
-        return;
-      }
-      onStatus("reconnecting");
-      clearReconnect();
-      reconnectTimer = window.setTimeout(connect, reconnectMs);
-    });
-    socket.addEventListener("error", () => {
-      socket?.close();
-    });
-  }
-
-  connect();
-
-  return () => {
-    stopped = true;
-    clearReconnect();
-    socket?.close();
-    onStatus("offline");
-  };
-}

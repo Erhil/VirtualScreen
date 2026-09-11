@@ -9,7 +9,8 @@ import {
   type DisplayPopupPreset,
   type DisplayState
 } from "../lib/api";
-import { createDisplayEventClient } from "../lib/display";
+import { buildDisplayEventsUrl } from "../lib/display";
+import { subscribeToEvents } from "../lib/eventSocket";
 import type { OpenTab } from "../lib/tabs";
 
 export type UseDisplayOptions = {
@@ -74,9 +75,7 @@ export function useDisplay({ activeTab, authReady }: UseDisplayOptions) {
     fetchDisplayState()
       .then(setDisplayState)
       .catch(() => {});
-    return createDisplayEventClient({
-      onEvent: setDisplayState
-    });
+    return subscribeToEvents(buildDisplayEventsUrl(), setDisplayState);
   }, [authReady]);
 
   function reset() {
