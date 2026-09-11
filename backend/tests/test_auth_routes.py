@@ -3,6 +3,7 @@ from pathlib import Path
 import pytest
 from fastapi.testclient import TestClient
 
+from app.core.auth import _is_public
 from app.core.config import get_settings
 from app.main import create_app
 
@@ -96,6 +97,31 @@ def test_websocket_requires_auth_when_token_is_set(tmp_path: Path, monkeypatch) 
 
     with client.websocket_connect("/ws/events?token=secret") as websocket:
         websocket.send_text("ping")
+
+
+def test_every_protected_api_route_requires_auth_when_token_is_set(
+    tmp_path: Path,
+    monkeypatch,
+) -> None:
+    # One structural test replaces the per-router "requires a token" copies
+    # that used to live in eight separate test files: it walks the real route
+    # table, so a new router someone forgets to gate is caught automatically.
+    client = make_client(tmp_path, monkeypatch, token="secret")
+
+    api_paths = {
+        route.path
+        for route in client.app.routes
+        if getattr(route, "path", "").startswith("/api/")
+    }
+    protected_paths = [
+        path
+        for path in api_paths
+        if not _is_public({"type": "http", "method": "GET", "path": path})
+    ]
+    assert protected_paths
+
+    for path in protected_paths:
+        assert client.get(path).status_code == 401, path
 
 
 def test_player_screen_read_endpoints_are_public_when_token_is_set(

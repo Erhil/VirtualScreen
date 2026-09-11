@@ -116,10 +116,6 @@ def bookmarks_from_payload(value: object) -> list[PdfBookmark]:
     return parsed
 
 
-def bookmarks_payload(bookmarks: list[PdfBookmark]) -> dict[str, object]:
-    return {"bookmarks": [asdict(bookmark) for bookmark in bookmarks]}
-
-
 def _load_all(root: Path) -> dict[str, list[PdfBookmark]]:
     state_path = _state_path(root)
     if not state_path.is_file():

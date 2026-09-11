@@ -281,19 +281,3 @@ def test_table_snapshot_delete(tmp_path: Path) -> None:
     assert client.delete(f"/api/table-snapshots/{snapshot['id']}").status_code == 404
 
 
-def test_table_snapshot_routes_are_lan_auth_protected(tmp_path: Path, monkeypatch) -> None:
-    world = make_world(tmp_path)
-    monkeypatch.setenv("VIRTUALSCREEN_ACCESS_TOKEN", "secret")
-    monkeypatch.setenv("VIRTUALSCREEN_WORLD_ROOT", str(world))
-    get_settings.cache_clear()
-    client = TestClient(create_app())
-
-    assert client.get("/api/table-snapshots").status_code == 401
-    assert (
-        client.get(
-            "/api/table-snapshots",
-            headers={"X-VirtualScreen-Token": "secret"},
-        ).status_code
-        == 200
-    )
-    get_settings.cache_clear()

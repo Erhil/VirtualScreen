@@ -172,30 +172,3 @@ def test_pdf_bookmarks_are_world_local(
     }
 
 
-def test_pdf_bookmark_routes_require_auth_when_token_is_set(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    world = tmp_path / "world"
-    world.mkdir()
-    write_pdf(world)
-    monkeypatch.setenv("VIRTUALSCREEN_ACCESS_TOKEN", "secret")
-    monkeypatch.setenv("VIRTUALSCREEN_WORLD_ROOT", str(world))
-    get_settings.cache_clear()
-    client = TestClient(create_app())
-
-    locked_get = client.get("/api/pdf/bookmarks", params={"path": "Docs/Guide.pdf"})
-    locked_put = client.put(
-        "/api/pdf/bookmarks",
-        params={"path": "Docs/Guide.pdf"},
-        json={"bookmarks": []},
-    )
-    unlocked = client.get(
-        "/api/pdf/bookmarks",
-        params={"path": "Docs/Guide.pdf"},
-        headers={"X-VirtualScreen-Token": "secret"},
-    )
-
-    assert locked_get.status_code == 401
-    assert locked_put.status_code == 401
-    assert unlocked.status_code == 200

@@ -1,3 +1,5 @@
+import os
+import time
 from pathlib import Path
 
 from fastapi.testclient import TestClient
@@ -110,17 +112,24 @@ def test_stale_hash_returns_409(tmp_path: Path) -> None:
     assert response.json()["detail"] == "World file changed on disk."
 
 
-def test_stale_mtime_returns_409(tmp_path: Path) -> None:
+def test_mtime_change_without_content_change_does_not_return_409(tmp_path: Path) -> None:
+    # Syncthing (and other file sync tools) can bump a file's mtime without
+    # touching its bytes. The conflict check must key off content only, or a
+    # sync pass alone would make every open file look "changed on disk".
     world = tmp_path / "world"
     world.mkdir()
-    (world / "README.md").write_text("# Home\n", encoding="utf-8")
+    note = world / "README.md"
+    note.write_text("# Home\n", encoding="utf-8")
     client = make_client(world)
     payload = file_payload(client, "README.md", "# Updated\n")
     payload["expected_modified_at"] = "2000-01-01T00:00:00Z"
 
+    future = time.time() + 120
+    os.utime(note, (future, future))
+
     response = client.put("/api/world/file", params={"path": "README.md"}, json=payload)
 
-    assert response.status_code == 409
+    assert response.status_code == 200
 
 
 def test_save_rejects_missing_file(tmp_path: Path) -> None:

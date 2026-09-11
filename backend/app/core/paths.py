@@ -1,6 +1,14 @@
 from pathlib import Path, PurePosixPath
 
 
+def is_link_or_reparse_point(path: Path) -> bool:
+    try:
+        stat_result = path.lstat()
+    except OSError:
+        return True
+    return path.is_symlink() or bool(getattr(stat_result, "st_file_attributes", 0) & 0x400)
+
+
 class WorldPathError(ValueError):
     """Raised when a user-supplied world path is invalid or unsafe."""
 

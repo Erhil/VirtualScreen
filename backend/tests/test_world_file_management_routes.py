@@ -22,14 +22,6 @@ def make_symlink(source: Path, link: Path, *, target_is_directory: bool = False)
         pytest.skip(f"Symlinks are not available in this environment: {exc}")
 
 
-def file_preconditions(client: TestClient, path: str) -> dict[str, str]:
-    current = client.get("/api/world/file", params={"path": path}).json()
-    return {
-        "expected_modified_at": current["modified_at"],
-        "expected_hash": current["hash"],
-    }
-
-
 def test_creates_markdown_with_default_content(tmp_path: Path) -> None:
     world = tmp_path / "world"
     world.mkdir()
@@ -175,149 +167,6 @@ def test_world_routes_reject_nested_reserved_path_segments(tmp_path: Path) -> No
     assert not (world / "Notes" / "__pycache__" / "New").exists()
 
 
-def test_renames_markdown_and_updates_index(tmp_path: Path) -> None:
-    world = tmp_path / "world"
-    world.mkdir()
-    (world / "old.md").write_text("# Old Title\n", encoding="utf-8")
-    client = make_client(world)
-
-    response = client.post(
-        "/api/world/file/rename",
-        json={
-            "path": "old.md",
-            "new_path": "new.md",
-            **file_preconditions(client, "old.md"),
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["path"] == "new.md"
-    assert not (world / "old.md").exists()
-    assert (world / "new.md").exists()
-    search_response = client.get("/api/search", params={"q": "Old"})
-    assert [result["path"] for result in search_response.json()] == ["new.md"]
-
-
-def test_renames_csv_and_updates_index(tmp_path: Path) -> None:
-    world = tmp_path / "world"
-    world.mkdir()
-    (world / "old.csv").write_text("result,event\n1,Rain\n", encoding="utf-8")
-    client = make_client(world)
-
-    response = client.post(
-        "/api/world/file/rename",
-        json={
-            "path": "old.csv",
-            "new_path": "new.csv",
-            **file_preconditions(client, "old.csv"),
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["path"] == "new.csv"
-    assert not (world / "old.csv").exists()
-    assert (world / "new.csv").exists()
-
-
-def test_renames_dms_and_updates_index(tmp_path: Path) -> None:
-    world = tmp_path / "world"
-    world.mkdir()
-    (world / "old.dms").write_text("render_md('# Old Script')\n", encoding="utf-8")
-    client = make_client(world)
-
-    response = client.post(
-        "/api/world/file/rename",
-        json={
-            "path": "old.dms",
-            "new_path": "new.dms",
-            **file_preconditions(client, "old.dms"),
-        },
-    )
-
-    assert response.status_code == 200
-    assert response.json()["path"] == "new.dms"
-    assert not (world / "old.dms").exists()
-    assert (world / "new.dms").exists()
-    search_response = client.get("/api/search", params={"q": "Old Script"})
-    assert [result["path"] for result in search_response.json()] == ["new.dms"]
-
-
-def test_rename_rejects_stale_existing_target_and_unsupported(tmp_path: Path) -> None:
-    world = tmp_path / "world"
-    world.mkdir()
-    (world / "old.md").write_text("# Old\n", encoding="utf-8")
-    (world / "target.md").write_text("# Target\n", encoding="utf-8")
-    (world / "image.png").write_bytes(b"png")
-    client = make_client(world)
-    stale = file_preconditions(client, "old.md")
-    (world / "old.md").write_text("# External\n", encoding="utf-8")
-
-    assert (
-        client.post(
-            "/api/world/file/rename",
-            json={"path": "old.md", "new_path": "renamed.md", **stale},
-        ).status_code
-        == 409
-    )
-    fresh = file_preconditions(client, "old.md")
-    assert (
-        client.post(
-            "/api/world/file/rename",
-            json={"path": "old.md", "new_path": "target.md", **fresh},
-        ).status_code
-        == 409
-    )
-    assert (
-        client.post(
-            "/api/world/file/rename",
-            json={
-                "path": "image.png",
-                "new_path": "image-renamed.png",
-                "expected_modified_at": "2026-01-01T00:00:00Z",
-                "expected_hash": "x",
-            },
-        ).status_code
-        == 415
-    )
-
-
-def test_trash_moves_file_and_removes_it_from_index(tmp_path: Path) -> None:
-    world = tmp_path / "world"
-    world.mkdir()
-    (world / "trash-me.md").write_text("# Trash Me\n", encoding="utf-8")
-    client = make_client(world)
-
-    response = client.post(
-        "/api/world/file/trash",
-        json={"path": "trash-me.md", **file_preconditions(client, "trash-me.md")},
-    )
-
-    assert response.status_code == 200
-    body = response.json()
-    assert body["path"] == "trash-me.md"
-    assert body["trashed_path"].endswith("trash-me.md")
-    assert not (world / "trash-me.md").exists()
-    assert (world / body["trashed_path"]).exists()
-    assert client.get("/api/search", params={"q": "Trash"}).json() == []
-
-
-def test_trash_rejects_stale_preconditions(tmp_path: Path) -> None:
-    world = tmp_path / "world"
-    world.mkdir()
-    note = world / "trash-me.md"
-    note.write_text("# Trash Me\n", encoding="utf-8")
-    client = make_client(world)
-    stale = file_preconditions(client, "trash-me.md")
-    note.write_text("# External\n", encoding="utf-8")
-
-    response = client.post(
-        "/api/world/file/trash",
-        json={"path": "trash-me.md", **stale},
-    )
-
-    assert response.status_code == 409
-
-
 def test_creates_folder_under_existing_parent(tmp_path: Path) -> None:
     world = tmp_path / "world"
     (world / "NPCs").mkdir(parents=True)
@@ -352,8 +201,8 @@ def test_lists_and_restores_trashed_file(tmp_path: Path) -> None:
     (world / "restore-me.md").write_text("# Restore Me\n", encoding="utf-8")
     client = make_client(world)
     trash_response = client.post(
-        "/api/world/file/trash",
-        json={"path": "restore-me.md", **file_preconditions(client, "restore-me.md")},
+        "/api/world/path/trash",
+        json={"path": "restore-me.md"},
     )
     trashed_path = trash_response.json()["trashed_path"]
 
@@ -377,8 +226,8 @@ def test_restore_collision_requires_alternate_path(tmp_path: Path) -> None:
     (world / "restore-me.md").write_text("# Restore Me\n", encoding="utf-8")
     client = make_client(world)
     trashed_path = client.post(
-        "/api/world/file/trash",
-        json={"path": "restore-me.md", **file_preconditions(client, "restore-me.md")},
+        "/api/world/path/trash",
+        json={"path": "restore-me.md"},
     ).json()["trashed_path"]
     (world / "restore-me.md").write_text("# New File\n", encoding="utf-8")
 
@@ -399,8 +248,8 @@ def test_restore_rejects_unsafe_target_path(tmp_path: Path) -> None:
     (world / "restore-me.md").write_text("# Restore Me\n", encoding="utf-8")
     client = make_client(world)
     trashed_path = client.post(
-        "/api/world/file/trash",
-        json={"path": "restore-me.md", **file_preconditions(client, "restore-me.md")},
+        "/api/world/path/trash",
+        json={"path": "restore-me.md"},
     ).json()["trashed_path"]
 
     response = client.post(
@@ -418,8 +267,8 @@ def test_permanently_deletes_trash_entry(tmp_path: Path) -> None:
     (world / "delete-me.md").write_text("# Delete Me\n", encoding="utf-8")
     client = make_client(world)
     trashed_path = client.post(
-        "/api/world/file/trash",
-        json={"path": "delete-me.md", **file_preconditions(client, "delete-me.md")},
+        "/api/world/path/trash",
+        json={"path": "delete-me.md"},
     ).json()["trashed_path"]
 
     response = client.request("DELETE", "/api/world/trash", json={"trashed_path": trashed_path})
@@ -589,14 +438,12 @@ def test_move_path_returns_controlled_error_when_source_disappears(
     assert response.status_code == 404
 
 
-def test_file_rename_and_restore_return_controlled_errors_when_source_disappears(
+def test_restore_returns_controlled_error_when_source_disappears(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     world = tmp_path / "world"
     world.mkdir()
-    note = world / "note.md"
-    note.write_text("# Note\n", encoding="utf-8")
     client = make_client(world)
 
     def remove_then_replace(source_path: Path, target_path: Path) -> None:
@@ -604,14 +451,6 @@ def test_file_rename_and_restore_return_controlled_errors_when_source_disappears
         source_path.replace(target_path)
 
     monkeypatch.setattr("app.core.world_operations.replace_with_retries", remove_then_replace)
-    preconditions = file_preconditions(client, "note.md")
-
-    rename_response = client.post(
-        "/api/world/file/rename",
-        json={"path": "note.md", "new_path": "renamed.md", **preconditions},
-    )
-
-    assert rename_response.status_code == 404
 
     trash_root = world / ".virtualscreen" / "trash" / "20260523-000000"
     trash_root.mkdir(parents=True)
@@ -626,16 +465,14 @@ def test_file_rename_and_restore_return_controlled_errors_when_source_disappears
     assert restore_response.status_code == 404
 
 
-def test_path_and_file_trash_return_controlled_errors_when_source_disappears(
+def test_path_trash_returns_controlled_error_when_source_disappears(
     tmp_path: Path,
     monkeypatch,
 ) -> None:
     world = tmp_path / "world"
     world.mkdir()
     first = world / "first.md"
-    second = world / "second.md"
     first.write_text("# First\n", encoding="utf-8")
-    second.write_text("# Second\n", encoding="utf-8")
     client = make_client(world)
 
     def missing_trash(_root: Path, path: Path) -> Path:
@@ -645,13 +482,8 @@ def test_path_and_file_trash_return_controlled_errors_when_source_disappears(
     monkeypatch.setattr("app.core.world_operations.trash_file", missing_trash)
 
     path_response = client.post("/api/world/path/trash", json={"path": "first.md"})
-    file_response = client.post(
-        "/api/world/file/trash",
-        json={"path": "second.md", **file_preconditions(client, "second.md")},
-    )
 
     assert path_response.status_code == 404
-    assert file_response.status_code == 404
 
 
 def test_duplicates_file_path_and_updates_index(tmp_path: Path) -> None:

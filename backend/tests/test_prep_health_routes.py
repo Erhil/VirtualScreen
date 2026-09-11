@@ -219,22 +219,3 @@ def test_prep_health_warns_on_dms_syntax_errors_and_blocks_traversal(
     assert "outside the active world" in body["issues"][1]["message"]
 
 
-def test_prep_health_is_protected_like_other_api_routes(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    world = tmp_path / "world"
-    world.mkdir()
-    monkeypatch.setenv("VIRTUALSCREEN_ACCESS_TOKEN", "secret")
-    monkeypatch.setenv("VIRTUALSCREEN_WORLD_ROOT", str(world))
-    get_settings.cache_clear()
-    client = TestClient(create_app())
-
-    assert client.get("/api/prep-health").status_code == 401
-    assert (
-        client.get(
-            "/api/prep-health",
-            headers={"x-virtualscreen-token": "secret"},
-        ).status_code
-        == 200
-    )

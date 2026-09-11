@@ -298,29 +298,6 @@ def test_audio_playlists_allow_missing_audio_files(tmp_path: Path) -> None:
     assert client.get("/api/audio/playlists").json() == payload
 
 
-def test_audio_playlists_routes_require_auth_when_token_is_set(
-    tmp_path: Path,
-    monkeypatch: pytest.MonkeyPatch,
-) -> None:
-    world = tmp_path / "world"
-    world.mkdir()
-    monkeypatch.setenv("VIRTUALSCREEN_ACCESS_TOKEN", "secret")
-    monkeypatch.setenv("VIRTUALSCREEN_WORLD_ROOT", str(world))
-    get_settings.cache_clear()
-    client = TestClient(create_app())
-
-    locked_get = client.get("/api/audio/playlists")
-    locked_put = client.put("/api/audio/playlists", json={"playlists": []})
-    unlocked = client.get(
-        "/api/audio/playlists",
-        headers={"X-VirtualScreen-Token": "secret"},
-    )
-
-    assert locked_get.status_code == 401
-    assert locked_put.status_code == 401
-    assert unlocked.status_code == 200
-    get_settings.cache_clear()
-
 
 def test_music_folder_is_hidden_from_tree_and_normal_search(tmp_path: Path) -> None:
     world = tmp_path / "world"

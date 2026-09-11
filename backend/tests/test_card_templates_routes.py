@@ -388,16 +388,3 @@ def test_card_templates_are_hidden_from_tree_pages_and_search(tmp_path: Path) ->
     assert search_response.json() == []
 
 
-def test_card_template_catalog_is_auth_protected(tmp_path: Path) -> None:
-    world = tmp_path / "world"
-    world.mkdir()
-    client = make_client(world, token="secret")
-
-    locked_response = client.get("/api/card-templates")
-    unlocked_response = client.get(
-        "/api/card-templates",
-        headers={"X-VirtualScreen-Token": "secret"},
-    )
-
-    assert locked_response.status_code == 401
-    assert unlocked_response.status_code == 200

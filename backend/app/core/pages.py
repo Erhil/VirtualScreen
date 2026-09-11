@@ -9,7 +9,7 @@ from typing import Any
 import frontmatter
 
 from app.core.cards import CARD_EXTENSIONS, parse_card
-from app.core.paths import normalize_relative_path
+from app.core.paths import is_link_or_reparse_point, normalize_relative_path
 
 MARKDOWN_EXTENSIONS = {".md", ".markdown"}
 TEXT_BODY_EXTENSIONS = {".csv", ".cs", ".dms", ".md", ".markdown", ".svg", ".txt"}
@@ -92,14 +92,6 @@ def _read_index_text(path: Path, stat_size: int) -> tuple[bytes | None, str]:
     return body.encode("utf-8"), body
 
 
-def _is_link_or_reparse_point(path: Path) -> bool:
-    try:
-        stat_result = path.lstat()
-    except OSError:
-        return True
-    return path.is_symlink() or bool(getattr(stat_result, "st_file_attributes", 0) & 0x400)
-
-
 def _has_link_or_reparse_part(root: Path, path: Path) -> bool:
     try:
         relative_parts = path.relative_to(root).parts
@@ -108,7 +100,7 @@ def _has_link_or_reparse_part(root: Path, path: Path) -> bool:
     current = root
     for part in relative_parts:
         current = current / part
-        if _is_link_or_reparse_point(current):
+        if is_link_or_reparse_point(current):
             return True
     return False
 

@@ -5,9 +5,19 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+from fastapi import HTTPException
+
 
 def sha256_hex(content: bytes) -> str:
     return hashlib.sha256(content).hexdigest()
+
+
+def read_text_file(path: Path) -> tuple[bytes, str]:
+    try:
+        content = path.read_text(encoding="utf-8")
+    except UnicodeDecodeError as exc:
+        raise HTTPException(status_code=415, detail="World file is not UTF-8 text.") from exc
+    return content.encode("utf-8"), content
 
 
 def modified_at(path: Path) -> datetime:

@@ -146,27 +146,16 @@ def test_api_writes_publish_modified_mixed_and_deleted_events(temp_world: Path) 
         assert save_response.status_code == 200
         modified_event = websocket.receive_json()
 
-        saved = save_response.json()
-        rename_response = client.post(
-            "/api/world/file/rename",
-            json={
-                "path": "README.md",
-                "new_path": "Renamed README.md",
-                "expected_modified_at": saved["modified_at"],
-                "expected_hash": saved["hash"],
-            },
+        move_response = client.post(
+            "/api/world/path/move",
+            json={"path": "README.md", "new_path": "Renamed README.md"},
         )
-        assert rename_response.status_code == 200
-        renamed_event = websocket.receive_json()
+        assert move_response.status_code == 200
+        moved_event = websocket.receive_json()
 
-        renamed = rename_response.json()
         trash_response = client.post(
-            "/api/world/file/trash",
-            json={
-                "path": "Renamed README.md",
-                "expected_modified_at": renamed["modified_at"],
-                "expected_hash": renamed["hash"],
-            },
+            "/api/world/path/trash",
+            json={"path": "Renamed README.md"},
         )
         assert trash_response.status_code == 200
         deleted_event = websocket.receive_json()
@@ -176,10 +165,10 @@ def test_api_writes_publish_modified_mixed_and_deleted_events(temp_world: Path) 
     assert modified_event["reason"] == "modified"
     assert modified_event["source"] == "api"
 
-    assert renamed_event["paths"] == ["Renamed README.md"]
-    assert renamed_event["deleted_paths"] == ["README.md"]
-    assert renamed_event["reason"] == "mixed"
-    assert renamed_event["source"] == "api"
+    assert moved_event["paths"] == ["Renamed README.md"]
+    assert moved_event["deleted_paths"] == ["README.md"]
+    assert moved_event["reason"] == "mixed"
+    assert moved_event["source"] == "api"
 
     assert deleted_event["paths"] == []
     assert deleted_event["deleted_paths"] == ["Renamed README.md"]

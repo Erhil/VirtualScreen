@@ -398,22 +398,18 @@ def test_renames_and_trashes_card_files(tmp_path: Path) -> None:
     world = make_card_world(tmp_path)
     client = make_client(world)
 
-    rename_response = client.post(
-        "/api/world/file/rename",
-        json={
-            "path": "Cards/Varo.cs",
-            "new_path": "Cards/Renamed.cs",
-            **file_preconditions(client, "Cards/Varo.cs"),
-        },
+    move_response = client.post(
+        "/api/world/path/move",
+        json={"path": "Cards/Varo.cs", "new_path": "Cards/Renamed.cs"},
     )
     search_response = client.get("/api/search", params={"q": "Captain Varo"})
     trash_response = client.post(
-        "/api/world/file/trash",
-        json={"path": "Cards/Renamed.cs", **file_preconditions(client, "Cards/Renamed.cs")},
+        "/api/world/path/trash",
+        json={"path": "Cards/Renamed.cs"},
     )
 
-    assert rename_response.status_code == 200
-    assert rename_response.json()["path"] == "Cards/Renamed.cs"
+    assert move_response.status_code == 200
+    assert move_response.json()["path"] == "Cards/Renamed.cs"
     assert not (world / "Cards" / "Varo.cs").exists()
     assert search_response.json()[0]["path"] == "Cards/Renamed.cs"
 

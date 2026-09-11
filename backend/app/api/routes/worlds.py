@@ -89,7 +89,7 @@ async def create_world(
     await asyncio.to_thread(rebuild_index, world_root)
     watcher_manager = getattr(request.app.state, "watcher_manager", None)
     if watcher_manager is not None:
-        await watcher_manager.switch(world_root)
+        await watcher_manager.start(world_root)
     save_recent_world_ids(settings.resolved_worlds_root, [world_root.name])
     return _state(settings)
 
@@ -111,7 +111,7 @@ async def open_world(
     await asyncio.to_thread(rebuild_index, world_root)
     watcher_manager = getattr(request.app.state, "watcher_manager", None)
     if watcher_manager is not None:
-        await watcher_manager.switch(world_root)
+        await watcher_manager.start(world_root)
     recent_ids = [payload.id, *[entry.id for entry in recent_worlds(settings.resolved_worlds_root)]]
     save_recent_world_ids(settings.resolved_worlds_root, recent_ids)
     return _state(settings)

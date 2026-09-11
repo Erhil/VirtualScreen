@@ -144,20 +144,3 @@ def test_capture_is_searchable_after_post(tmp_path: Path) -> None:
     assert search.json()[0]["path"] == today_path()
 
 
-def test_capture_requires_auth_when_token_is_set(tmp_path: Path, monkeypatch) -> None:
-    world = tmp_path / "world"
-    world.mkdir()
-    monkeypatch.setenv("VIRTUALSCREEN_WORLD_ROOT", str(world))
-    monkeypatch.setenv("VIRTUALSCREEN_ACCESS_TOKEN", "secret")
-    get_settings.cache_clear()
-    client = TestClient(create_app())
-
-    locked = client.post("/api/capture", json={"category": "other", "text": "Hidden"})
-    unlocked = client.post(
-        "/api/capture",
-        json={"category": "other", "text": "Visible"},
-        headers={"X-VirtualScreen-Token": "secret"},
-    )
-
-    assert locked.status_code == 401
-    assert unlocked.status_code == 200

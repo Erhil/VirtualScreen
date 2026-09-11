@@ -138,9 +138,6 @@ class WatcherManager:
         self._root = root
         self._task = asyncio.create_task(watch_world(root, self.hub))
 
-    async def switch(self, root: Path) -> None:
-        await self.start(root)
-
     async def stop(self) -> None:
         if self._task is None:
             return

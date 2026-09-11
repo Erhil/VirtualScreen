@@ -15,8 +15,7 @@ from app.core.events import queue_world_event
 from app.core.file_safety import (
     atomic_write_bytes,
     backup_file,
-    iso_datetime,
-    modified_at,
+    read_text_file,
     sha256_hex,
 )
 from app.core.index import list_indexed_pages, refresh_index_for_paths
@@ -24,6 +23,7 @@ from app.core.pages import MARKDOWN_EXTENSIONS, PageData, parse_page
 from app.core.paths import (
     WorldPathError,
     ensure_no_reserved_path_parts,
+    is_link_or_reparse_point,
     normalize_relative_path,
     resolve_under_root,
 )
@@ -142,24 +142,6 @@ class CreateWorldFileRequest(BaseModel):
 
 class CreateWorldFolderRequest(BaseModel):
     path: str
-
-
-class RenameWorldFileRequest(BaseModel):
-    path: str
-    new_path: str
-    expected_modified_at: str
-    expected_hash: str
-
-
-class TrashWorldFileRequest(BaseModel):
-    path: str
-    expected_modified_at: str
-    expected_hash: str
-
-
-class TrashWorldFileResponse(BaseModel):
-    path: str
-    trashed_path: str
 
 
 class MoveWorldPathRequest(BaseModel):
@@ -296,35 +278,23 @@ def _file_kind_for_management(path: Path) -> tuple[str, str]:
 
 
 def _validate_managed_tree(path: Path) -> None:
-    if _is_link_or_reparse_point(path):
+    if is_link_or_reparse_point(path):
         raise HTTPException(status_code=400, detail="World folder contains unmanaged paths.")
     if path.is_file():
         return
     if not path.is_dir():
         raise HTTPException(status_code=404, detail="World path was not found.")
     for child in path.rglob("*"):
-        if _is_link_or_reparse_point(child):
+        if is_link_or_reparse_point(child):
             raise HTTPException(status_code=400, detail="World folder contains unmanaged paths.")
         if child.name in {".virtualscreen", ".music", ".git", "__pycache__"}:
             raise HTTPException(status_code=400, detail="World folder contains unmanaged paths.")
 
 
-def _check_file_preconditions(
-    file_path: Path,
-    expected_modified_at: str,
-    expected_hash: str,
-) -> None:
-    current_bytes, _ = _read_text_file(file_path)
-    current_hash = sha256_hex(current_bytes)
-    current_modified_at = iso_datetime(modified_at(file_path))
-    if expected_hash != current_hash or expected_modified_at != current_modified_at:
-        raise HTTPException(status_code=409, detail="World file changed on disk.")
-
-
 def _world_file_response(root: Path, file_path: Path, file_kind: tuple[str, str]) -> WorldFile:
     media_kind, fallback_type = file_kind
     content_type = _content_type(file_path, fallback_type)
-    content_bytes, content = _read_text_file(file_path)
+    content_bytes, content = read_text_file(file_path)
     metadata = _metadata_for_path(file_path, root, media_kind, content_type, content_bytes)
     return WorldFile(**metadata, content=content)
 
@@ -344,24 +314,6 @@ def _validate_create_target(
             detail="World file extension does not match file type.",
         )
     return target_path, _file_kind_for_management(target_path)
-
-
-def _validate_rename_target(
-    root: Path,
-    source_path: Path,
-    requested_path: str,
-) -> tuple[Path, tuple[str, str]]:
-    _, target_path = _resolve_management_target(root, requested_path)
-    if target_path.exists():
-        raise HTTPException(status_code=409, detail="World target file already exists.")
-    if not target_path.parent.exists() or not target_path.parent.is_dir():
-        raise HTTPException(status_code=400, detail="World target folder was not found.")
-
-    source_kind = _file_kind_for_management(source_path)
-    target_kind = _file_kind_for_management(target_path)
-    if source_kind[0] != target_kind[0]:
-        raise HTTPException(status_code=415, detail="World rename cannot change file type.")
-    return target_path, target_kind
 
 
 def _validate_path_operation_target(
@@ -414,7 +366,7 @@ def _descendant_file_paths(root: Path, path: Path) -> list[str]:
     paths = [
         normalize_relative_path(child.relative_to(root).as_posix())
         for child in path.rglob("*")
-        if child.is_file() and not _is_link_or_reparse_point(child)
+        if child.is_file() and not is_link_or_reparse_point(child)
     ]
     return sorted(paths) or [normalize_relative_path(path.relative_to(root).as_posix())]
 
@@ -426,14 +378,6 @@ def _validate_folder_target(root: Path, requested_path: str) -> tuple[str, Path]
     if not target_path.parent.exists() or not target_path.parent.is_dir():
         raise HTTPException(status_code=400, detail="World folder parent was not found.")
     return relative_path, target_path
-
-
-def _read_text_file(path: Path) -> tuple[bytes, str]:
-    try:
-        content = path.read_text(encoding="utf-8")
-    except UnicodeDecodeError as exc:
-        raise HTTPException(status_code=415, detail="World file is not UTF-8 text.") from exc
-    return content.encode("utf-8"), content
 
 
 def _fresh_indexed_page(
@@ -472,7 +416,7 @@ def _entry_for_path(
         for child in sorted_children:
             if child.name in {".music", ".virtualscreen", ".git", "__pycache__"}:
                 continue
-            if _is_link_or_reparse_point(child):
+            if is_link_or_reparse_point(child):
                 continue
             try:
                 children.append(_entry_for_path(child, root, indexed_pages))
@@ -507,16 +451,8 @@ def _path_size(path: Path) -> int:
     return sum(
         child.stat().st_size
         for child in path.rglob("*")
-        if child.is_file() and not _is_link_or_reparse_point(child)
+        if child.is_file() and not is_link_or_reparse_point(child)
     )
-
-
-def _is_link_or_reparse_point(path: Path) -> bool:
-    try:
-        stat_result = path.lstat()
-    except OSError:
-        return True
-    return path.is_symlink() or bool(getattr(stat_result, "st_file_attributes", 0) & 0x400)
 
 
 def _cleanup_empty_trash_dirs(root: Path, path: Path) -> None:
@@ -590,7 +526,7 @@ def world_file(path: str, settings: SettingsDep) -> WorldFile:
     media_kind, fallback_type = file_kind
     content_type = _content_type(file_path, fallback_type)
 
-    content_bytes, content = _read_text_file(file_path)
+    content_bytes, content = read_text_file(file_path)
 
     metadata = _metadata_for_path(file_path, root, media_kind, content_type, content_bytes)
     return WorldFile(**metadata, content=content)
@@ -769,13 +705,9 @@ def save_world_file(
     if file_kind is None:
         raise HTTPException(status_code=415, detail="World file type is not writable.")
 
-    current_bytes, _ = _read_text_file(file_path)
+    current_bytes, _ = read_text_file(file_path)
     current_hash = sha256_hex(current_bytes)
-    current_modified_at = iso_datetime(modified_at(file_path))
-    if (
-        payload.expected_hash != current_hash
-        or payload.expected_modified_at != current_modified_at
-    ):
+    if payload.expected_hash != current_hash:
         raise HTTPException(status_code=409, detail="World file changed on disk.")
 
     try:
@@ -799,82 +731,12 @@ def save_world_file(
 
     media_kind, fallback_type = file_kind
     content_type = _content_type(file_path, fallback_type)
-    fresh_bytes, fresh_content = _read_text_file(file_path)
+    fresh_bytes, fresh_content = read_text_file(file_path)
     metadata = _metadata_for_path(file_path, root, media_kind, content_type, fresh_bytes)
     return SaveWorldFileResponse(
         **metadata,
         content=fresh_content,
         backup_path=normalize_relative_path(backup_path.relative_to(root).as_posix()),
-    )
-
-
-@router.post("/file/rename", response_model=WorldFile)
-def rename_world_file(
-    payload: RenameWorldFileRequest,
-    background_tasks: BackgroundTasks,
-    settings: SettingsDep,
-) -> WorldFile:
-    root = settings.resolved_world_root
-    file_path = _resolve_existing_file(root, payload.path)
-    relative_path = normalize_relative_path(file_path.relative_to(root).as_posix())
-    _reject_internal_path(relative_path)
-    _file_kind_for_management(file_path)
-    _check_file_preconditions(
-        file_path,
-        payload.expected_modified_at,
-        payload.expected_hash,
-    )
-
-    target_path, target_kind = _validate_rename_target(
-        root,
-        file_path,
-        payload.new_path,
-    )
-    _replace_management_path(file_path, target_path)
-    result = refresh_index_for_paths(
-        root,
-        changed_paths=[target_path.relative_to(root).as_posix()],
-        deleted_paths=[relative_path],
-    )
-    queue_world_event(
-        background_tasks,
-        result,
-        paths=[target_path.relative_to(root).as_posix()],
-        deleted_paths=[relative_path],
-        reason="mixed",
-    )
-    return _world_file_response(root, target_path, target_kind)
-
-
-@router.post("/file/trash", response_model=TrashWorldFileResponse)
-def trash_world_file(
-    payload: TrashWorldFileRequest,
-    background_tasks: BackgroundTasks,
-    settings: SettingsDep,
-) -> TrashWorldFileResponse:
-    root = settings.resolved_world_root
-    file_path = _resolve_existing_file(root, payload.path)
-    relative_path = normalize_relative_path(file_path.relative_to(root).as_posix())
-    _reject_internal_path(relative_path)
-    _file_kind_for_management(file_path)
-    _check_file_preconditions(
-        file_path,
-        payload.expected_modified_at,
-        payload.expected_hash,
-    )
-
-    trashed_path = _trash_management_path(root, file_path)
-    result = refresh_index_for_paths(root, deleted_paths=[relative_path])
-    queue_world_event(
-        background_tasks,
-        result,
-        paths=[],
-        deleted_paths=[relative_path],
-        reason="deleted",
-    )
-    return TrashWorldFileResponse(
-        path=relative_path,
-        trashed_path=normalize_relative_path(trashed_path.relative_to(root).as_posix()),
     )
 
 

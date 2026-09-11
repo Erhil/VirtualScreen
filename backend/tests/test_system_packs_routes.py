@@ -532,20 +532,3 @@ def test_import_rejects_bad_manifest_and_limits(tmp_path: Path, monkeypatch) -> 
     assert too_large_decompressed.status_code == 413
 
 
-def test_system_pack_routes_are_auth_protected(tmp_path: Path, monkeypatch) -> None:
-    world = tmp_path / "world"
-    world.mkdir()
-    monkeypatch.setenv("VIRTUALSCREEN_ACCESS_TOKEN", "secret")
-    get_settings.cache_clear()
-    client = make_client(world, token="secret")
-    content = pack_bytes({"Notes/New.md": "# New\n"})
-
-    locked = upload_zip(client, "/api/system-packs/preview", content)
-    unlocked = client.post(
-        "/api/system-packs/preview",
-        files={"file": ("pack.zip", content, "application/zip")},
-        headers={"X-VirtualScreen-Token": "secret"},
-    )
-
-    assert locked.status_code == 401
-    assert unlocked.status_code == 200

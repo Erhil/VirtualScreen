@@ -31,7 +31,6 @@ from app.core.workspace import (
     _tab_from_dict,
     _validate_tabs,
     list_workspaces,
-    load_workspace,
     restore_workspace_state,
 )
 
@@ -104,30 +103,6 @@ def _normalize_name(name: str) -> str:
     if len(normalized) > SNAPSHOT_NAME_LIMIT:
         raise ValueError("Snapshot name must be 80 characters or fewer.")
     return normalized
-
-
-def _workspace_payload(workspace: WorkspaceState) -> dict[str, object]:
-    return {
-        "workspace_id": workspace.workspaceId,
-        "workspace_name": workspace.workspaceName,
-        "tabs": [asdict(tab) for tab in workspace.tabs],
-        "activePath": workspace.activePath,
-        "layout": asdict(workspace.layout),
-    }
-
-
-def current_snapshot_state_payload(
-    display: DisplayState,
-    map_state: MapState,
-    workspace: WorkspaceState,
-    audio: object,
-) -> dict[str, object]:
-    return {
-        "display": display_state_payload(display),
-        "map": map_state_payload(map_state),
-        "workspace": _workspace_payload(workspace),
-        "audio": audio,
-    }
 
 
 def _audio_track_payload(root: Path, value: object, bus: AudioBus) -> dict[str, object] | None:
@@ -351,16 +326,4 @@ def restore_table_snapshot(root: Path, snapshot_id: str) -> TableSnapshotRestore
         map=map_state,
         workspace=workspace,
         audio=state.audio,
-    )
-
-
-def current_table_snapshot_state(root: Path, audio: object) -> dict[str, object]:
-    from app.core.display import load_display_state
-    from app.core.map import load_map_state
-
-    return current_snapshot_state_payload(
-        load_display_state(root),
-        load_map_state(root),
-        load_workspace(root),
-        audio,
     )

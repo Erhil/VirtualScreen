@@ -67,19 +67,3 @@ def test_roll_dice_rejects_invalid_expressions(
     assert response.json()["detail"]
 
 
-def test_roll_dice_route_requires_auth_when_token_is_set(
-    tmp_path: Path,
-    monkeypatch: MonkeyPatch,
-) -> None:
-    client = make_client(tmp_path / "world", monkeypatch, token="secret")
-
-    locked = client.post("/api/dice/roll", json={"expression": "1d1"})
-    unlocked = client.post(
-        "/api/dice/roll",
-        json={"expression": "1d1"},
-        headers={"X-VirtualScreen-Token": "secret"},
-    )
-
-    assert locked.status_code == 401
-    assert unlocked.status_code == 200
-    assert unlocked.json()["total"] == 1

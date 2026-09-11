@@ -11,8 +11,7 @@ from app.core.events import queue_world_event
 from app.core.file_safety import (
     atomic_write_bytes,
     backup_file,
-    iso_datetime,
-    modified_at,
+    read_text_file,
     sha256_hex,
 )
 from app.core.index import (
@@ -148,14 +147,6 @@ def _resolve_page(settings: Settings, requested_path: str):
     return root, path
 
 
-def _read_text_file(path: Path) -> tuple[bytes, str]:
-    try:
-        content = path.read_text(encoding="utf-8")
-    except UnicodeDecodeError as exc:
-        raise HTTPException(status_code=415, detail="World file is not UTF-8 text.") from exc
-    return content.encode("utf-8"), content
-
-
 def _read_file_bytes(path: Path) -> bytes:
     if path.suffix.lower() in TEXT_BODY_EXTENSIONS:
         try:
@@ -165,15 +156,10 @@ def _read_file_bytes(path: Path) -> bytes:
     return path.read_bytes()
 
 
-def _check_file_preconditions(
-    file_path: Path,
-    expected_modified_at: str,
-    expected_hash: str,
-) -> None:
+def _check_file_preconditions(file_path: Path, expected_hash: str) -> None:
     current_bytes = _read_file_bytes(file_path)
     current_hash = sha256_hex(current_bytes)
-    current_modified_at = iso_datetime(modified_at(file_path))
-    if expected_hash != current_hash or expected_modified_at != current_modified_at:
+    if expected_hash != current_hash:
         raise HTTPException(status_code=409, detail="World file changed on disk.")
 
 
@@ -253,14 +239,10 @@ def update_page_metadata(
 ) -> UpdatePageMetadataResponse:
     root, file_path = _resolve_page(settings, path)
 
-    _check_file_preconditions(
-        file_path,
-        payload.expected_modified_at,
-        payload.expected_hash,
-    )
+    _check_file_preconditions(file_path, payload.expected_hash)
     normalized_metadata = _normalized_metadata(payload.metadata)
     if file_path.suffix.lower() in MARKDOWN_EXTENSIONS:
-        _, content = _read_text_file(file_path)
+        _, content = read_text_file(file_path)
         next_content = render_markdown_with_metadata(
             content,
             title=str(normalized_metadata["title"]),

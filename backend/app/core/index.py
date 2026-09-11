@@ -6,7 +6,12 @@ from pathlib import Path
 from app.core.database import initialize_database
 from app.core.links import PageLink, build_link_lookups, parse_links, resolve_links
 from app.core.pages import PageData, parse_page, scan_pages
-from app.core.paths import WorldPathError, normalize_relative_path, resolve_under_root
+from app.core.paths import (
+    WorldPathError,
+    is_link_or_reparse_point,
+    normalize_relative_path,
+    resolve_under_root,
+)
 
 IMAGE_EXTENSIONS = {"gif", "jpeg", "jpg", "png", "svg", "webp"}
 PDF_EXTENSIONS = {"pdf"}
@@ -269,14 +274,6 @@ def _normalized_deleted_paths(paths: list[str]) -> list[str]:
     return normalized
 
 
-def _is_link_or_reparse_point(path: Path) -> bool:
-    try:
-        stat_result = path.lstat()
-    except OSError:
-        return True
-    return path.is_symlink() or bool(getattr(stat_result, "st_file_attributes", 0) & 0x400)
-
-
 def _has_link_or_reparse_part(root: Path, path: Path) -> bool:
     try:
         relative_parts = path.relative_to(root).parts
@@ -285,7 +282,7 @@ def _has_link_or_reparse_part(root: Path, path: Path) -> bool:
     current = root
     for part in relative_parts:
         current = current / part
-        if _is_link_or_reparse_point(current):
+        if is_link_or_reparse_point(current):
             return True
     return False
 
