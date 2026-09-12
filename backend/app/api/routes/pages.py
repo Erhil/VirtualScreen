@@ -18,7 +18,6 @@ from app.core.index import (
     ensure_page_indexed,
     list_indexed_links,
     list_indexed_pages,
-    media_kind_for_extension,
     refresh_index_for_disk_changes,
     refresh_index_for_paths,
 )
@@ -27,6 +26,7 @@ from app.core.pages import (
     MARKDOWN_EXTENSIONS,
     TEXT_BODY_EXTENSIONS,
     PageData,
+    media_kind_for_extension,
     metadata_sidecar_path,
     render_markdown_with_metadata,
     render_sidecar_metadata,

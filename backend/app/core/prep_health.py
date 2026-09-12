@@ -13,10 +13,10 @@ from app.core.display import display_item_for_path
 from app.core.index import (
     list_indexed_links,
     list_indexed_pages,
-    media_kind_for_extension,
     refresh_index_for_disk_changes,
 )
 from app.core.map import map_image_path
+from app.core.pages import media_kind_for_extension
 from app.core.paths import WorldPathError, normalize_relative_path, resolve_under_root
 from app.core.scripts import is_dms_trusted, list_dms_scripts
 

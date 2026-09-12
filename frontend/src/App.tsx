@@ -1139,6 +1139,16 @@ export function App() {
           if (event.detail === 2) {
             handlePaneDoubleClick(paneActive, tab, paneFileState, event);
           }
+          const target = event.target instanceof Element ? event.target : null;
+          if (target?.closest("[data-world-link-index]")) {
+            // A link click stops propagation (see RichHtml) so this pane's own onClick
+            // below never runs for it - that onClick used to reactivate this pane's
+            // previous tab from a render-time closure, racing the link's own tab switch.
+            // The capture phase runs first regardless, so activating the pane (without a
+            // path - openFileInActivePane below decides the tab) here still lands before
+            // the link opens its target, so it opens in the pane that was clicked.
+            handleActivatePane(paneId, null);
+          }
         }}
         onClick={() => handleActivatePane(paneId, tab?.path ?? null)}
         onDoubleClickCapture={(event) => handlePaneDoubleClick(paneActive, tab, paneFileState, event)}

@@ -5,7 +5,14 @@ from pathlib import Path
 
 from app.core.database import initialize_database
 from app.core.links import PageLink, build_link_lookups, parse_links, resolve_links
-from app.core.pages import INDEX_IGNORED_NAMES, PageData, indexable_files, parse_page, scan_pages
+from app.core.pages import (
+    INDEX_IGNORED_NAMES,
+    PageData,
+    indexable_files,
+    media_kind_for_extension,
+    parse_page,
+    scan_pages,
+)
 from app.core.paths import (
     WorldPathError,
     is_link_or_reparse_point,
@@ -13,14 +20,7 @@ from app.core.paths import (
     resolve_under_root,
 )
 
-IMAGE_EXTENSIONS = {"gif", "jpeg", "jpg", "png", "svg", "webp"}
-PDF_EXTENSIONS = {"pdf"}
-VIDEO_EXTENSIONS = {"mp4"}
-TEXT_EXTENSIONS = {"txt"}
-SCRIPT_EXTENSIONS = {"dms"}
-MARKDOWN_EXTENSIONS = {"md", "markdown"}
-CARD_EXTENSIONS = {"cs"}
-LINK_SOURCE_EXTENSIONS = {*MARKDOWN_EXTENSIONS, *CARD_EXTENSIONS, "csv", "txt"}
+LINK_SOURCE_EXTENSIONS = {"md", "markdown", "cs", "csv", "txt"}
 
 
 @dataclass(frozen=True)
@@ -28,26 +28,6 @@ class RebuildResult:
     pages_indexed: int
     links_indexed: int
     rebuilt_at: datetime
-
-
-def media_kind_for_extension(extension: str | None) -> str:
-    if extension in MARKDOWN_EXTENSIONS:
-        return "markdown"
-    if extension == "csv":
-        return "csv"
-    if extension in IMAGE_EXTENSIONS:
-        return "image"
-    if extension in PDF_EXTENSIONS:
-        return "pdf"
-    if extension in VIDEO_EXTENSIONS:
-        return "video"
-    if extension in TEXT_EXTENSIONS:
-        return "text"
-    if extension in SCRIPT_EXTENSIONS:
-        return "script"
-    if extension in CARD_EXTENSIONS:
-        return "card"
-    return "unsupported"
 
 
 def _json_dump(value: object) -> str:

@@ -2,7 +2,7 @@ import re
 from dataclasses import dataclass
 from pathlib import Path, PurePosixPath
 
-from app.core.pages import MARKDOWN_EXTENSIONS, PageData
+from app.core.pages import MARKDOWN_EXTENSIONS, PageData, media_kind_for_extension
 from app.core.paths import WorldPathError, normalize_relative_path
 
 
@@ -40,11 +40,6 @@ LinkLookups = tuple[
 
 WIKI_LINK_RE = re.compile(r"(!)?\[\[([^\]]+)]]")
 MARKDOWN_LINK_RE = re.compile(r"(!)?\[([^\]]*)]\(([^)]+)\)")
-IMAGE_EXTENSIONS = {".gif", ".jpeg", ".jpg", ".png", ".svg", ".webp"}
-PDF_EXTENSIONS = {".pdf"}
-VIDEO_EXTENSIONS = {".mp4"}
-CARD_EXTENSIONS = {".cs"}
-SCRIPT_EXTENSIONS = {".dms"}
 
 
 def _split_target(raw_target: str) -> tuple[str, str | None]:
@@ -92,28 +87,16 @@ def parse_links(source_path: str, content: str) -> list[RawPageLink]:
     return sorted(links, key=lambda link: link.order)
 
 
+def _dotless_extension(suffix: str) -> str:
+    return suffix[1:] if suffix.startswith(".") else suffix
+
+
 def _target_kind(path: str | None) -> str | None:
     if path is None:
         return None
 
     suffix = PurePosixPath(path).suffix.lower()
-    if suffix in MARKDOWN_EXTENSIONS:
-        return "markdown"
-    if suffix == ".csv":
-        return "csv"
-    if suffix in IMAGE_EXTENSIONS:
-        return "image"
-    if suffix in PDF_EXTENSIONS:
-        return "pdf"
-    if suffix in VIDEO_EXTENSIONS:
-        return "video"
-    if suffix == ".txt":
-        return "text"
-    if suffix in SCRIPT_EXTENSIONS:
-        return "script"
-    if suffix in CARD_EXTENSIONS:
-        return "card"
-    return "unsupported"
+    return media_kind_for_extension(_dotless_extension(suffix))
 
 
 def _without_markdown_suffix(path: str) -> str:

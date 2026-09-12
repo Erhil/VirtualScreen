@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from app.core.links import parse_links, resolve_links
-from app.core.pages import scan_pages
+from app.core.links import _target_kind, parse_links, resolve_links
+from app.core.pages import MEDIA_KIND_EXTENSIONS, media_kind_for_extension, scan_pages
 
 
 def test_parses_wiki_link() -> None:
@@ -154,3 +154,21 @@ def test_preserves_unresolved_link(sample_world: Path) -> None:
     assert links[0].target_path is None
     assert links[0].target_title is None
     assert links[0].target_kind is None
+
+
+def test_media_kind_agrees_between_index_and_links() -> None:
+    # media_kind_for_extension (app.core.index, via app.core.pages) feeds the page index;
+    # _target_kind (app.core.links) feeds a resolved link's target_kind. They used to keep
+    # separate extension->kind tables and disagreed on ".dms", which sent a script link to a
+    # dead placeholder instead of the script viewer. Pin every known extension so the two
+    # consumers of the shared table can never drift apart again.
+    for extension, kind in MEDIA_KIND_EXTENSIONS.items():
+        assert media_kind_for_extension(extension) == kind
+        assert _target_kind(f"file.{extension}") == kind
+
+    # The fallthrough: an unknown extension (and no extension at all) is "unsupported",
+    # never a silent KeyError or a wrong guess.
+    assert media_kind_for_extension("nope") == "unsupported"
+    assert media_kind_for_extension(None) == "unsupported"
+    assert _target_kind("file.nope") == "unsupported"
+    assert _target_kind(None) is None

@@ -11,8 +11,7 @@ from fastapi import BackgroundTasks
 
 from app.core.database import initialize_database
 from app.core.hub import EventHub
-from app.core.index import media_kind_for_extension
-from app.core.pages import parse_page
+from app.core.pages import media_kind_for_extension, parse_page
 from app.core.paths import (
     WorldPathError,
     ensure_no_reserved_path_parts,

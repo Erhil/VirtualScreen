@@ -203,6 +203,35 @@ test("workspace split panes show two files and persist layout", async ({ page })
   );
 });
 
+test("clicking a link in the inactive pane activates that pane", async ({ page }) => {
+  await gotoWorkspace(page);
+  const workspaceControls = page.locator(".workspace-controls");
+
+  await worldTree(page).getByRole("button", { name: /Sample World Guide/ }).click();
+  await workspaceControls.getByRole("button", { name: "Split", exact: true }).click();
+  await page.getByRole("region", { name: "Secondary viewer pane" }).click();
+  await openTreeFile(page, "random-events.csv", "Tables");
+
+  const mainPane = page.getByRole("region", { name: "Main viewer pane" });
+  const secondaryPane = page.getByRole("region", { name: "Secondary viewer pane" });
+  await expect(secondaryPane).toHaveClass(/workspace-viewer-pane-active/);
+  await expect(mainPane).not.toHaveClass(/workspace-viewer-pane-active/);
+
+  // The link lives in the main pane, which is currently inactive (secondary is active
+  // after opening the CSV there). Clicking it must activate the main pane - not just
+  // open the target in whichever pane happened to be active - and select its tab.
+  await mainPane.getByRole("link", { name: "Captain Ilyra" }).click();
+
+  await expect(mainPane).toHaveClass(/workspace-viewer-pane-active/);
+  await expect(secondaryPane).not.toHaveClass(/workspace-viewer-pane-active/);
+  await expect(mainPane.getByRole("heading", { name: "Captain Ilyra" })).toBeVisible();
+  await expect(secondaryPane).toContainText("result");
+  await expect(page.getByRole("tab", { name: "Captain Ilyra" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
+});
+
 test("tools panel can be resized and remembers local width", async ({ page }) => {
   await page.goto("/");
 

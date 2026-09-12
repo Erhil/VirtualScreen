@@ -23,6 +23,39 @@ MAX_INDEX_TEXT_BYTES = 1_000_000
 MAX_SIDECAR_METADATA_BYTES = 64_000
 INDEX_IGNORED_NAMES = {".music", ".virtualscreen", ".git", "__pycache__"}
 
+# Dotless extension -> media kind. The one source of truth for what kind of media a file
+# extension is: app.core.index keys it off a page's own extension (already dotless), and
+# app.core.links keys it off a resolved link target's suffix (dotted, via _dotless_extension).
+# Keeping a single table is load-bearing - the two used to keep separate copies and disagreed
+# on ".dms" (a script in one, unsupported in the other), which sent a script link to a dead
+# placeholder instead of the script viewer.
+MEDIA_KIND_EXTENSIONS: dict[str, str] = {
+    "md": "markdown",
+    "markdown": "markdown",
+    "csv": "csv",
+    "gif": "image",
+    "jpeg": "image",
+    "jpg": "image",
+    "png": "image",
+    "svg": "image",
+    "webp": "image",
+    "pdf": "pdf",
+    "mp4": "video",
+    "txt": "text",
+    "dms": "script",
+    "cs": "card",
+}
+
+
+def media_kind_for_extension(extension: str | None) -> str:
+    """Classify a dotless, lowercase extension (e.g. "md", not ".md" or "MD") into a media kind.
+
+    Returns "unsupported" for None, the empty extension, or anything not in the table.
+    """
+    if extension is None:
+        return "unsupported"
+    return MEDIA_KIND_EXTENSIONS.get(extension, "unsupported")
+
 
 @dataclass(frozen=True)
 class PageData:
