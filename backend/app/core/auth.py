@@ -12,7 +12,6 @@ PUBLIC_API_PATHS = {
     "/api/health",
     "/api/auth/status",
     "/api/auth/login",
-    "/api/auth/logout",
 }
 
 

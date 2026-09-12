@@ -65,18 +65,6 @@ def test_http_query_token_does_not_unlock_protected_api(tmp_path: Path, monkeypa
     assert header_response.status_code == 200
 
 
-def test_logout_clears_cookie_access(tmp_path: Path, monkeypatch) -> None:
-    client = make_client(tmp_path, monkeypatch, token="secret")
-
-    client.post("/api/auth/login", json={"token": "secret"})
-    assert client.get("/api/world/tree").status_code == 200
-
-    logout = client.post("/api/auth/logout")
-
-    assert logout.status_code == 200
-    assert client.get("/api/world/tree").status_code == 401
-
-
 def test_websocket_requires_auth_when_token_is_set(tmp_path: Path, monkeypatch) -> None:
     client = make_client(tmp_path, monkeypatch, token="secret")
 

@@ -78,7 +78,7 @@ def snapshot_state(
     }
 
 
-def test_table_snapshot_create_list_and_detail(tmp_path: Path) -> None:
+def test_table_snapshot_create_and_list(tmp_path: Path) -> None:
     client = make_client(make_world(tmp_path))
     seed_table_state(client)
     audio = {
@@ -116,10 +116,6 @@ def test_table_snapshot_create_list_and_detail(tmp_path: Path) -> None:
     assert listed.json() == [
         {"id": snapshot["id"], "name": "Opening Table", "updated_at": snapshot["updated_at"]}
     ]
-
-    detail = client.get(f"/api/table-snapshots/{snapshot['id']}")
-    assert detail.status_code == 200
-    assert detail.json() == snapshot
 
 
 def test_table_snapshot_validates_names_and_unique_names(tmp_path: Path) -> None:
@@ -266,7 +262,7 @@ def test_table_snapshot_delete(tmp_path: Path) -> None:
 
     assert deleted.status_code == 200
     assert deleted.json() == {"deleted": True}
-    assert client.get(f"/api/table-snapshots/{snapshot['id']}").status_code == 404
+    assert client.get("/api/table-snapshots").json() == []
     assert client.delete(f"/api/table-snapshots/{snapshot['id']}").status_code == 404
 
 

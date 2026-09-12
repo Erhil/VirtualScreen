@@ -18,11 +18,11 @@ def make_world(tmp_path: Path) -> Path:
     return world
 
 
-def test_display_background_serves_optional_world_internal_image(tmp_path: Path) -> None:
+def test_screen_display_background_serves_optional_world_internal_image(tmp_path: Path) -> None:
     world = make_world(tmp_path)
     client = make_client(world)
 
-    missing_response = client.get("/api/display/background")
+    missing_response = client.get("/api/screen/display/background")
     assert missing_response.status_code == 204
     assert missing_response.headers["cache-control"] == "no-store"
 
@@ -30,7 +30,7 @@ def test_display_background_serves_optional_world_internal_image(tmp_path: Path)
     background.parent.mkdir()
     background.write_bytes(b"\xff\xd8\xff\xe0screen-background\xff\xd9")
 
-    response = client.get("/api/display/background")
+    response = client.get("/api/screen/display/background")
 
     assert response.status_code == 200
     assert response.headers["cache-control"] == "no-store"

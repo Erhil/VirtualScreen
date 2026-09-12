@@ -18,7 +18,6 @@ from app.core.table_snapshots import (
     TableSnapshotSummary,
     create_table_snapshot,
     delete_table_snapshot,
-    get_table_snapshot,
     list_table_snapshots,
     restore_table_snapshot,
     state_payload,
@@ -120,15 +119,6 @@ def table_snapshot_create(
         _raise_conflict(exc)
     except ValueError as exc:
         _raise_bad_request(exc)
-    return _snapshot_response(snapshot)
-
-
-@router.get("/table-snapshots/{snapshot_id}")
-def table_snapshot_detail(snapshot_id: str, settings: SettingsDep) -> dict[str, object]:
-    try:
-        snapshot = get_table_snapshot(settings.resolved_world_root, snapshot_id)
-    except SnapshotNotFoundError as exc:
-        _raise_not_found(exc)
     return _snapshot_response(snapshot)
 
 

@@ -132,8 +132,8 @@ def _require_screen_path(path: str, allowed_paths: set[str]) -> str:
     return relative_path
 
 
-@router.get("/api/display/background")
-def display_background(settings: SettingsDep) -> Response:
+@router.get("/api/screen/display/background")
+def screen_display_background(settings: SettingsDep) -> Response:
     path = display_background_path(settings.resolved_world_root)
     if path is None:
         return Response(status_code=204, headers={"Cache-Control": "no-store"})
@@ -145,11 +145,6 @@ def display_background(settings: SettingsDep) -> Response:
             "sandbox; default-src 'none'; img-src data:; style-src 'unsafe-inline'"
         )
     return FileResponse(path, media_type=content_type, headers=headers)
-
-
-@router.get("/api/screen/display/background")
-def screen_display_background(settings: SettingsDep) -> Response:
-    return display_background(settings)
 
 
 @router.get("/api/display/state")

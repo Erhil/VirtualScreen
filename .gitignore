@@ -40,7 +40,6 @@ CURSOR.md
 .clinerules
 .roo/
 .roomodes
-scripts/build-release.ps1
 
 # Local IDE/editor state
 .idea/

@@ -2,7 +2,7 @@ import asyncio
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
 
 from app.core.config import Settings, get_settings
 from app.core.index import rebuild_index
@@ -36,10 +36,6 @@ class CreateWorldRequest(BaseModel):
     name: str
 
 
-class RecentWorldsRequest(BaseModel):
-    recent: list[str] = Field(default_factory=list)
-
-
 def _state(settings: Settings) -> WorldLibraryStateResponse:
     current_root = settings.resolved_world_root
     current = world_entry(current_root) if current_root.exists() and current_root.is_dir() else None
@@ -53,11 +49,6 @@ def _state(settings: Settings) -> WorldLibraryStateResponse:
 
 @router.get("/worlds", response_model=WorldLibraryStateResponse)
 def worlds(settings: SettingsDep) -> WorldLibraryStateResponse:
-    return _state(settings)
-
-
-@router.get("/worlds/current", response_model=WorldLibraryStateResponse)
-def current_world(settings: SettingsDep) -> WorldLibraryStateResponse:
     return _state(settings)
 
 
@@ -103,16 +94,4 @@ async def open_world(
         await watcher_manager.start(world_root)
     recent_ids = [payload.id, *[entry.id for entry in recent_worlds(settings.resolved_worlds_root)]]
     save_recent_world_ids(settings.resolved_worlds_root, recent_ids)
-    return _state(settings)
-
-
-@router.put("/worlds/recent", response_model=WorldLibraryStateResponse)
-def save_recent_worlds(
-    payload: RecentWorldsRequest,
-    settings: SettingsDep,
-) -> WorldLibraryStateResponse:
-    try:
-        save_recent_world_ids(settings.resolved_worlds_root, payload.recent)
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return _state(settings)

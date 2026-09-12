@@ -52,9 +52,3 @@ def auth_login(
         secure=False,
     )
     return AuthStatusResponse(enabled=True, authenticated=True)
-
-
-@router.post("/auth/logout", response_model=AuthStatusResponse)
-def auth_logout(response: Response, settings: SettingsDep) -> AuthStatusResponse:
-    response.delete_cookie(AUTH_COOKIE)
-    return AuthStatusResponse(enabled=auth_enabled(settings), authenticated=False)

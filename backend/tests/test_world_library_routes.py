@@ -150,12 +150,11 @@ def test_recent_worlds_preserve_order_and_deduplicate(tmp_path: Path) -> None:
     worlds_root = tmp_path / "worlds"
     (worlds_root / "A").mkdir(parents=True)
     (worlds_root / "B").mkdir()
+
+    recent = world_library.save_recent_world_ids(worlds_root, ["A", "B", "A", "Missing"])
+
+    assert recent == ["A", "B"]
     client = make_client(fallback_world, worlds_root)
-
-    response = client.put("/api/worlds/recent", json={"recent": ["A", "B", "A", "Missing"]})
-
-    assert response.status_code == 200
-    assert [world["id"] for world in response.json()["recent"]] == ["A", "B"]
     assert [world["id"] for world in client.get("/api/worlds").json()["recent"]] == ["A", "B"]
 
 
@@ -174,7 +173,7 @@ def test_open_world_is_restored_after_a_restart(tmp_path: Path) -> None:
     # The appliance watchdog restarts the server on a crash or a hung health
     # probe, and Windows Update reboots it. Coming back on the fallback world
     # would silently change what the table is looking at.
-    assert restarted.get("/api/worlds/current").json()["current"]["id"] == "Campaign A"
+    assert restarted.get("/api/worlds").json()["current"]["id"] == "Campaign A"
     assert restarted.get("/api/world/tree").json()["name"] == "Campaign A"
 
 
@@ -190,7 +189,7 @@ def test_restart_falls_back_when_the_remembered_world_is_gone(tmp_path: Path) ->
 
     restarted = restart_server(fallback_world, worlds_root)
 
-    assert restarted.get("/api/worlds/current").json()["current"]["path"] == str(
+    assert restarted.get("/api/worlds").json()["current"]["path"] == str(
         fallback_world.resolve()
     )
 
@@ -213,7 +212,7 @@ def test_restart_ignores_a_remembered_world_outside_the_library(tmp_path: Path) 
         )
         restarted = restart_server(fallback_world, worlds_root)
 
-        current = restarted.get("/api/worlds/current").json()["current"]
+        current = restarted.get("/api/worlds").json()["current"]
         assert current["path"] == str(fallback_world.resolve()), smuggled
 
 
@@ -245,7 +244,7 @@ def test_restart_ignores_a_state_file_it_cannot_read(tmp_path: Path) -> None:
     _ACTIVE_WORLDS.clear()
 
     with TestClient(make_app(fallback_world, worlds_root)) as restarted:
-        current = restarted.get("/api/worlds/current").json()["current"]
+        current = restarted.get("/api/worlds").json()["current"]
         assert current["path"] == str(fallback_world.resolve())
 
 
@@ -260,7 +259,7 @@ def test_restart_ignores_a_non_string_remembered_world(tmp_path: Path) -> None:
 
     restarted = restart_server(fallback_world, worlds_root)
 
-    assert restarted.get("/api/worlds/current").json()["current"]["path"] == str(
+    assert restarted.get("/api/worlds").json()["current"]["path"] == str(
         fallback_world.resolve()
     )
 
@@ -272,7 +271,7 @@ def test_remembering_the_open_world_keeps_the_recent_list(tmp_path: Path) -> Non
     (worlds_root / "A").mkdir(parents=True)
     (worlds_root / "B").mkdir()
     client = make_client(fallback_world, worlds_root)
-    client.put("/api/worlds/recent", json={"recent": ["A", "B"]})
+    world_library.save_recent_world_ids(worlds_root, ["A", "B"])
 
     assert client.post("/api/worlds/open", json={"id": "B"}).status_code == 200
 
