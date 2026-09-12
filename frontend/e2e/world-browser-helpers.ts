@@ -315,9 +315,9 @@ export function useE2eWorld() {
     const opened = await request.post("/api/worlds/open", {
       data: { id: "E2E World" }
     });
-    expect(opened.ok()).toBeTruthy();
+    expect(opened.ok(), `POST /api/worlds/open -> ${opened.status()}`).toBeTruthy();
     const rebuilt = await request.post("/api/index/rebuild");
-    expect(rebuilt.ok()).toBeTruthy();
+    expect(rebuilt.ok(), `POST /api/index/rebuild -> ${rebuilt.status()}`).toBeTruthy();
     const workspacesResponse = await request.get("/api/workspaces");
     if (workspacesResponse.ok()) {
       const workspaces = (await workspacesResponse.json()) as Array<{ id: string; name: string }>;

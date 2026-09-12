@@ -106,11 +106,19 @@ test("opens wiki-link targets from markdown content", async ({ page }) => {
   await page.locator(".markdown-viewer").getByRole("link", { name: "Captain Ilyra" }).click();
 
   await expect(page.getByRole("tab", { name: "Captain Ilyra" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Captain Ilyra" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
   await expect(page.getByRole("heading", { name: "Captain Ilyra" })).toBeVisible();
 
   await page.locator(".markdown-viewer").getByRole("link", { name: "Home" }).click();
 
   await expect(page.getByRole("tab", { name: "Sample World Guide" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "Sample World Guide" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
   await expect(page.getByRole("heading", { name: "Sample World Guide" })).toBeVisible();
 });
 
