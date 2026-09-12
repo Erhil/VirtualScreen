@@ -166,7 +166,13 @@ test("middle-clicking a resolved wiki link opens a local peek without switching 
   await page.getByRole("link", { name: "Captain Ilyra" }).click({ button: "middle" });
 
   await expect(page.getByRole("dialog", { name: "Peek Captain Ilyra" })).toBeVisible();
-  await expect(page.getByRole("heading", { name: "Captain Ilyra" })).toBeVisible();
+  // The peek carries two headings with this name - its own title and the document's - so
+  // ask for the document's, which also proves the body finished loading.
+  await expect(
+    page
+      .getByRole("dialog", { name: "Peek Captain Ilyra" })
+      .getByRole("heading", { name: "Captain Ilyra", level: 1 })
+  ).toBeVisible();
   await expect(sourceTab).toHaveAttribute("aria-selected", "true");
 });
 

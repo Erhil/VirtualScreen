@@ -76,7 +76,12 @@ test("sending the active document to the player screen still targets a document 
   // still resolving it from the focused tab rather than the focused document - so with
   // the Screen tab selected it would have put screen://main in front of the players.
   await controls.getByRole("button", { name: /^Show .* Fullscreen/ }).click();
-  await expect(screen.getByRole("heading", { name: "Sample World Guide" })).toBeVisible();
+  // Scoped to the fullscreen region on purpose: going fullscreen keeps the popup opened
+  // above (set_fullscreen preserves current popups), so an unscoped heading lookup matches
+  // both of them once the popup has finished rendering.
+  await expect(
+    screen.getByLabel("Fullscreen Display").getByRole("heading", { name: "Sample World Guide" })
+  ).toBeVisible();
 });
 
 test("closing the Screen tab leaves the workspace usable", async ({ page }) => {
