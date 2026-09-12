@@ -130,6 +130,21 @@ def test_resolves_pdf_media_as_pdf(tmp_path: Path) -> None:
     assert links[0].target_kind == "pdf"
 
 
+def test_resolves_dms_script_as_script(tmp_path: Path) -> None:
+    world = tmp_path / "world"
+    world.mkdir()
+    (world / "README.md").write_text("[roll table](Scripts/roll-table.dms)", encoding="utf-8")
+    (world / "Scripts").mkdir()
+    (world / "Scripts" / "roll-table.dms").write_text("print('hi')", encoding="utf-8")
+    raw_links = parse_links("README.md", "[roll table](Scripts/roll-table.dms)")
+
+    links = resolve_links(world, "README.md", raw_links, scan_pages(world))
+
+    assert links[0].resolved is True
+    assert links[0].target_path == "Scripts/roll-table.dms"
+    assert links[0].target_kind == "script"
+
+
 def test_preserves_unresolved_link(sample_world: Path) -> None:
     raw_links = parse_links("README.md", "[[Missing Page]]")
 

@@ -48,6 +48,11 @@ export function RichHtml({
     const link = linkFromEvent(event);
     if (link) {
       event.preventDefault();
+      // The pane behind this text activates its own tab on click. Without stopping here,
+      // that runs after the link opened a new tab and pulls the selection back to the old
+      // one: the pane then shows one file while the tab strip highlights another, and the
+      // opened file gets no editor draft, so its Save and Run actions never appear.
+      event.stopPropagation();
       if ((event.altKey || event.shiftKey) && onPeekLink) {
         onPeekLink(link);
         return;

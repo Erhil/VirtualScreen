@@ -333,7 +333,11 @@ test("a tab opened right before a reload is not lost", async ({ page }) => {
   await worldTree(page).getByRole("button", { name: /random-events\.csv/ }).click();
   await page.reload();
 
-  await expect(page.getByRole("tab", { name: "random-events.csv" })).toBeVisible();
+  await expect(page.getByRole("tab", { name: "random-events.csv" })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
+  await expect(page.getByRole("tab", { name: "Sample World Guide" })).toBeVisible();
 });
 
 test.describe("table state snapshots V1", () => {

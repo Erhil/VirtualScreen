@@ -307,6 +307,7 @@ export type PageLink = {
     | "pdf"
     | "video"
     | "text"
+    | "script"
     | "unsupported"
     | null;
   heading: string | null;

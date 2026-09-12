@@ -44,6 +44,7 @@ IMAGE_EXTENSIONS = {".gif", ".jpeg", ".jpg", ".png", ".svg", ".webp"}
 PDF_EXTENSIONS = {".pdf"}
 VIDEO_EXTENSIONS = {".mp4"}
 CARD_EXTENSIONS = {".cs"}
+SCRIPT_EXTENSIONS = {".dms"}
 
 
 def _split_target(raw_target: str) -> tuple[str, str | None]:
@@ -108,6 +109,8 @@ def _target_kind(path: str | None) -> str | None:
         return "video"
     if suffix == ".txt":
         return "text"
+    if suffix in SCRIPT_EXTENSIONS:
+        return "script"
     if suffix in CARD_EXTENSIONS:
         return "card"
     return "unsupported"

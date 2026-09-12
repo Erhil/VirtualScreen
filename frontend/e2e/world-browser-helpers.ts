@@ -309,10 +309,15 @@ export function resetE2eWorld() {
 export function useE2eWorld() {
   test.beforeEach(async ({ request }) => {
     resetE2eWorld();
-    await request.post("/api/worlds/open", {
+    // Asserted, not fired and forgotten: when one of these does not reach the backend the
+    // world is never reopened and the index keeps whatever the last run left, and the test
+    // then fails somewhere far away. Both have silently failed through a proxy hiccup.
+    const opened = await request.post("/api/worlds/open", {
       data: { id: "E2E World" }
     });
-    await request.post("/api/index/rebuild");
+    expect(opened.ok()).toBeTruthy();
+    const rebuilt = await request.post("/api/index/rebuild");
+    expect(rebuilt.ok()).toBeTruthy();
     const workspacesResponse = await request.get("/api/workspaces");
     if (workspacesResponse.ok()) {
       const workspaces = (await workspacesResponse.json()) as Array<{ id: string; name: string }>;

@@ -61,6 +61,24 @@ describe("linkToOpenTab", () => {
     });
   });
 
+  it("maps resolved script links to script tabs", () => {
+    expect(
+      linkToOpenTab({
+        ...captainLink,
+        raw_target: "Scripts/roll-table.dms",
+        label: "roll-table.dms",
+        target_path: "Scripts/roll-table.dms",
+        target_title: "roll-table",
+        target_kind: "script"
+      })
+    ).toEqual({
+      path: "Scripts/roll-table.dms",
+      name: "roll-table.dms",
+      title: null,
+      mediaKind: "script"
+    });
+  });
+
   it("returns null for unresolved links", () => {
     expect(linkToOpenTab({ ...captainLink, resolved: false, target_path: null })).toBeNull();
   });

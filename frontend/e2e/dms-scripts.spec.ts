@@ -284,3 +284,25 @@ test("creates edits and searches DMS scripts", async ({ page }) => {
     "hello_world"
   );
 });
+
+test("following a link to a script opens it as a script, not an unsupported file", async ({
+  page
+}) => {
+  await page.goto("/");
+
+  await openTreeFile(page, /04 Scripts And Live Tools/, "Guide");
+  await page.getByRole("link", { name: /screen_audio_demo/ }).click();
+
+  await expect(page.getByRole("tab", { name: /screen_audio_demo\.dms/ })).toBeVisible();
+  await expect(page.getByRole("tab", { name: /screen_audio_demo\.dms/ })).toHaveAttribute(
+    "aria-selected",
+    "true"
+  );
+  await expect(page.getByRole("heading", { name: "Unsupported File" })).toHaveCount(0);
+  await expect(
+    page.getByRole("region", { name: "Document status" }).getByRole("button", {
+      name: "Run Active Script",
+      exact: true
+    })
+  ).toBeVisible();
+});
