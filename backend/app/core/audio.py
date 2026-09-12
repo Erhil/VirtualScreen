@@ -7,7 +7,7 @@ from pathlib import Path, PurePosixPath
 from typing import Literal
 
 from app.core.file_safety import atomic_write_bytes
-from app.core.paths import normalize_relative_path
+from app.core.paths import normalize_relative_path, read_json_or_default
 
 AudioBus = Literal["ambient", "music", "effect"]
 
@@ -223,10 +223,12 @@ def load_audio_playlists(root: Path) -> list[AudioPlaylist]:
     state_path = _audio_playlists_path(root)
     if not state_path.is_file():
         return []
+    loaded = read_json_or_default(state_path, None)
+    if loaded is None:
+        return []
     try:
-        loaded = json.loads(state_path.read_text(encoding="utf-8"))
         return audio_playlists_from_payload(loaded)
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError, ValueError):
+    except ValueError:
         return []
 
 

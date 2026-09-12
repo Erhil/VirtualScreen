@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from typing import Annotated, Any
 
 from fastapi import APIRouter, Body, Depends, HTTPException
@@ -16,41 +17,25 @@ SettingsDep = Annotated[Settings, Depends(get_settings)]
 JsonBody = Annotated[Any, Body()]
 
 
-class PdfBookmarkResponse(BaseModel):
-    id: str
-    label: str
-    page: int
-    note: str | None = None
-    created_at: str
-    updated_at: str
-
-
 class PdfBookmarkStateResponse(BaseModel):
-    bookmarks: list[PdfBookmarkResponse]
+    bookmarks: list[PdfBookmark]
 
 
-def _bookmark_response(bookmark: PdfBookmark) -> PdfBookmarkResponse:
-    return PdfBookmarkResponse(
-        id=bookmark.id,
-        label=bookmark.label,
-        page=bookmark.page,
-        note=bookmark.note,
-        created_at=bookmark.created_at,
-        updated_at=bookmark.updated_at,
-    )
-
-
-@router.get("/pdf/bookmarks", response_model=PdfBookmarkStateResponse)
-def pdf_bookmarks(path: str, settings: SettingsDep) -> PdfBookmarkStateResponse:
+def _bookmarks_or_error(action: Callable[[], list[PdfBookmark]]) -> list[PdfBookmark]:
     try:
-        bookmarks = load_pdf_bookmarks(settings.resolved_world_root, path)
+        return action()
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="PDF file was not found.") from exc
     except (ValueError, WorldPathError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return PdfBookmarkStateResponse(
-        bookmarks=[_bookmark_response(bookmark) for bookmark in bookmarks]
+
+
+@router.get("/pdf/bookmarks", response_model=PdfBookmarkStateResponse)
+def pdf_bookmarks(path: str, settings: SettingsDep) -> PdfBookmarkStateResponse:
+    bookmarks = _bookmarks_or_error(
+        lambda: load_pdf_bookmarks(settings.resolved_world_root, path)
     )
+    return PdfBookmarkStateResponse(bookmarks=bookmarks)
 
 
 @router.put("/pdf/bookmarks", response_model=PdfBookmarkStateResponse)
@@ -59,12 +44,7 @@ def update_pdf_bookmarks(
     settings: SettingsDep,
     payload: JsonBody,
 ) -> PdfBookmarkStateResponse:
-    try:
-        bookmarks = save_pdf_bookmarks(settings.resolved_world_root, path, payload)
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="PDF file was not found.") from exc
-    except (ValueError, WorldPathError) as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return PdfBookmarkStateResponse(
-        bookmarks=[_bookmark_response(bookmark) for bookmark in bookmarks]
+    bookmarks = _bookmarks_or_error(
+        lambda: save_pdf_bookmarks(settings.resolved_world_root, path, payload)
     )
+    return PdfBookmarkStateResponse(bookmarks=bookmarks)

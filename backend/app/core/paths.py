@@ -1,4 +1,6 @@
+import json
 from pathlib import Path, PurePosixPath
+from typing import Any
 
 
 def is_link_or_reparse_point(path: Path) -> bool:
@@ -98,6 +100,28 @@ def without_extended_length_prefix(path: Path) -> Path:
     if text.startswith(_EXTENDED_PATH_PREFIX):
         return Path(text[len(_EXTENDED_PATH_PREFIX) :])
     return path
+
+
+def read_json_or_default(
+    path: Path,
+    default: Any,
+    *,
+    catch_os_error: bool = True,
+) -> Any:
+    """Read and `json.loads` `path`, returning `default` if that fails.
+
+    `UnicodeDecodeError` and `json.JSONDecodeError` are both `ValueError` subclasses,
+    so `ValueError` alone covers malformed JSON and mis-encoded text. Pass
+    `catch_os_error=False` for a caller that wants a missing or otherwise unreadable
+    file to raise instead of silently falling back to `default`.
+    """
+    errors: tuple[type[BaseException], ...] = (
+        (OSError, ValueError) if catch_os_error else (ValueError,)
+    )
+    try:
+        return json.loads(path.read_text(encoding="utf-8"))
+    except errors:
+        return default
 
 
 def resolve_under_root(root: Path, raw_path: str | Path) -> Path:

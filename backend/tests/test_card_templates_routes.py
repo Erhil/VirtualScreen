@@ -1,19 +1,7 @@
 import json
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
-from app.core.config import Settings, get_settings
-from app.main import create_app
-
-
-def make_client(world: Path, token: str | None = None) -> TestClient:
-    app = create_app()
-    app.dependency_overrides[get_settings] = lambda: Settings(
-        world_root=world,
-        access_token=token or "",
-    )
-    return TestClient(app)
+from helpers import make_client
 
 
 def template_payload(

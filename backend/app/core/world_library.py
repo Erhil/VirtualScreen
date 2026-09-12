@@ -4,6 +4,8 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
 
+from app.core.paths import read_json_or_default
+
 
 @dataclass(frozen=True)
 class WorldLibraryEntry:
@@ -76,14 +78,11 @@ def _read_state(worlds_root: Path) -> dict[str, object]:
     path = app_state_path(worlds_root)
     if not path.exists():
         return {}
-    try:
-        loaded = json.loads(path.read_text(encoding="utf-8"))
-    except (ValueError, OSError):
-        # ValueError rather than JSONDecodeError: a file saved as UTF-16 or ANSI
-        # raises UnicodeDecodeError, which is a ValueError and not a JSON error.
-        # This is read during startup, so letting it escape would turn one
-        # mis-encoded file into an appliance that restarts forever.
-        return {}
+    # A file saved as UTF-16 or ANSI raises UnicodeDecodeError, which is a
+    # ValueError and not a JSON error; read_json_or_default catches both plus
+    # OSError, so a mis-encoded or unreadable state file can't turn into an
+    # appliance that restarts forever. This is read during startup.
+    loaded = read_json_or_default(path, {})
     return loaded if isinstance(loaded, dict) else {}
 
 

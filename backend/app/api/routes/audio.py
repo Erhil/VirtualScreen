@@ -31,30 +31,8 @@ class AudioTrackResponse(BaseModel):
     modified_at: str
 
 
-class AudioPlaylistResponse(BaseModel):
-    id: str
-    name: str
-    bus: AudioBus
-    track_paths: list[str]
-    loop: bool
-    created_at: str
-    updated_at: str
-
-
 class AudioPlaylistsResponse(BaseModel):
-    playlists: list[AudioPlaylistResponse]
-
-
-def _playlist_response(playlist: AudioPlaylist) -> AudioPlaylistResponse:
-    return AudioPlaylistResponse(
-        id=playlist.id,
-        name=playlist.name,
-        bus=playlist.bus,
-        track_paths=playlist.track_paths,
-        loop=playlist.loop,
-        created_at=playlist.created_at,
-        updated_at=playlist.updated_at,
-    )
+    playlists: list[AudioPlaylist]
 
 
 @router.get("/audio/library", response_model=list[AudioTrackResponse])
@@ -90,10 +68,7 @@ def audio_library(
 @router.get("/audio/playlists", response_model=AudioPlaylistsResponse)
 def audio_playlists(settings: SettingsDep) -> AudioPlaylistsResponse:
     return AudioPlaylistsResponse(
-        playlists=[
-            _playlist_response(playlist)
-            for playlist in load_audio_playlists(settings.resolved_world_root)
-        ]
+        playlists=load_audio_playlists(settings.resolved_world_root)
     )
 
 
@@ -106,6 +81,4 @@ def update_audio_playlists(
         playlists = save_audio_playlists(settings.resolved_world_root, payload)
     except (ValueError, WorldPathError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return AudioPlaylistsResponse(
-        playlists=[_playlist_response(playlist) for playlist in playlists]
-    )
+    return AudioPlaylistsResponse(playlists=playlists)

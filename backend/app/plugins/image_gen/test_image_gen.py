@@ -42,9 +42,9 @@ def make_client(
     # Set all three every time rather than deleting the unused ones: the plugin also reads
     # the repo `.env`, so an unset variable would let the developer's own configuration
     # decide what these tests see. The environment wins over the file.
-    monkeypatch.setenv(image_gen_plugin.ENV_URL, url if url is not None else DEFAULT_BASE_URL)
-    monkeypatch.setenv(image_gen_plugin.ENV_TOKEN, token if token is not None else "")
-    monkeypatch.setenv(image_gen_plugin.ENV_MODEL, model if model is not None else "")
+    monkeypatch.setenv("VIRTUALSCREEN_IMAGE_GEN_URL", url if url is not None else DEFAULT_BASE_URL)
+    monkeypatch.setenv("VIRTUALSCREEN_IMAGE_GEN_TOKEN", token if token is not None else "")
+    monkeypatch.setenv("VIRTUALSCREEN_IMAGE_GEN_MODEL", model if model is not None else "")
 
     get_settings.cache_clear()
     return TestClient(create_app())
@@ -695,7 +695,11 @@ def test_preview_refuses_a_response_that_is_not_an_image(
 
 
 def clear_image_gen_env(monkeypatch: MonkeyPatch) -> None:
-    for key in (image_gen_plugin.ENV_URL, image_gen_plugin.ENV_TOKEN, image_gen_plugin.ENV_MODEL):
+    for key in (
+        "VIRTUALSCREEN_IMAGE_GEN_URL",
+        "VIRTUALSCREEN_IMAGE_GEN_TOKEN",
+        "VIRTUALSCREEN_IMAGE_GEN_MODEL",
+    ):
         monkeypatch.delenv(key, raising=False)
 
 

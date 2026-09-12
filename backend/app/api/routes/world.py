@@ -95,11 +95,6 @@ MEDIA_FILE_KINDS = {
 }
 
 
-class WorldInfo(BaseModel):
-    root: str
-    exists: bool
-
-
 class WorldEntry(BaseModel):
     name: str
     path: str
@@ -494,12 +489,6 @@ def _trash_entry(root: Path, path: Path) -> TrashEntry:
         size=_path_size(path),
         trashed_at=timestamp,
     )
-
-
-@router.get("/info", response_model=WorldInfo)
-def world_info(settings: SettingsDep) -> WorldInfo:
-    root = settings.resolved_world_root
-    return WorldInfo(root=str(root), exists=root.exists())
 
 
 @router.get("/tree", response_model=WorldEntry)

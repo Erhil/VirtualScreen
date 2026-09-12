@@ -6,7 +6,9 @@ from pydantic import BaseModel, ConfigDict, Field
 from app.core.config import Settings, get_settings
 from app.core.paths import WorldPathError
 from app.core.scripts import (
+    DmsOutput,
     DmsRunStatus,
+    DmsScriptSummary,
     cancel_dms_run,
     get_dms_run,
     is_dms_trusted,
@@ -19,14 +21,6 @@ from app.core.scripts import (
 
 router = APIRouter()
 SettingsDep = Annotated[Settings, Depends(get_settings)]
-
-
-class DmsScriptSummaryModel(BaseModel):
-    path: str
-    name: str
-    title: str
-    size: int
-    modified_at: str
 
 
 class DmsRunPayload(BaseModel):
@@ -46,14 +40,6 @@ class DmsFormRequestModel(BaseModel):
 
     request_id: str
     schema_: dict[str, Any] = Field(alias="schema")
-
-
-class DmsOutputModel(BaseModel):
-    id: str
-    media_kind: Literal["markdown", "csv"]
-    virtual_path: str
-    name: str
-    content: str
 
 
 class DmsEffectModel(BaseModel):
@@ -81,7 +67,7 @@ class DmsRunStateModel(BaseModel):
     path: str
     status: DmsRunStatus
     form_request: DmsFormRequestModel | None
-    outputs: list[DmsOutputModel]
+    outputs: list[DmsOutput]
     effects: list[DmsEffectModel]
     stdout: str
     stderr: str
@@ -104,12 +90,9 @@ def scripts_trust_acknowledge(settings: SettingsDep) -> DmsTrustStateModel:
     return DmsTrustStateModel(trusted=True)
 
 
-@router.get("/scripts", response_model=list[DmsScriptSummaryModel])
-def scripts(settings: SettingsDep) -> list[DmsScriptSummaryModel]:
-    return [
-        DmsScriptSummaryModel(**script.__dict__)
-        for script in list_dms_scripts(settings.resolved_world_root)
-    ]
+@router.get("/scripts", response_model=list[DmsScriptSummary])
+def scripts(settings: SettingsDep) -> list[DmsScriptSummary]:
+    return list_dms_scripts(settings.resolved_world_root)
 
 
 @router.post(

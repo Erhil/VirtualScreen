@@ -1,18 +1,6 @@
 from pathlib import Path
 
-from fastapi.testclient import TestClient
-
-from app.core.config import Settings, get_settings
-from app.main import create_app
-
-
-def make_client(world: Path, *, token: str | None = None) -> TestClient:
-    app = create_app()
-    app.dependency_overrides[get_settings] = lambda: Settings(
-        access_token=token,
-        world_root=world,
-    )
-    return TestClient(app)
+from helpers import make_client
 
 
 def write_file(world: Path, path: str, content: str = "") -> None:

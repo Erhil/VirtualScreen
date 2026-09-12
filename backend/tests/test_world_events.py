@@ -1,16 +1,14 @@
 from pathlib import Path
 
 import pytest
-from fastapi.testclient import TestClient
+from helpers import make_client
 from watchfiles import Change
 
-from app.core.config import Settings, get_settings
 from app.core.watcher import (
     event_reason,
     is_ignored_world_path,
     summarize_watch_changes,
 )
-from app.main import create_app
 
 
 @pytest.fixture
@@ -26,16 +24,6 @@ def temp_world(tmp_path: Path) -> Path:
         encoding="utf-8",
     )
     return world
-
-
-def make_client(world_root: Path) -> TestClient:
-    app = create_app()
-
-    def override_settings() -> Settings:
-        return Settings(world_root=world_root, watch_world=False)
-
-    app.dependency_overrides[get_settings] = override_settings
-    return TestClient(app)
 
 
 def test_watch_ignore_predicate_excludes_internal_and_temp_paths() -> None:

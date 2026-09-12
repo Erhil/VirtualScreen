@@ -5,7 +5,12 @@ from datetime import datetime
 from pathlib import Path
 
 from app.core.file_safety import atomic_write_bytes
-from app.core.paths import WorldPathError, normalize_relative_path, resolve_under_root
+from app.core.paths import (
+    WorldPathError,
+    normalize_relative_path,
+    read_json_or_default,
+    resolve_under_root,
+)
 
 PDF_BOOKMARKS_PATH = ".virtualscreen/pdf-bookmarks.json"
 BOOKMARK_ID_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$")
@@ -120,10 +125,7 @@ def _load_all(root: Path) -> dict[str, list[PdfBookmark]]:
     state_path = _state_path(root)
     if not state_path.is_file():
         return {}
-    try:
-        loaded = json.loads(state_path.read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return {}
+    loaded = read_json_or_default(state_path, {})
     if not isinstance(loaded, dict):
         return {}
     result: dict[str, list[PdfBookmark]] = {}

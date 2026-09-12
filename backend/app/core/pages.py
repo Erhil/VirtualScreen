@@ -9,7 +9,12 @@ from typing import Any
 import frontmatter
 
 from app.core.cards import CARD_EXTENSIONS, parse_card
-from app.core.paths import WorldPathError, is_link_or_reparse_point, normalize_relative_path
+from app.core.paths import (
+    WorldPathError,
+    is_link_or_reparse_point,
+    normalize_relative_path,
+    read_json_or_default,
+)
 
 MARKDOWN_EXTENSIONS = {".md", ".markdown"}
 TEXT_BODY_EXTENSIONS = {".csv", ".cs", ".dms", ".md", ".markdown", ".svg", ".txt"}
@@ -68,10 +73,7 @@ def _read_sidecar_metadata(root: Path, relative_path: str) -> dict[str, Any]:
         return {}
     if sidecar_path.stat().st_size > MAX_SIDECAR_METADATA_BYTES:
         return {}
-    try:
-        loaded = json.loads(sidecar_path.read_text(encoding="utf-8"))
-    except (UnicodeDecodeError, json.JSONDecodeError):
-        return {}
+    loaded = read_json_or_default(sidecar_path, {}, catch_os_error=False)
     return loaded if isinstance(loaded, dict) else {}
 
 

@@ -8,20 +8,10 @@ from pathlib import Path
 import pytest
 from fastapi import HTTPException, Request
 from fastapi.testclient import TestClient
+from helpers import make_client
 
 from app.api.routes.system_packs import _read_multipart_upload
-from app.core.config import Settings, get_settings
 from app.core.system_packs import MAX_ZIP_BYTES
-from app.main import create_app
-
-
-def make_client(world: Path, token: str | None = None) -> TestClient:
-    app = create_app()
-    app.dependency_overrides[get_settings] = lambda: Settings(
-        world_root=world,
-        access_token=token or "",
-    )
-    return TestClient(app)
 
 
 def template_payload(template_id: str = "npc-pack") -> dict[str, object]:

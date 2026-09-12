@@ -1,31 +1,16 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, Query
-from pydantic import BaseModel
 
 from app.core.config import Settings, get_settings
 from app.core.paths import WorldPathError, normalize_relative_path
-from app.core.search import search_index
+from app.core.search import SearchResult, search_index
 
 router = APIRouter()
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
-class SearchResultResponse(BaseModel):
-    path: str
-    name: str
-    extension: str | None
-    media_kind: str
-    title: str
-    page_type: str | None
-    tags: list[str]
-    aliases: list[str]
-    snippet: str | None
-    match_reason: str
-    score: int
-
-
-@router.get("/search", response_model=list[SearchResultResponse])
+@router.get("/search", response_model=list[SearchResult])
 def search(
     q: str,
     settings: SettingsDep,
@@ -33,7 +18,7 @@ def search(
     tag: str | None = None,
     folder: str | None = None,
     limit: int = 20,
-) -> list[SearchResultResponse]:
+) -> list[SearchResult]:
     query = q.strip()
     if not query:
         raise HTTPException(status_code=400, detail="Search query cannot be empty.")
@@ -47,7 +32,7 @@ def search(
         except WorldPathError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
 
-    results = search_index(
+    return search_index(
         settings.resolved_world_root,
         query,
         file_type=file_type,
@@ -55,4 +40,3 @@ def search(
         folder=normalized_folder,
         limit=min(limit, 100),
     )
-    return [SearchResultResponse(**result.__dict__) for result in results]

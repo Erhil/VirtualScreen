@@ -21,18 +21,11 @@ router = APIRouter()
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
-class WorldLibraryEntryModel(BaseModel):
-    id: str
-    name: str
-    path: str
-    modified_at: str
-
-
 class WorldLibraryStateResponse(BaseModel):
     worlds_root: str
-    current: WorldLibraryEntryModel | None
-    worlds: list[WorldLibraryEntryModel]
-    recent: list[WorldLibraryEntryModel]
+    current: WorldLibraryEntry | None
+    worlds: list[WorldLibraryEntry]
+    recent: list[WorldLibraryEntry]
 
 
 class OpenWorldRequest(BaseModel):
@@ -47,18 +40,14 @@ class RecentWorldsRequest(BaseModel):
     recent: list[str] = Field(default_factory=list)
 
 
-def _entry_model(entry: WorldLibraryEntry) -> WorldLibraryEntryModel:
-    return WorldLibraryEntryModel(**entry.__dict__)
-
-
 def _state(settings: Settings) -> WorldLibraryStateResponse:
     current_root = settings.resolved_world_root
     current = world_entry(current_root) if current_root.exists() and current_root.is_dir() else None
     return WorldLibraryStateResponse(
         worlds_root=str(settings.resolved_worlds_root),
-        current=_entry_model(current) if current else None,
-        worlds=[_entry_model(entry) for entry in list_worlds(settings.resolved_worlds_root)],
-        recent=[_entry_model(entry) for entry in recent_worlds(settings.resolved_worlds_root)],
+        current=current,
+        worlds=list_worlds(settings.resolved_worlds_root),
+        recent=recent_worlds(settings.resolved_worlds_root),
     )
 
 

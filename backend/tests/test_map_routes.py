@@ -3,8 +3,9 @@ from pathlib import Path
 
 import pytest
 from fastapi.testclient import TestClient
+from helpers import make_client
 
-from app.core.config import Settings, get_settings
+from app.core.config import get_settings
 from app.core.database import initialize_database
 from app.main import create_app
 
@@ -15,14 +16,6 @@ def clear_cached_settings(monkeypatch):
     get_settings.cache_clear()
     yield
     get_settings.cache_clear()
-
-
-def make_client(world: Path) -> TestClient:
-    app = create_app()
-    app.dependency_overrides[get_settings] = lambda: Settings(
-        world_root=world,
-    )
-    return TestClient(app)
 
 
 def make_auth_client(monkeypatch) -> TestClient:

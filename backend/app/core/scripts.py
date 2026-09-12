@@ -25,6 +25,7 @@ from app.core.paths import (
     WorldPathError,
     ensure_no_reserved_path_parts,
     normalize_relative_path,
+    read_json_or_default,
     resolve_under_root,
 )
 
@@ -191,10 +192,7 @@ def _dms_trust_path(root: Path) -> Path:
 
 
 def is_dms_trusted(root: Path) -> bool:
-    try:
-        loaded = json.loads(_dms_trust_path(root).read_text(encoding="utf-8"))
-    except (OSError, UnicodeDecodeError, json.JSONDecodeError):
-        return False
+    loaded = read_json_or_default(_dms_trust_path(root), {})
     return isinstance(loaded, dict) and loaded.get("trusted") is True
 
 

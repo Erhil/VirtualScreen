@@ -1,4 +1,5 @@
-from typing import Annotated, Any
+from dataclasses import asdict
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
@@ -11,45 +12,26 @@ router = APIRouter()
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
 
-class FastSlotModel(BaseModel):
-    id: str
-    position: int
-    label: str
-    icon: str | None
-    action: dict[str, Any]
-
-
 class FastSlotsPayload(BaseModel):
-    slots: list[FastSlotModel]
+    slots: list[FastSlot]
 
 
-def _slot_model(slot: FastSlot) -> FastSlotModel:
-    return FastSlotModel(
-        id=slot.id,
-        position=slot.position,
-        label=slot.label,
-        icon=slot.icon,
-        action=slot.action,
-    )
+@router.get("/fast-slots", response_model=list[FastSlot])
+def fast_slots(settings: SettingsDep) -> list[FastSlot]:
+    return load_fast_slots(settings.resolved_world_root)
 
 
-@router.get("/fast-slots", response_model=list[FastSlotModel])
-def fast_slots(settings: SettingsDep) -> list[FastSlotModel]:
-    return [_slot_model(slot) for slot in load_fast_slots(settings.resolved_world_root)]
-
-
-@router.put("/fast-slots", response_model=list[FastSlotModel])
+@router.put("/fast-slots", response_model=list[FastSlot])
 def update_fast_slots(
     payload: FastSlotsPayload,
     settings: SettingsDep,
-) -> list[FastSlotModel]:
+) -> list[FastSlot]:
     try:
-        slots = save_fast_slots(
+        return save_fast_slots(
             settings.resolved_world_root,
-            [slot.model_dump() for slot in payload.slots],
+            [asdict(slot) for slot in payload.slots],
         )
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except (ValueError, WorldPathError) as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return [_slot_model(slot) for slot in slots]

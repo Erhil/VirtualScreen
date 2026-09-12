@@ -38,9 +38,6 @@ from app.core.paths import (
 router = APIRouter()
 SettingsDep = Annotated[Settings, Depends(get_settings)]
 
-ENV_URL = "VIRTUALSCREEN_IMAGE_GEN_URL"
-ENV_TOKEN = "VIRTUALSCREEN_IMAGE_GEN_TOKEN"
-ENV_MODEL = "VIRTUALSCREEN_IMAGE_GEN_MODEL"
 DEFAULT_BASE_URL = "http://127.0.0.1:8000"
 
 # Generation is slow and polled repeatedly, so JSON calls get a generous read timeout;
