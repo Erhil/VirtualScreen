@@ -1,6 +1,6 @@
 import asyncio
 
-from fastapi import WebSocket
+from fastapi import WebSocket, WebSocketDisconnect
 
 
 class EventHub:
@@ -25,7 +25,11 @@ class EventHub:
         for websocket in clients:
             try:
                 await websocket.send_json(event)
-            except RuntimeError:
+            except (WebSocketDisconnect, RuntimeError):
+                # A client that has gone away - a reloaded page, a closed player screen -
+                # must not break the publish for the rest of the subscribers, nor kill
+                # whatever task called publish (the world file watcher, notably). Anything
+                # else is a real bug in the payload or the connection and should surface.
                 disconnected.append(websocket)
 
         if disconnected:

@@ -1,14 +1,35 @@
+import asyncio
 from pathlib import Path
 
 import pytest
+from fastapi import WebSocketDisconnect
 from helpers import make_client
 from watchfiles import Change
 
+from app.core import watcher as watcher_module
+from app.core.hub import EventHub
 from app.core.watcher import (
+    WatcherManager,
     event_reason,
     is_ignored_world_path,
     summarize_watch_changes,
 )
+
+
+class _FakeWebSocket:
+    """A stand-in for a client that may or may not still be listening."""
+
+    def __init__(self, *, disconnected: bool = False) -> None:
+        self.disconnected = disconnected
+        self.received: list[dict[str, object]] = []
+
+    async def accept(self) -> None:
+        return None
+
+    async def send_json(self, data: dict[str, object]) -> None:
+        if self.disconnected:
+            raise WebSocketDisconnect(code=1006)
+        self.received.append(data)
 
 
 @pytest.fixture
@@ -192,3 +213,58 @@ def test_metadata_save_publishes_modified_event(temp_world: Path) -> None:
     assert event["deleted_paths"] == []
     assert event["reason"] == "modified"
     assert event["source"] == "api"
+
+
+@pytest.mark.anyio
+async def test_hub_publish_drops_a_dead_subscriber_and_still_reaches_the_rest() -> None:
+    # A reloaded page or a closed player screen leaves a websocket that raises
+    # WebSocketDisconnect on send. publish() must treat it as gone rather than let it
+    # take down the publish (or, upstream, the watcher task doing the publishing).
+    hub = EventHub()
+    alive = _FakeWebSocket()
+    dead = _FakeWebSocket(disconnected=True)
+    await hub.connect(alive)
+    await hub.connect(dead)
+
+    await hub.publish({"type": "world_changed"})
+
+    assert alive.received == [{"type": "world_changed"}]
+    assert alive in hub._clients
+    assert dead not in hub._clients
+
+
+@pytest.mark.anyio
+async def test_watcher_manager_start_recovers_from_a_previously_dead_watch_task(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    # Regression for: switching worlds called start() on a new root while the old
+    # world's watch task had already died (a publish to a dead subscriber killed it).
+    # start() -> stop() used to re-raise that old exception, turning "open a world"
+    # into a 500 and leaving no watcher running afterwards.
+    call_count = 0
+
+    async def fake_watch_world(_root: Path, _hub: EventHub) -> None:
+        nonlocal call_count
+        call_count += 1
+        if call_count == 1:
+            raise RuntimeError("watch loop died publishing to a dead subscriber")
+        await asyncio.Event().wait()
+
+    monkeypatch.setattr(watcher_module, "watch_world", fake_watch_world)
+
+    manager = WatcherManager(enabled=True, hub=EventHub())
+    first_root = tmp_path / "world-one"
+    second_root = tmp_path / "world-two"
+
+    await manager.start(first_root)
+    await asyncio.sleep(0)  # let the fake watch task die before we switch worlds
+    assert manager._task is not None
+    assert manager._task.done()
+
+    await manager.start(second_root)
+
+    assert manager._root == second_root
+    assert manager._task is not None
+    assert not manager._task.done()
+
+    await manager.stop()

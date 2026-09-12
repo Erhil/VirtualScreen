@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import asyncio
-from contextlib import suppress
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -11,6 +11,8 @@ from app.core.events import world_event_hub, world_event_payload
 from app.core.hub import EventHub
 from app.core.index import refresh_index_for_disk_changes
 from app.core.paths import normalize_relative_path
+
+logger = logging.getLogger(__name__)
 
 IGNORED_DIRECTORIES = {".virtualscreen", ".git", "__pycache__"}
 IGNORED_FILENAMES = {".ds_store", "thumbs.db"}
@@ -144,7 +146,15 @@ class WatcherManager:
         if self._task is None:
             return
         self._task.cancel()
-        with suppress(asyncio.CancelledError):
+        try:
             await self._task
+        except asyncio.CancelledError:
+            pass
+        except Exception:
+            # The task may already have died (e.g. an event it published raised) before
+            # stop() was called; cancel() is then a no-op and awaiting it re-raises that
+            # old exception. That must not fail whoever is stopping the watcher (e.g. the
+            # next open_world) - log it and move on so start() can always begin a new task.
+            logger.exception("World watcher for %s ended with an error", self._root)
         self._task = None
         self._root = None
