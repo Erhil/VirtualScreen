@@ -78,6 +78,7 @@ export function PrepHealthDialog({
       ariaLabel={t("prep.title")}
       className="prep-health-dialog tool-dialog"
       closeLabel={t("prep.close")}
+      closeOnEscape
       dataHelpContext="prep-health"
       dismissOnBackdrop
       onClose={onClose}

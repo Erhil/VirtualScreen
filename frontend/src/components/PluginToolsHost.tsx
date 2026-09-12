@@ -40,6 +40,7 @@ export function PluginToolsHost({
         <Modal
           ariaLabel={openTool.title(t)}
           closeLabel={t("app.close")}
+          closeOnEscape
           onClose={() => setOpenId(null)}
           title={openTool.title(t)}
         >

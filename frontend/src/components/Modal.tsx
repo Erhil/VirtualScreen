@@ -1,4 +1,5 @@
 import { useEffect, type ReactNode } from "react";
+import { useStableHandler } from "../hooks/useStableHandler";
 
 export function Modal({
   ariaLabel,
@@ -21,18 +22,20 @@ export function Modal({
   dismissOnBackdrop?: boolean;
   closeOnEscape?: boolean;
 }) {
+  const stableOnClose = useStableHandler(onClose);
+
   useEffect(() => {
     if (!closeOnEscape) {
       return;
     }
     function handleKeyDown(event: KeyboardEvent) {
       if (event.key === "Escape") {
-        onClose();
+        stableOnClose();
       }
     }
     window.addEventListener("keydown", handleKeyDown);
     return () => window.removeEventListener("keydown", handleKeyDown);
-  }, [closeOnEscape, onClose]);
+  }, [closeOnEscape, stableOnClose]);
 
   return (
     <div

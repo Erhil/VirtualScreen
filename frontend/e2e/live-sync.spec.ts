@@ -133,6 +133,9 @@ test("live sync shows a clear state when an open file is deleted externally", as
 test("edits markdown, saves, reloads, and shows persisted content", async ({ page }) => {
   await page.goto("/");
 
+  const tabsSaved = page.waitForResponse(
+    (response) => response.url().includes("/api/workspace/tabs") && response.request().method() === "PUT"
+  );
   await worldTree(page).getByRole("button", { name: /Sample World Guide/ }).click();
   await enterEditMode(page);
   await expect(page.getByRole("textbox", { name: "Markdown editor" })).not.toContainText("---");
@@ -145,7 +148,7 @@ test("edits markdown, saves, reloads, and shows persisted content", async ({ pag
 
   await saveActiveDraft(page);
   await expect(page.locator(".editor-status")).toHaveText(/Saved|Clean/);
-  await page.waitForTimeout(300);
+  await tabsSaved;
   await page.reload();
 
   await expect(page.getByRole("heading", { name: "Edited Home" })).toBeVisible();
@@ -166,12 +169,15 @@ test("reverts markdown changes before save", async ({ page }) => {
 test("edits a CSV cell, saves, reloads, and shows persisted value", async ({ page }) => {
   await page.goto("/");
 
+  const tabsSaved = page.waitForResponse(
+    (response) => response.url().includes("/api/workspace/tabs") && response.request().method() === "PUT"
+  );
   await openTreeFile(page, "random-events.csv", "Tables");
   await enterEditMode(page);
   await page.getByRole("textbox", { name: "Cell 1-2" }).fill("A fog bank rolls in");
   await saveActiveDraft(page);
   await expect(page.locator(".editor-status")).toHaveText(/Saved|Clean/);
-  await page.waitForTimeout(300);
+  await tabsSaved;
   await page.reload();
 
   await expect(page.getByText("A fog bank rolls in")).toBeVisible();

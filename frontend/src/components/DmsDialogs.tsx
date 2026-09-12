@@ -49,6 +49,7 @@ export function DmsTrustDialog({
       ariaLabel={t("scripts.trustTitle")}
       className="dms-trust-dialog"
       closeLabel={t("app.cancel")}
+      closeOnEscape
       dataHelpContext="document-dms"
       dismissOnBackdrop
       onClose={onCancel}

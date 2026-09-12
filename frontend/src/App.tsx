@@ -602,14 +602,32 @@ export function App() {
     });
   }, [activeTab?.path, activeMetadataEdit.mode, audio.audioMixer, display.displayState, map.mapState]);
 
+  // Read via a ref rather than adding these to the effect's dependencies: re-registering
+  // this listener on every open/close of the link menu, tree menu, or peek dialog would
+  // itself cause a render each time a dialog's own closeOnEscape listener is mid-dispatch -
+  // and a listener (re-)added while the current keydown is still propagating does not fire
+  // for that event. Only calling the setters when there is actually something to close
+  // (instead of unconditionally, as before) keeps a plain Escape press from re-rendering at
+  // all when none of the three are open, which is what let this handler win that race
+  // against Modal's own bubble-phase listener.
+  const escapeCloseStateRef = useRef({ linkContextMenu, worldTreeContextMenu, peekState });
+  escapeCloseStateRef.current = { linkContextMenu, worldTreeContextMenu, peekState };
+
   useEffect(() => {
     function handleEscape(event: KeyboardEvent) {
       if (event.key !== "Escape") {
         return;
       }
-      setLinkContextMenu({ open: false });
-      closeWorldTreeContextMenu(true);
-      closePeek();
+      const current = escapeCloseStateRef.current;
+      if (current.linkContextMenu.open) {
+        setLinkContextMenu({ open: false });
+      }
+      if (current.worldTreeContextMenu.open) {
+        closeWorldTreeContextMenu(true);
+      }
+      if (current.peekState.open) {
+        closePeek();
+      }
     }
 
     window.addEventListener("keydown", handleEscape);

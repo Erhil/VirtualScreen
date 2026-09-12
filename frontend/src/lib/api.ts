@@ -588,10 +588,12 @@ async function getJson<T>(path: string): Promise<T> {
 async function sendJson<T>(
   path: string,
   method: "DELETE" | "POST" | "PUT",
-  body?: unknown
+  body?: unknown,
+  options?: { keepalive?: boolean }
 ): Promise<T> {
   const response = await fetch(path, {
     method,
+    ...(options?.keepalive ? { keepalive: true } : {}),
     ...(body === undefined
       ? {}
       : {
@@ -1038,13 +1040,17 @@ export function deleteWorkspace(workspaceId: string): Promise<NamedWorkspaceSumm
 
 export function saveWorkspaceTabs(
   tabs: WorkspaceTab[],
-  activePath: string | null
+  activePath: string | null,
+  options?: { keepalive?: boolean }
 ): Promise<WorkspaceState> {
-  return sendJson<WorkspaceState>("/api/workspace/tabs", "PUT", { tabs, activePath });
+  return sendJson<WorkspaceState>("/api/workspace/tabs", "PUT", { tabs, activePath }, options);
 }
 
-export function saveWorkspaceLayout(layout: WorkspaceLayout): Promise<WorkspaceState> {
-  return sendJson<WorkspaceState>("/api/workspace/layout", "PUT", { layout });
+export function saveWorkspaceLayout(
+  layout: WorkspaceLayout,
+  options?: { keepalive?: boolean }
+): Promise<WorkspaceState> {
+  return sendJson<WorkspaceState>("/api/workspace/layout", "PUT", { layout }, options);
 }
 
 export function saveFavorites(favorites: WorkspaceTab[]): Promise<WorkspaceState> {

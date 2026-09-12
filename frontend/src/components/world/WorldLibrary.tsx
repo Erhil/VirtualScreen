@@ -83,6 +83,7 @@ export function WorldOpenDialog({
       ariaLabel={t("world.openFolderTitle")}
       className="world-dialog"
       closeLabel={t("world.closeOpenFolder")}
+      closeOnEscape
       onClose={onClose}
       title={t("world.openFolderTitle")}
     >

@@ -29,7 +29,6 @@ test("DMS scripts run from editor and scripts tool @smoke", async ({ page }) => 
   await expect(trust.getByText("Scripts/hello_world1.dms", { exact: true })).toBeVisible();
   await trust.getByText("Cancel", { exact: true }).click();
   await expect(trust).toBeHidden();
-  await page.waitForTimeout(300);
   expect(runRequests).toEqual([]);
   await page
     .getByRole("region", { name: "Document status" })
@@ -59,6 +58,36 @@ test("DMS scripts run from editor and scripts tool @smoke", async ({ page }) => 
   const scripts = toolsPanel(page).getByRole("region", { name: "DMS Scripts" });
   await expect(scripts.getByText("Hello World")).toBeVisible();
   await expect(scripts.getByRole("button", { name: "Run Saved Script" }).first()).toBeVisible();
+});
+
+test("Escape closes the trust prompt like Cancel, but not the DMS script form", async ({ page }) => {
+  await page.goto("/");
+
+  await openScriptsFile(page, "hello_world1\\.dms");
+  const runRequests: string[] = [];
+  await page.route("**/api/scripts/run", async (route) => {
+    runRequests.push((route.request().postDataJSON() as { path: string }).path);
+    await route.continue();
+  });
+  await page
+    .getByRole("region", { name: "Document status" })
+    .getByRole("button", { name: "Run Active Script", exact: true })
+    .click();
+  const trust = page.getByRole("dialog", { name: "Trust DMS Scripts" });
+  await expect(trust).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(trust).toBeHidden();
+  expect(runRequests).toEqual([]);
+
+  await page
+    .getByRole("region", { name: "Document status" })
+    .getByRole("button", { name: "Run Active Script", exact: true })
+    .click();
+  await confirmDmsTrustIfVisible(page, "Scripts/hello_world1.dms");
+  const form = page.getByRole("dialog", { name: "DMS Script Form" });
+  await expect(form).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(form).toBeVisible();
 });
 
 test("DMS command reference lists signatures examples and safety notes", async ({ page }) => {

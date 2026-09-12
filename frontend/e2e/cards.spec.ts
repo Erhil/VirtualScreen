@@ -365,6 +365,9 @@ test("DMS card_template can create a V2 card from a world-local template", async
 test("edits structured card data, saves, reloads, and indexes card text", async ({ page }) => {
   await page.goto("/");
 
+  const tabsSaved = page.waitForResponse(
+    (response) => response.url().includes("/api/workspace/tabs") && response.request().method() === "PUT"
+  );
   await openCardsFile(page, "Moonlit Key\\.cs");
   await expect(page.getByRole("heading", { name: "Moonlit Key" })).toBeVisible();
 
@@ -379,7 +382,7 @@ test("edits structured card data, saves, reloads, and indexes card text", async 
   await saveActiveDraft(page);
   await expect(page.locator(".editor-status")).toHaveText(/Saved|Clean/);
 
-  await page.waitForTimeout(300);
+  await tabsSaved;
   await page.reload();
   await expect(page.getByRole("heading", { name: "Moonlit Key Revised" })).toBeVisible();
   const mainPane = page.getByLabel("Main viewer pane");
@@ -474,9 +477,15 @@ test("structured cards participate in favorites, recents, and workspace restore 
 }) => {
   await gotoWorkspace(page);
 
+  const tabsSaved = page.waitForResponse(
+    (response) => response.url().includes("/api/workspace/tabs") && response.request().method() === "PUT"
+  );
   await openCardsFile(page, "Moonlit Key\\.cs");
   const moonlit = worldTree(page).getByRole("button", { name: /Moonlit Key Moonlit Key\.cs/ });
   await moonlit.click({ button: "right" });
+  const favoritesSaved = page.waitForResponse(
+    (response) => response.url().includes("/api/workspace/favorites") && response.request().method() === "PUT"
+  );
   await page.getByRole("menu").getByRole("button", { name: "Favorite" }).click();
 
   const favorites = page.getByRole("region", { name: "Favorites" });
@@ -485,7 +494,7 @@ test("structured cards participate in favorites, recents, and workspace restore 
   await recent.getByRole("button", { name: /Recent/ }).click();
   await expect(recent.getByRole("button", { name: /Moonlit Key/ })).toBeVisible();
 
-  await page.waitForTimeout(300);
+  await Promise.all([tabsSaved, favoritesSaved]);
   await page.reload();
   await expect(page.getByRole("tab", { name: "Moonlit Key" })).toHaveAttribute(
     "aria-selected",

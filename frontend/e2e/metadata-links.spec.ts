@@ -27,6 +27,9 @@ test("edits metadata title and refreshes tab tree and search", async ({ page }) 
 test("edits metadata tags and aliases and persists after reload", async ({ page }) => {
   await page.goto("/");
 
+  const tabsSaved = page.waitForResponse(
+    (response) => response.url().includes("/api/workspace/tabs") && response.request().method() === "PUT"
+  );
   await openTreeFile(page, /Captain Ilyra Captain Ilyra\.md/, "NPCs");
   await openToolSection(page, "Metadata");
   const metadata = metadataTool(page);
@@ -37,8 +40,11 @@ test("edits metadata tags and aliases and persists after reload", async ({ page 
   await metadata
     .getByRole("textbox", { name: "Aliases" })
     .fill("Ilyra, Watch Captain, Gate Captain");
+  const metadataSaved = page.waitForResponse(
+    (response) => response.url().includes("/api/page/metadata") && response.request().method() === "PUT"
+  );
   await metadata.getByRole("button", { name: "Save Metadata" }).click();
-  await page.waitForTimeout(300);
+  await Promise.all([tabsSaved, metadataSaved]);
   await page.reload();
   await openToolSection(page, "Metadata");
 

@@ -215,6 +215,19 @@ export function useWorkspace({ ready, t, onTabShown, onWorkspaceChanged }: UseWo
     return () => window.clearTimeout(timeout);
   }, [currentWorkspaceId, tabState.tabs, workspaceLayout, ready]);
 
+  // A reload, a closed tab, or navigating away fires pagehide before an in-flight or
+  // still-debounced tabs/layout save would otherwise land - flush the latest state so it
+  // is not lost. keepalive on the underlying requests (see api.ts) keeps them alive past
+  // unload.
+  useEffect(() => {
+    function handlePageHide() {
+      void flushCurrentWorkspaceState();
+    }
+
+    window.addEventListener("pagehide", handlePageHide);
+    return () => window.removeEventListener("pagehide", handlePageHide);
+  }, []);
+
   const normalizedWorkspaceLayout = normalizeWorkspaceLayout(
     workspaceLayout,
     tabState.tabs.map(openTabToWorkspaceTab)
@@ -401,8 +414,8 @@ export function useWorkspace({ ready, t, onTabShown, onWorkspaceChanged }: UseWo
       shouldPersistTab
     );
     await Promise.all([
-      saveWorkspaceTabs(payload.tabs, payload.activePath),
-      saveWorkspaceLayout(payload.layout)
+      saveWorkspaceTabs(payload.tabs, payload.activePath, { keepalive: true }),
+      saveWorkspaceLayout(payload.layout, { keepalive: true })
     ]).catch(() => {});
   }
 

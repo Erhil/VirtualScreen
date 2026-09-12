@@ -181,11 +181,14 @@ test("workspace split panes show two files and persist layout", async ({ page })
   const resizer = page.getByRole("separator", { name: "Resize workspace panes" });
   const box = await resizer.boundingBox();
   expect(box).not.toBeNull();
+  const layoutSaved = page.waitForResponse(
+    (response) => response.url().includes("/api/workspace/layout") && response.request().method() === "PUT"
+  );
   await page.mouse.move((box?.x ?? 0) + 3, (box?.y ?? 0) + 20);
   await page.mouse.down();
   await page.mouse.move((box?.x ?? 0) - 80, (box?.y ?? 0) + 20);
   await page.mouse.up();
-  await page.waitForTimeout(400);
+  await layoutSaved;
   await page.reload();
 
   await expect(workspaceControls.getByRole("button", { name: "Split", exact: true })).toHaveAttribute(
@@ -284,12 +287,15 @@ test("favorites survive reload", async ({ page }) => {
   const captain = await captainTreeButton(page);
   await captain.click();
   await captain.click({ button: "right" });
+  const favoritesSaved = page.waitForResponse(
+    (response) => response.url().includes("/api/workspace/favorites") && response.request().method() === "PUT"
+  );
   await page.getByRole("menu").getByRole("button", { name: "Favorite" }).click();
 
   const favorites = page.getByRole("region", { name: "Favorites" });
   await expect(favorites.getByRole("button", { name: /Captain Ilyra/ })).toBeVisible();
 
-  await page.waitForTimeout(300);
+  await favoritesSaved;
   await page.reload();
 
   await expect(favorites.getByRole("button", { name: /Captain Ilyra/ })).toBeVisible();
@@ -300,15 +306,33 @@ test("open tabs and active tab survive reload", async ({ page }) => {
 
   await worldTree(page).getByRole("button", { name: /Sample World Guide/ }).click();
   await openTreeFile(page, "random-events.csv", "Tables");
+  const tabsSaved = page.waitForResponse(
+    (response) => response.url().includes("/api/workspace/tabs") && response.request().method() === "PUT"
+  );
   await page.getByRole("tab", { name: "Sample World Guide" }).click();
 
-  await page.waitForTimeout(300);
+  await tabsSaved;
   await page.reload();
 
   await expect(page.getByRole("tab", { name: "Sample World Guide" })).toHaveAttribute(
     "aria-selected",
     "true"
   );
+  await expect(page.getByRole("tab", { name: "random-events.csv" })).toBeVisible();
+});
+
+test("a tab opened right before a reload is not lost", async ({ page }) => {
+  await page.goto("/");
+  await worldTree(page).getByRole("button", { name: /Sample World Guide/ }).click();
+  await expect(page.getByRole("tab", { name: "Sample World Guide" })).toBeVisible();
+
+  // Deliberately no wait for the debounced save here: opening a tab and reloading straight
+  // away is the race the pagehide flush exists for. Without that flush the second tab is
+  // gone after the reload, because its PUT was still 150 ms away when the page went.
+  await ensureTreeFolderOpen(page, "Tables");
+  await worldTree(page).getByRole("button", { name: /random-events\.csv/ }).click();
+  await page.reload();
+
   await expect(page.getByRole("tab", { name: "random-events.csv" })).toBeVisible();
 });
 

@@ -36,6 +36,7 @@ export function TrashManagerDialog({
       ariaLabel="Trash"
       className="trash-dialog"
       closeLabel="Close Trash"
+      closeOnEscape
       onClose={onClose}
       title="Trash"
     >

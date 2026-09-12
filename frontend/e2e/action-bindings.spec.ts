@@ -4,6 +4,7 @@ import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import { copySampleWorldSeed, resetWorldDirectory } from "./world-fixtures";
+import { openToolSection } from "./world-browser-helpers";
 
 const currentDir = dirname(fileURLToPath(import.meta.url));
 const repoRoot = resolve(currentDir, "../..");
@@ -62,18 +63,6 @@ function worldTree(page: Page) {
 
 function toolsPanel(page: Page) {
   return page.getByRole("complementary", { name: "DM Tools" });
-}
-
-async function openToolSection(page: Page, name: "Actions" | "Screen") {
-  const button = toolsPanel(page).getByRole("button", { name: new RegExp(`^${name}`) });
-  for (let attempt = 0; attempt < 3; attempt += 1) {
-    if ((await button.getAttribute("aria-expanded")) === "true") {
-      return;
-    }
-    await button.click();
-    await page.waitForTimeout(50);
-  }
-  await expect(button).toHaveAttribute("aria-expanded", "true");
 }
 
 async function actionsTool(page: Page) {
