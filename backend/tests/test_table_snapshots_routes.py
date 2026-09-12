@@ -3,6 +3,8 @@ from pathlib import Path
 from fastapi.testclient import TestClient
 from helpers import make_client
 
+from app.core.table_snapshots import create_table_snapshot, get_table_snapshot, state_from_payload
+
 
 def make_world(tmp_path: Path) -> Path:
     world = tmp_path / "world"
@@ -264,5 +266,35 @@ def test_table_snapshot_delete(tmp_path: Path) -> None:
     assert deleted.json() == {"deleted": True}
     assert client.get("/api/table-snapshots").json() == []
     assert client.delete(f"/api/table-snapshots/{snapshot['id']}").status_code == 404
+
+
+def test_table_snapshot_reads_back_exactly_what_was_stored(tmp_path: Path) -> None:
+    world = make_world(tmp_path)
+    client = make_client(world)
+    seed_table_state(client)
+    audio = {
+        "ambient": {"track": None, "volume": 0.8, "loop": False, "playing": False},
+        "music": {"track": None, "volume": 0.8, "loop": False, "playing": False},
+        "effect": {
+            "track": {"path": ".music/effects/bell.mp3"},
+            "volume": 0.4,
+            "loop": True,
+            "playing": True,
+        },
+    }
+    state_value = snapshot_state(client, audio)
+
+    # Computed independently of the create/save path, so a bug that drops or
+    # mangles a field while saving shows up as a mismatch against this, not
+    # just against another read of the same (possibly wrong) stored row.
+    expected_state = state_from_payload(world, state_value)
+
+    created = create_table_snapshot(world, "Core Roundtrip", state_value)
+    fetched = get_table_snapshot(world, created.id)
+
+    assert fetched.state == expected_state
+    # Pinned to the literal the fixture seeded, because state_from_payload runs on both
+    # sides of the comparison above: a parse-side bug would cancel itself out there.
+    assert fetched.state.workspace.activePath == "Handout.md"
 
 

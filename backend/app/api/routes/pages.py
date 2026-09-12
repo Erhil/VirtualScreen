@@ -31,7 +31,13 @@ from app.core.pages import (
     render_markdown_with_metadata,
     render_sidecar_metadata,
 )
-from app.core.paths import WorldPathError, normalize_relative_path, resolve_under_root
+from app.core.paths import (
+    WorldPathError,
+    ensure_existing_world_file,
+    normalize_relative_path,
+    resolve_under_root,
+    world_path_http_error,
+)
 
 router = APIRouter()
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -136,12 +142,9 @@ def _resolve_page(settings: Settings, requested_path: str):
     try:
         path = resolve_under_root(root, requested_path)
     except WorldPathError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise world_path_http_error(exc) from exc
 
-    if not path.exists():
-        raise HTTPException(status_code=404, detail="World file was not found.")
-    if path.is_dir():
-        raise HTTPException(status_code=400, detail="World path points to a directory.")
+    ensure_existing_world_file(path)
 
     return root, path
 

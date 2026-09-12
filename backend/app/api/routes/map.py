@@ -1,3 +1,5 @@
+from collections.abc import Iterator
+from contextlib import contextmanager
 from typing import Annotated
 
 from fastapi import (
@@ -47,7 +49,7 @@ from app.core.map import (
     set_map_viewport,
     stop_map,
 )
-from app.core.paths import WorldPathError
+from app.core.paths import WorldPathError, world_path_http_error
 
 router = APIRouter()
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -103,8 +105,17 @@ def _response(state: MapState) -> dict[str, object]:
     return map_state_payload(state)
 
 
-def _bad_path(exc: WorldPathError) -> HTTPException:
-    return HTTPException(status_code=400, detail=str(exc))
+@contextmanager
+def _translate_map_path_errors() -> Iterator[None]:
+    """Translate the path errors every map-media route raises the same way for."""
+    try:
+        yield
+    except WorldPathError as exc:
+        raise world_path_http_error(exc) from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Map image was not found.") from exc
+    except IsADirectoryError as exc:
+        raise HTTPException(status_code=400, detail="Map path points to a directory.") from exc
 
 
 def _source_path(payload: MapSourceRequest) -> str:
@@ -135,13 +146,8 @@ def screen_map_media(path: str, settings: SettingsDep) -> FileResponse:
     if not state.presenting or not state.image_path or path != state.image_path:
         raise HTTPException(status_code=403, detail="Map image is not currently displayed.")
     try:
-        _, media_path = map_image_path(root, path)
-    except WorldPathError as exc:
-        raise _bad_path(exc) from exc
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="Map image was not found.") from exc
-    except IsADirectoryError as exc:
-        raise HTTPException(status_code=400, detail="Map path points to a directory.") from exc
+        with _translate_map_path_errors():
+            _, media_path = map_image_path(root, path)
     except ValueError as exc:
         raise HTTPException(status_code=415, detail=str(exc)) from exc
 
@@ -166,13 +172,8 @@ def map_source(
     settings: SettingsDep,
 ) -> dict[str, object]:
     try:
-        state = set_map_source(settings.resolved_world_root, _source_path(payload))
-    except WorldPathError as exc:
-        raise _bad_path(exc) from exc
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="Map image was not found.") from exc
-    except IsADirectoryError as exc:
-        raise HTTPException(status_code=400, detail="Map path points to a directory.") from exc
+        with _translate_map_path_errors():
+            state = set_map_source(settings.resolved_world_root, _source_path(payload))
     except ValueError as exc:
         raise HTTPException(status_code=415, detail=str(exc)) from exc
     _queue(background_tasks, state, settings)
@@ -329,14 +330,9 @@ def map_preset_save(
     settings: SettingsDep,
 ) -> dict[str, object]:
     try:
-        state = map_state_from_payload(payload.state) if payload.state is not None else None
-        preset = save_map_preset(settings.resolved_world_root, payload.name, state)
-    except WorldPathError as exc:
-        raise _bad_path(exc) from exc
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="Map image was not found.") from exc
-    except IsADirectoryError as exc:
-        raise HTTPException(status_code=400, detail="Map path points to a directory.") from exc
+        with _translate_map_path_errors():
+            state = map_state_from_payload(payload.state) if payload.state is not None else None
+            preset = save_map_preset(settings.resolved_world_root, payload.name, state)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     return map_preset_payload(preset)
@@ -349,15 +345,10 @@ def map_preset_load(
     settings: SettingsDep,
 ) -> dict[str, object]:
     try:
-        state = load_map_preset(settings.resolved_world_root, preset_id)
+        with _translate_map_path_errors():
+            state = load_map_preset(settings.resolved_world_root, preset_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail="Map preset was not found.") from exc
-    except WorldPathError as exc:
-        raise _bad_path(exc) from exc
-    except FileNotFoundError as exc:
-        raise HTTPException(status_code=404, detail="Map image was not found.") from exc
-    except IsADirectoryError as exc:
-        raise HTTPException(status_code=400, detail="Map path points to a directory.") from exc
     except ValueError as exc:
         raise HTTPException(status_code=415, detail=str(exc)) from exc
     _queue(background_tasks, state, settings)

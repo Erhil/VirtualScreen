@@ -36,7 +36,7 @@ from app.core.display import (
     show_active,
 )
 from app.core.map import queue_map_event, stop_map
-from app.core.paths import WorldPathError, normalize_relative_path
+from app.core.paths import WorldPathError, normalize_relative_path, world_path_http_error
 
 router = APIRouter()
 SettingsDep = Annotated[Settings, Depends(get_settings)]
@@ -69,7 +69,7 @@ def _resolve_item(settings: Settings, requested_path: str):
     try:
         return display_item_for_path(settings.resolved_world_root, requested_path)
     except WorldPathError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise world_path_http_error(exc) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="World file was not found.") from exc
     except IsADirectoryError as exc:
@@ -122,7 +122,7 @@ def _normalize_screen_path(path: str) -> str:
     try:
         return normalize_relative_path(path)
     except WorldPathError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise world_path_http_error(exc) from exc
 
 
 def _require_screen_path(path: str, allowed_paths: set[str]) -> str:

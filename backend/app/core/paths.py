@@ -2,6 +2,8 @@ import json
 from pathlib import Path, PurePosixPath
 from typing import Any
 
+from fastapi import HTTPException
+
 
 def is_link_or_reparse_point(path: Path) -> bool:
     try:
@@ -13,6 +15,19 @@ def is_link_or_reparse_point(path: Path) -> bool:
 
 class WorldPathError(ValueError):
     """Raised when a user-supplied world path is invalid or unsafe."""
+
+
+def world_path_http_error(exc: WorldPathError) -> HTTPException:
+    """Build the 400 HTTPException every route raises for an invalid world path."""
+    return HTTPException(status_code=400, detail=str(exc))
+
+
+def ensure_existing_world_file(path: Path) -> None:
+    """Raise the standard HTTPExceptions for a world file that must exist and not be a directory."""
+    if not path.exists():
+        raise HTTPException(status_code=404, detail="World file was not found.")
+    if path.is_dir():
+        raise HTTPException(status_code=400, detail="World path points to a directory.")
 
 
 RESERVED_WORLD_PATH_PARTS = {".virtualscreen", ".git", "__pycache__"}

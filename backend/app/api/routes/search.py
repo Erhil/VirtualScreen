@@ -3,7 +3,7 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, HTTPException, Query
 
 from app.core.config import Settings, get_settings
-from app.core.paths import WorldPathError, normalize_relative_path
+from app.core.paths import WorldPathError, normalize_relative_path, world_path_http_error
 from app.core.search import SearchResult, search_index
 
 router = APIRouter()
@@ -30,7 +30,7 @@ def search(
         try:
             normalized_folder = normalize_relative_path(folder)
         except WorldPathError as exc:
-            raise HTTPException(status_code=400, detail=str(exc)) from exc
+            raise world_path_http_error(exc) from exc
 
     return search_index(
         settings.resolved_world_root,

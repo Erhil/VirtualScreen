@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.core.config import Settings, get_settings
-from app.core.paths import WorldPathError
+from app.core.paths import WorldPathError, world_path_http_error
 from app.core.scripts import (
     DmsOutput,
     DmsRunStatus,
@@ -106,7 +106,7 @@ def script_run(payload: DmsRunPayload, settings: SettingsDep) -> DmsRunStateMode
         run = run_dms_script(settings.resolved_world_root, payload.path)
         return DmsRunStateModel(**run_payload(run))
     except WorldPathError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
+        raise world_path_http_error(exc) from exc
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except IsADirectoryError as exc:
