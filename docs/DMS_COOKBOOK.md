@@ -92,8 +92,3 @@ create_card("Cards/Captain Mira Sheet.cs", card)
 
 Computed formulas are evaluated by the card viewer only. They cannot run Python, call DMS,
 read files, use the network, or mutate the card.
-
-## Legacy Compatibility
-
-Legacy deprecated `/api/scenarios` routes and `.virtualscreen/scenarios` manifests remain
-for old integrations and compatibility tests. New DM automation should use `.dms` files.

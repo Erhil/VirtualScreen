@@ -44,10 +44,6 @@ export type ToolAutoOpenInput = {
   metadataEditing: boolean;
 };
 
-export type ToolPanelLocksInput = {
-  metadataEditing: boolean;
-};
-
 function uniqueTools(tools: ToolId[]): ToolId[] {
   return Array.from(new Set(tools));
 }

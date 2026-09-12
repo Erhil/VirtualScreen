@@ -151,9 +151,6 @@ script tab, edit and save it, then run it from the editor toolbar, Scripts tool,
 script fast slot. Temporary Markdown/CSV output tabs can be saved back to the world with
 Save As.
 
-Legacy deprecated `/api/scenarios` endpoints remain available for compatibility tests and
-old integrations, but new frontend work should target `.dms` scripts.
-
 ## Coding Notes
 
 - Keep all world access behind safe path helpers.

@@ -23,6 +23,7 @@ import {
   validateContextualFileName,
   validateManagedFolderPath,
   validateManagedFilePath,
+  validateRenamedWorldPath,
   workspaceTabFromWorldFile
 } from "./fileManagement";
 
@@ -254,6 +255,17 @@ describe("file management helpers", () => {
     expect(validateManagedFolderPath("../escape")).toContain("traversal");
     expect(validateManagedFolderPath("NPCs/New.md")).toContain("Folder names");
     expect(validateManagedFolderPath("NPCs/Tavern")).toBeNull();
+  });
+
+  it("rejects music library paths from being managed", () => {
+    expect(validateManagedFilePath(".music/effects/file.mp3")).toContain("Music library");
+    expect(validateManagedFolderPath(".music/effects")).toContain("Music library");
+    expect(validateRenamedWorldPath(".music/effects", "directory")).toContain("Music library");
+  });
+
+  it("allows renaming non-managed files that the tree still offers Rename for", () => {
+    expect(validateRenamedWorldPath("Media/map.png", "file")).toBeNull();
+    expect(validateManagedFilePath("Media/map.png")).toContain("Markdown, CSV, DMS, and Cards");
   });
 
   it("formats conflict and validation errors for dialogs", () => {

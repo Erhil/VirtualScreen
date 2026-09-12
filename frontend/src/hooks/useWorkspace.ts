@@ -255,10 +255,20 @@ export function useWorkspace({ ready, t, onTabShown, onWorkspaceChanged }: UseWo
       .catch(() => {});
   }
 
-  function openWorkspaceTab(tab: WorkspaceTab) {
-    onTabShown(tab.path);
+  function persistFavoritesAndRecent(nextFavorites: WorkspaceTab[], nextRecentFiles: WorkspaceTab[]) {
+    setFavorites(nextFavorites);
+    setRecentFiles(nextRecentFiles);
+    void saveFavorites(nextFavorites)
+      .then((workspace) => setFavorites(workspace.favorites))
+      .catch(() => {});
+    void saveRecentFiles(nextRecentFiles)
+      .then((workspace) => setRecentFiles(workspace.recentFiles))
+      .catch(() => {});
+  }
+
+  function openTabInActivePane(tab: OpenTab) {
     setTabState((state) => {
-      const nextState = openTab(state, workspaceTabToOpenTab(tab));
+      const nextState = openTab(state, tab);
       setWorkspaceLayout((layout) =>
         openFileInActivePane(
           normalizeWorkspaceLayout(layout, nextState.tabs.map(openTabToWorkspaceTab)),
@@ -267,6 +277,11 @@ export function useWorkspace({ ready, t, onTabShown, onWorkspaceChanged }: UseWo
       );
       return nextState;
     });
+  }
+
+  function openWorkspaceTab(tab: WorkspaceTab) {
+    onTabShown(tab.path);
+    openTabInActivePane(workspaceTabToOpenTab(tab));
     persistRecent(tab);
   }
 
@@ -325,16 +340,7 @@ export function useWorkspace({ ready, t, onTabShown, onWorkspaceChanged }: UseWo
   function openVirtualTab(tab: OpenTab) {
     // Opens a tab that has no file on disk, without persistRecent, which would 400 trying
     // to record a recent file for a path that does not exist.
-    setTabState((state) => {
-      const nextState = openTab(state, tab);
-      setWorkspaceLayout((layout) =>
-        openFileInActivePane(
-          normalizeWorkspaceLayout(layout, nextState.tabs.map(openTabToWorkspaceTab)),
-          tab.path
-        )
-      );
-      return nextState;
-    });
+    openTabInActivePane(tab);
   }
 
   function openScreenTab() {
@@ -517,14 +523,7 @@ export function useWorkspace({ ready, t, onTabShown, onWorkspaceChanged }: UseWo
     }));
     const nextFavorites = remapMovedWorkspacePaths(favorites, oldPath, newPath);
     const nextRecentFiles = remapMovedWorkspacePaths(recentFiles, oldPath, newPath);
-    setFavorites(nextFavorites);
-    setRecentFiles(nextRecentFiles);
-    void saveFavorites(nextFavorites)
-      .then((workspace) => setFavorites(workspace.favorites))
-      .catch(() => {});
-    void saveRecentFiles(nextRecentFiles)
-      .then((workspace) => setRecentFiles(workspace.recentFiles))
-      .catch(() => {});
+    persistFavoritesAndRecent(nextFavorites, nextRecentFiles);
   }
 
   function forgetWorkspacePath(path: string) {
@@ -549,14 +548,7 @@ export function useWorkspace({ ready, t, onTabShown, onWorkspaceChanged }: UseWo
     }));
     const nextFavorites = removeDescendantWorkspacePaths(favorites, path);
     const nextRecentFiles = removeDescendantWorkspacePaths(recentFiles, path);
-    setFavorites(nextFavorites);
-    setRecentFiles(nextRecentFiles);
-    void saveFavorites(nextFavorites)
-      .then((workspace) => setFavorites(workspace.favorites))
-      .catch(() => {});
-    void saveRecentFiles(nextRecentFiles)
-      .then((workspace) => setRecentFiles(workspace.recentFiles))
-      .catch(() => {});
+    persistFavoritesAndRecent(nextFavorites, nextRecentFiles);
   }
 
   function retitleFromPages(nextPages: PageSummary[]) {
@@ -634,14 +626,7 @@ export function useWorkspace({ ready, t, onTabShown, onWorkspaceChanged }: UseWo
   function replaceWorkspaceCollections(oldPath: string, replacement: WorkspaceTab) {
     const nextFavorites = replaceWorkspacePath(favorites, oldPath, replacement);
     const nextRecentFiles = replaceWorkspacePath(recentFiles, oldPath, replacement);
-    setFavorites(nextFavorites);
-    setRecentFiles(nextRecentFiles);
-    void saveFavorites(nextFavorites)
-      .then((workspace) => setFavorites(workspace.favorites))
-      .catch(() => {});
-    void saveRecentFiles(nextRecentFiles)
-      .then((workspace) => setRecentFiles(workspace.recentFiles))
-      .catch(() => {});
+    persistFavoritesAndRecent(nextFavorites, nextRecentFiles);
   }
 
   function removeDeletedWorkspaceItems(deletedPaths: string[]) {

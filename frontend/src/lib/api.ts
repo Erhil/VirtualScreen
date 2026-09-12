@@ -71,10 +71,6 @@ export type WorldLibraryState = {
   recent: WorldLibraryEntry[];
 };
 
-export type CreateWorldRequest = {
-  name: string;
-};
-
 export type WorldEntry = {
   name: string;
   path: string;

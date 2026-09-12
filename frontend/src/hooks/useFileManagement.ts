@@ -45,6 +45,7 @@ import {
   validateContextualFileName,
   validateManagedFilePath,
   validateManagedFolderPath,
+  validateRenamedWorldPath,
   type ManagedFileType
 } from "../lib/fileManagement";
 import { markLocalWrite, unmarkLocalWrite } from "../lib/localWrites";
@@ -87,29 +88,6 @@ function createFileDialogState(
     status: "idle",
     error: null
   };
-}
-
-function treePathValidation(path: string, entryKind: "file" | "directory"): string | null {
-  if (entryKind === "directory") {
-    return validateManagedFolderPath(path);
-  }
-  const trimmedPath = path.trim();
-  if (!trimmedPath) {
-    return "Enter a world-relative path.";
-  }
-  if (trimmedPath.startsWith("/") || /^[a-z]:/i.test(trimmedPath)) {
-    return "Use a world-relative path.";
-  }
-  if (trimmedPath.split(/[\\/]/).some((part) => part === "..")) {
-    return "Path cannot contain parent-directory traversal.";
-  }
-  if (trimmedPath.replace(/\\/g, "/").split("/")[0] === ".virtualscreen") {
-    return "VirtualScreen internal paths cannot be managed.";
-  }
-  if (trimmedPath.replace(/\\/g, "/").split("/")[0] === ".music") {
-    return "Music library paths cannot be managed here.";
-  }
-  return null;
 }
 
 export type UseFileManagementOptions = {
@@ -470,7 +448,8 @@ export function useFileManagement({
 
   async function handleRenameFileDialog(state: Extract<FileDialogState, { kind: "rename" }>) {
     const newPath = normalizeDialogPath(state.newPath);
-    const validation = blockedByUnsavedChanges(state.path) ?? treePathValidation(newPath, state.entryKind);
+    const validation =
+      blockedByUnsavedChanges(state.path) ?? validateRenamedWorldPath(newPath, state.entryKind);
     if (
       !validation &&
       state.entryKind === "file" &&

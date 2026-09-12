@@ -245,13 +245,10 @@ export function hasDirtyDescendantPath(
   return false;
 }
 
-export function validateManagedFilePath(
-  path: string,
-  expectedType?: ManagedFileType
-): string | null {
+function validateWorldPathShape(path: string, emptyMessage: string): string | null {
   const trimmedPath = path.trim();
   if (!trimmedPath) {
-    return "Enter a world-relative path.";
+    return emptyMessage;
   }
   if (trimmedPath.startsWith("/") || /^[a-z]:/i.test(trimmedPath)) {
     return "Use a world-relative path.";
@@ -262,7 +259,22 @@ export function validateManagedFilePath(
   if (trimmedPath.replace(/\\/g, "/").split("/")[0] === ".virtualscreen") {
     return "VirtualScreen internal paths cannot be managed.";
   }
+  if (trimmedPath.replace(/\\/g, "/").split("/")[0] === ".music") {
+    return "Music library paths cannot be managed here.";
+  }
+  return null;
+}
 
+export function validateManagedFilePath(
+  path: string,
+  expectedType?: ManagedFileType
+): string | null {
+  const shapeError = validateWorldPathShape(path, "Enter a world-relative path.");
+  if (shapeError) {
+    return shapeError;
+  }
+
+  const trimmedPath = path.trim();
   const inferredType = inferManagedFileType(trimmedPath);
   if (!inferredType) {
     return MANAGED_FILE_TYPES_MESSAGE;
@@ -274,23 +286,28 @@ export function validateManagedFilePath(
 }
 
 export function validateManagedFolderPath(path: string): string | null {
+  const shapeError = validateWorldPathShape(path, "Enter a world-relative folder path.");
+  if (shapeError) {
+    return shapeError;
+  }
+
   const trimmedPath = path.trim();
-  if (!trimmedPath) {
-    return "Enter a world-relative folder path.";
-  }
-  if (trimmedPath.startsWith("/") || /^[a-z]:/i.test(trimmedPath)) {
-    return "Use a world-relative path.";
-  }
-  if (trimmedPath.split(/[\\/]/).some((part) => part === "..")) {
-    return "Path cannot contain parent-directory traversal.";
-  }
-  if (trimmedPath.replace(/\\/g, "/").split("/")[0] === ".virtualscreen") {
-    return "VirtualScreen internal paths cannot be managed.";
-  }
   if (fileNameFromPath(trimmedPath).includes(".")) {
     return "Folder names cannot include a file extension.";
   }
   return null;
+}
+
+// Renaming keeps a file's own type, so the rename dialog checks only the shape of the path -
+// the tree offers Rename for images, PDFs and audio too, which the managed-type rule would block.
+export function validateRenamedWorldPath(
+  path: string,
+  entryKind: "file" | "directory"
+): string | null {
+  if (entryKind === "directory") {
+    return validateManagedFolderPath(path);
+  }
+  return validateWorldPathShape(path, "Enter a world-relative path.");
 }
 
 export function managementErrorMessage(error: unknown): string {

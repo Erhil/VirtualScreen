@@ -94,7 +94,7 @@ function discardLocalWriteEvent(event: WorldEvent): WorldEvent | null {
 }
 
 export const idleFileState: FileLoadState = { status: "idle" };
-export const idlePageState: PageLoadState = { status: "idle" };
+const idlePageState: PageLoadState = { status: "idle" };
 export const idleLinksState: LinksLoadState = { status: "idle" };
 
 export type UseDocumentsOptions = {
